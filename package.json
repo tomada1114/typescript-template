@@ -1,0 +1,89 @@
+{
+  "name": "my-package",
+  "version": "0.1.0",
+  "description": "A short description.",
+  "keywords": [],
+  "license": "MIT",
+  "author": "Your Name <you@example.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-name/my-package.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-name/my-package/issues"
+  },
+  "homepage": "https://github.com/your-name/my-package#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=22.14"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^24.0.0",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.18.0",
+      "onFail": "download"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "my-package": "./dist/bin.js"
+  },
+  "sideEffects": [
+    "./dist/bin.js"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/clean.mjs dist && tsc -p tsconfig.build.json",
+    "clean": "node scripts/clean.mjs dist coverage docs/api .eslintcache",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "api:check": "api-extractor run --verbose",
+    "api:update": "api-extractor run --local --verbose",
+    "package:lint": "publint --strict && attw --pack . --profile esm-only",
+    "package:smoke": "node scripts/smoke-package.mjs",
+    "docs:build": "typedoc",
+    "check:quick": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run api:check && pnpm run package:lint && pnpm run package:smoke && pnpm run docs:build",
+    "fix": "eslint . --fix && prettier --write .",
+    "changeset": "changeset",
+    "hooks:install": "lefthook install"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@changesets/cli": "^2.31.1",
+    "@eslint/js": "^10.0.1",
+    "@microsoft/api-extractor": "^7.58.12",
+    "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.7.0",
+    "eslint-config-prettier": "^10.1.8",
+    "lefthook": "^2.1.10",
+    "prettier": "3.9.6",
+    "publint": "^0.3.21",
+    "typedoc": "^0.28.20",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^4.1.10"
+  }
+}
