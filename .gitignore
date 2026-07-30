@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tgz
+
+# Test and coverage output
+coverage/
+
+# Generated API documentation (docs/*.md is hand-written and tracked)
+docs/api/
+
+# Tool caches
+.eslintcache
+*.tsbuildinfo
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code: personal overrides stay local, shared config is tracked
+.claude/settings.local.json
+
+# Environment variables (example files are tracked on purpose)
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
