@@ -23,26 +23,28 @@
 
 ---
 
-## 1. 現在地: Phase 4 完了
+## 1. 現在地: Phase 5 完了
 
-### 完了条件（仕様 03 §5 Template Phase 4）
+### 完了条件（Phase 5）
 
-> Definition of Done をすべて満たし、`zukai` の空リポジトリ生成に成功する。
+> 3 profile それぞれの生成物について、`AGENTS.md` / `CLAUDE.md` / `.claude/**` が
+> その生成物自身の構成だけを説明しており、存在しないファイル・ディレクトリを
+> 参照していないことが、テストで固定されている。
 
 ### 検証済み（2026-07-30 時点、fresh run）
 
-Phase 4 セッションで実測した値です。Phase 1〜3 の成果物も同じ実行に含まれています。
+Phase 5 セッションで実測した値です。Phase 1〜4 の成果物も同じ実行に含まれています。
 
-| コマンド                     | 環境                        | 結果                                                               |
-| ---------------------------- | --------------------------- | ------------------------------------------------------------------ |
-| fresh install + `pnpm check` | Node 24.18.1 / pnpm 11.18.0 | exit 0（9 files / 320 tests passed）                               |
-| fresh install + `pnpm check` | Node 22.14.0 / pnpm 11.18.0 | exit 0（320 tests passed、`--config.runtime-on-fail=ignore` 付き） |
-| coverage                     | Node 24.18.1                | Stmts 92.64 / Branch 88.23 / Funcs 84.21 / Lines 92.59（閾値 80）  |
-| `pnpm run bootstrap:e2e`     | Node 24.18.1                | exit 0（3 profile + `zukai`、各 frozen install + full check）      |
-| `pnpm run publish:rehearsal` | Node 24.18.1                | exit 0（同一 tarball の npm dry-run + consumer install/import）    |
-| `actionlint`                 | 1.7.12                      | exit 0（`.github/workflows/*.yml`）                                |
+| コマンド                     | 環境                        | 結果                                                                           |
+| ---------------------------- | --------------------------- | ------------------------------------------------------------------------------ |
+| fresh install + `pnpm check` | Node 24.18.1 / pnpm 11.18.0 | exit 0（9 files / 320 tests passed）                                           |
+| fresh install + `pnpm check` | Node 22.14.0 / pnpm 11.18.0 | exit 0（320 tests passed、`--config.runtime-on-fail=ignore` 付き）             |
+| coverage                     | Node 24.18.1                | Stmts 92.64 / Branch 88.23 / Funcs 84.21 / Lines 92.59（閾値 80）              |
+| `pnpm run bootstrap:e2e`     | Node 24.18.1                | exit 0（3 profile + `zukai`、各 frozen install + full check、AI layer assert） |
+| `pnpm run publish:rehearsal` | Node 24.18.1                | exit 0（同一 tarball の npm dry-run + consumer install/import）                |
+| `actionlint`                 | 1.7.12                      | exit 0（`.github/workflows/*.yml`）                                            |
 
-> Phase 1〜4 の成果物は**作業ツリーに未コミットで存在**します（この repo の運用どおり、
+> Phase 1〜5 の成果物は**作業ツリーに未コミットで存在**します（この repo の運用どおり、
 > 人間がレビューしてコミットする）。`git status --short` で確認してください。
 
 ### 現在のファイル構成
@@ -115,9 +117,10 @@ typescript-template/
 └── vitest.config.ts
 ```
 
-### Phase 5 で入るもの
+### Phase 5 で追加したもの
 
-- 生成物側の `AGENTS.md` / `.claude/**` を bootstrap と整合させる変換（Phase 5）
+- 生成物側の `AGENTS.md` / `.claude/**` を bootstrap と整合させる marker 変換と
+  profile 別の残存参照検査（Phase 5）
 
 ---
 

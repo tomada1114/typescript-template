@@ -33,9 +33,17 @@ paths:
 - `docs/api/` is TypeDoc output (`pnpm docs:build`). It is generated and
   must never be hand-edited — change the TSDoc comments in `src/**` and
   regenerate instead.
+
+<!-- template-only:start -->
+
 - `docs/template-requirements/` is a verbatim copy of an external source of
   truth. It is listed in `.prettierignore` on purpose: never reflow,
   retranslate, or otherwise edit it from this repository.
 - `docs/template-implementation/` is working notes for this template's own
   build-out. Treat `decisions.md` in there as verified fact, not something
   to re-investigate or re-decide from a documentation change.
+  The `template-only` HTML-comment markers identify guidance that bootstrap
+  removes from generated repositories. A `profile:<name>` marker block is kept
+  only for its matching bootstrap profile; do not edit these marker forms.
+
+<!-- template-only:end -->

@@ -46,6 +46,22 @@ const EXCLUDED_PARTS = new Set([
 ]);
 const RESERVED_NAMES = new Set(["node_modules", "favicon.ico"]);
 
+// Bootstrap-only Markdown markers. `template-only` blocks are removed from
+// every generated repository; a `profile:<name>` block keeps its contents only
+// when the selected profile matches. HTML comments survive Prettier and make
+// the source-to-generated relationship explicit to reviewers.
+const TEMPLATE_ONLY_BLOCK =
+  /<!-- template-only:start -->[\s\S]*?<!-- template-only:end -->/g;
+const PROFILE_BLOCK =
+  /<!-- profile:([a-z0-9-]+):start -->([\s\S]*?)<!-- profile:\1:end -->/g;
+const AI_LAYER_FILES = new Set(["AGENTS.md", "CLAUDE.md"]);
+const REMOVED_TEMPLATE_PATHS = [
+  "docs/template-requirements",
+  "docs/template-implementation",
+];
+const REMOVED_CLI_REFERENCES =
+  /(?:src\/cli\.ts|src\/bin\.ts|tests\/cli\.test\.ts|cli\.ts|bin\.ts|runCli|CliIo|dist\/bin\.js)/;
+
 const USAGE = `Usage: node scripts/bootstrap.mjs <package-name> [options]
 
 Required:
@@ -330,9 +346,10 @@ function copyFiles(sourceRoot, destinationRoot, files) {
  *
  * @param {string} file
  * @param {readonly [string, string][]} replacements
+ * @param {string} profile
  * @returns {boolean}
  */
-function replaceText(file, replacements) {
+function replaceText(file, replacements, profile) {
   const buffer = readFileSync(file);
   if (buffer.includes(0)) {
     return false;
@@ -341,7 +358,19 @@ function replaceText(file, replacements) {
   if (Buffer.from(original, "utf8").compare(buffer) !== 0) {
     return false;
   }
+  const isMarkdown = file.endsWith(".md");
+  const isInstructionFile = ["AGENTS.md", "CLAUDE.md"].includes(path.basename(file));
   let updated = original;
+  if (isMarkdown || isInstructionFile) {
+    updated = updated.replace(TEMPLATE_ONLY_BLOCK, "");
+    /** @type {(match: string, markedProfile: string, contents: string) => string} */
+    const selectProfileBlock = (_match, markedProfile, contents) =>
+      markedProfile === profile ? contents : "";
+    updated = updated.replace(PROFILE_BLOCK, selectProfileBlock);
+    if (updated !== original) {
+      updated = updated.replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "\n");
+    }
+  }
   for (const [before, after] of replacements) {
     updated = updated.replaceAll(before, after);
   }
@@ -350,6 +379,72 @@ function replaceText(file, replacements) {
   }
   writeFileSync(file, updated);
   return true;
+}
+
+/**
+ * Return the generated AI-native instruction files.
+ *
+ * @param {string} root
+ * @returns {string[]}
+ */
+function aiLayerFiles(root) {
+  return projectFiles(root).filter(
+    (relative) => AI_LAYER_FILES.has(relative) || relative.startsWith(".claude/"),
+  );
+}
+
+/**
+ * Verify that generated instructions do not describe template-only or
+ * profile-incompatible paths.
+ *
+ * @param {string} root
+ * @param {string} profile
+ */
+function assertGeneratedAiLayer(root, profile) {
+  /** @type {string[]} */
+  const problems = [];
+  for (const relative of aiLayerFiles(root)) {
+    const file = path.join(root, relative);
+    const buffer = readFileSync(file);
+    if (buffer.includes(0)) {
+      continue;
+    }
+    const text = buffer.toString("utf8");
+    if (text.includes("docs/template-requirements")) {
+      problems.push(`${relative}: docs/template-requirements`);
+    }
+    if (text.includes("docs/template-implementation")) {
+      problems.push(`${relative}: docs/template-implementation`);
+    }
+    if (text.includes("<!-- template-only:") || text.includes("<!-- profile:")) {
+      problems.push(`${relative}: bootstrap marker`);
+    }
+    if (profile !== "node-cli" && REMOVED_CLI_REFERENCES.test(text)) {
+      problems.push(`${relative}: CLI-only path or symbol`);
+    }
+  }
+
+  const requiredBySkill = [
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    ".github/workflows/check-pr-title.yml",
+    "scripts/lib/is-main.mjs",
+    "scripts/lib/json.mjs",
+  ];
+  for (const relative of requiredBySkill) {
+    if (!existsSync(path.join(root, relative))) {
+      problems.push(`missing ${relative}`);
+    }
+  }
+
+  if (problems.length > 0) {
+    throw new BootstrapError(
+      "ERR_AI_LAYER_REFERENCE",
+      `generated AI-native instructions are inconsistent for profile ${profile}.\n` +
+        "Expected: no removed or profile-incompatible references, and all skill dependencies present.\n" +
+        `Actual:\n${problems.join("\n")}\n` +
+        "Next: update the marked source instructions, then rerun bootstrap.",
+    );
+  }
 }
 
 /**
@@ -415,10 +510,7 @@ function transform(root, options) {
   /** @type {string[]} */
   const changed = [];
 
-  for (const relative of [
-    "docs/template-requirements",
-    "docs/template-implementation",
-  ]) {
+  for (const relative of REMOVED_TEMPLATE_PATHS) {
     const target = path.join(root, relative);
     if (existsSync(target)) {
       rmSync(target, { recursive: true });
@@ -437,16 +529,6 @@ function transform(root, options) {
   if (existsSync(reportFrom) && reportFrom !== reportTo) {
     renameSync(reportFrom, reportTo);
     changed.push(`etc/${TEMPLATE_PACKAGE}.api.md -> etc/${names.apiReport}`);
-  }
-
-  const readme = path.join(root, "README.md");
-  const readmeSource = readFileSync(readme, "utf8");
-  const readmeUpdated = readmeSource.replace(
-    /\n<!-- template-only:start -->[\s\S]*?<!-- template-only:end -->\n/,
-    "",
-  );
-  if (readmeUpdated !== readmeSource) {
-    writeFileSync(readme, readmeUpdated);
   }
 
   if (options.profile !== "node-cli") {
@@ -472,7 +554,7 @@ function transform(root, options) {
     if (lstatSync(absolute).isSymbolicLink()) {
       continue;
     }
-    if (replaceText(absolute, replacements)) {
+    if (replaceText(absolute, replacements, options.profile)) {
       changed.push(relative);
     }
   }
@@ -653,6 +735,7 @@ export function bootstrap(root, options) {
         `generated repository still contains placeholders:\n${placeholders.join("\n")}`,
       );
     }
+    assertGeneratedAiLayer(staged, options.profile);
     if (options.dryRun) {
       return changed;
     }
@@ -662,10 +745,7 @@ export function bootstrap(root, options) {
     mkdirSync(backup);
     copyFiles(root, backup, files);
     try {
-      for (const relative of [
-        "docs/template-requirements",
-        "docs/template-implementation",
-      ]) {
+      for (const relative of REMOVED_TEMPLATE_PATHS) {
         rmSync(path.join(root, relative), { recursive: true, force: true });
       }
       for (const relative of files) {

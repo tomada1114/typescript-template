@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -56,6 +57,31 @@ function copyTemplate(withGit = true): string {
     execFileSync("git", ["add", "-A"], { cwd: workspace });
   }
   return workspace;
+}
+
+function relativeFiles(root: string, directory: string): string[] {
+  const files: string[] = [];
+  const visit = (current: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const absolute = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolute);
+      } else {
+        files.push(path.relative(root, absolute));
+      }
+    }
+  };
+  visit(path.join(root, directory));
+  return files.sort();
+}
+
+function generatedAiLayer(root: string): string {
+  const files = ["AGENTS.md", "CLAUDE.md", ...relativeFiles(root, ".claude")];
+  return files.map((file) => readFileSync(path.join(root, file), "utf8")).join("\n");
+}
+
+function aiLayerFiles(root: string): string[] {
+  return ["AGENTS.md", "CLAUDE.md", ...relativeFiles(root, ".claude")];
 }
 
 function options(
@@ -150,6 +176,12 @@ describe("bootstrap profiles", () => {
     const binaryBefore = readFileSync(
       path.join(root, "tests", "fixtures", "binary.dat"),
     );
+    const stableAiFiles = aiLayerFiles(root)
+      .filter(
+        (file) =>
+          file.startsWith(".claude/hooks/") || file.startsWith(".claude/skills/"),
+      )
+      .map((file) => [file, readFileSync(path.join(root, file), "utf8")] as const);
     bootstrap(
       root,
       options(
@@ -180,6 +212,55 @@ describe("bootstrap profiles", () => {
     expect(readFileSync(path.join(root, "README.md"), "utf8")).not.toContain(
       "Use this template",
     );
+
+    const aiText = generatedAiLayer(root);
+    expect(aiText).not.toMatch(/docs\/template-(?:requirements|implementation)/);
+    if (profile === "node-cli") {
+      expect(aiText).toContain("src/cli.ts");
+      expect(aiText).toContain("src/bin.ts");
+      expect(aiText).toContain("tests/cli.test.ts");
+      expect(aiText).toContain("runCli");
+      expect(aiText).toContain("CliIo");
+      expect(aiText).toContain("dist/bin.js");
+    } else {
+      expect(aiText).not.toMatch(
+        /(?:cli\.ts|bin\.ts|runCli|CliIo|dist\/bin\.js|tests\/cli\.test\.ts)/,
+      );
+    }
+
+    for (const [file, contents] of stableAiFiles) {
+      expect(readFileSync(path.join(root, file), "utf8")).toBe(contents);
+    }
+    expect(existsSync(path.join(root, ".claude", "hooks", "guard.mjs"))).toBe(true);
+    expect(existsSync(path.join(root, ".claude", "hooks", "format.mjs"))).toBe(true);
+    expect(existsSync(path.join(root, ".claude", "hooks", "stop-check.mjs"))).toBe(
+      true,
+    );
+    const dependabotSkill = readFileSync(
+      path.join(root, ".claude", "skills", "merge-dependabot", "SKILL.md"),
+      "utf8",
+    );
+    expect(dependabotSkill).toContain(".github/PULL_REQUEST_TEMPLATE.md");
+    expect(existsSync(path.join(root, ".github", "PULL_REQUEST_TEMPLATE.md"))).toBe(
+      true,
+    );
+    expect(
+      existsSync(path.join(root, ".github", "workflows", "check-pr-title.yml")),
+    ).toBe(true);
+    expect(
+      existsSync(
+        path.join(
+          root,
+          ".claude",
+          "skills",
+          "merge-dependabot",
+          "scripts",
+          "survey-prs.mjs",
+        ),
+      ),
+    ).toBe(true);
+    expect(existsSync(path.join(root, "scripts", "lib", "is-main.mjs"))).toBe(true);
+    expect(existsSync(path.join(root, "scripts", "lib", "json.mjs"))).toBe(true);
 
     const hasCli = profile === "node-cli";
     expect(existsSync(path.join(root, "src", "cli.ts"))).toBe(hasCli);
