@@ -1,0 +1,41 @@
+@AGENTS.md
+
+# Claude Code Specifics
+
+The shared, tool-agnostic instructions are in `AGENTS.md`, imported above. This
+file only records what Claude Code adds on top of them.
+
+- `.claude/rules/` — path-scoped conventions for source, tests, docs, and
+  package metadata. They load automatically when a matching file is read, so
+  the relevant rules arrive with the file instead of being recalled.
+- `.claude/hooks/format.mjs` (PostToolUse) — runs ESLint's autofix and Prettier
+  on the single file just edited. Do not re-run a formatter after each edit.
+  Autofix can rewrite more than whitespace: adjacent string literals get folded
+  together, for instance. When the exact text of an edit was the point, read the
+  file back before relying on it.
+- `.claude/hooks/guard.mjs` (PreToolUse) — refuses lockfile edits, `.env*` and
+  `secrets/**` access, credentials written into tracked files,
+  `git commit --no-verify`, plain force-pushes, `npm`/`pnpm publish`, workflow
+  dispatch, and edits that remove a quality gate. It inspects each segment of a
+  shell command separately, so hiding a blocked command behind `&&` does not
+  work. It is the enforcement backstop rather than a reminder: permission
+  `deny` rules are advisory in some versions, and hooks fire even in
+  bypassPermissions mode.
+- `.claude/hooks/stop-check.mjs` (Stop) — runs the `pnpm check:quick` gate
+  before a turn ends, but only when the working tree has changed TypeScript,
+  JavaScript, or package configuration.
+- `.claude/skills/merge-dependabot/` — the one workflow skill shipped here,
+  because landing bot PRs is the recurring task whose failure modes are specific
+  to _this_ toolchain (peer-range conflicts, the dependency cooldown, the
+  packaging gates). Its survey script is read-only; every mutating step sits
+  behind a single human approval.
+- `tests/hooks.test.ts` — fixture tests for all three hooks, covering both the
+  calls that must be allowed and the calls that must be blocked. A change to a
+  hook belongs in the same commit as its test.
+- `.claude/settings.json` — the shared permission allowlist, limited to local
+  build, lint, and test commands. Personal preferences (model, output style,
+  extra permissions) belong in `.claude/settings.local.json`, which is
+  gitignored, and never here.
+
+When the guard blocks something, the answer is to fix what made the bypass look
+necessary, or to ask. It is not to find another spelling.

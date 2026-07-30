@@ -25,5 +25,14 @@
     "allowJs": true,
     "checkJs": true
   },
-  "include": ["src", "tests", "scripts", ".claude/hooks", "*.ts", "*.mts", "*.mjs"]
+  "include": [
+    "src",
+    "tests",
+    "scripts",
+    ".claude/hooks",
+    ".claude/skills",
+    "*.ts",
+    "*.mts",
+    "*.mjs"
+  ]
 }

@@ -1,42 +1,39 @@
-# EXAMPLE USAGE:
+# Local Git hooks.
 #
-#   Refer for explanation to following link:
-#   https://lefthook.dev/configuration/
+# Every job runs a package script, or the very executable and flags that a
+# package script runs, so the same change can never pass here and fail
+# `pnpm check:quick` or CI. Nothing in this file defines a rule of its own:
+# ESLint's config, Prettier's config and `package.json` stay the single sources
+# of truth, and this file only narrows *what* they look at.
 #
-# pre-push:
-#   jobs:
-#     - name: packages audit
-#       tags:
-#         - frontend
-#         - security
-#       run: yarn audit
-#
-#     - name: gems audit
-#       tags:
-#         - backend
-#         - security
-#       run: bundle audit
-#
-# pre-commit:
-#   parallel: true
-#   jobs:
-#     - run: yarn eslint {staged_files}
-#       glob: "*.{js,ts,jsx,tsx}"
-#
-#     - name: rubocop
-#       glob: "*.rb"
-#       exclude:
-#         - config/application.rb
-#         - config/routes.rb
-#       run: bundle exec rubocop --force-exclusion -- {all_files}
-#
-#     - name: govet
-#       files: git ls-files -m
-#       glob: "*.go"
-#       run: go vet -- {files}
-#
-#     - script: "hello.js"
-#       runner: node
-#
-#     - script: "hello.go"
-#       runner: go run
+# Install with `pnpm hooks:install`.
+
+pre-commit:
+  parallel: true
+  # A merge or rebase replays commits that already passed these checks.
+  skip:
+    - merge
+    - rebase
+  jobs:
+    # Same flags as `pnpm run lint`, narrowed to the files being committed.
+    # `--no-warn-ignored` keeps a generated file that happens to be staged from
+    # failing the run on a warning about being out of scope.
+    - name: eslint
+      glob: "*.{ts,mts,cts,js,mjs,cjs}"
+      run: pnpm exec eslint --max-warnings 0 --no-warn-ignored {staged_files}
+
+    # Same check as `pnpm run format:check`. Formatting is not applied here:
+    # a hook that rewrites files mid-commit hides what was actually committed.
+    # Run `pnpm fix` when this fails.
+    - name: prettier
+      run: pnpm exec prettier --check --ignore-unknown {staged_files}
+
+pre-push:
+  skip:
+    - merge
+    - rebase
+  jobs:
+    # The full quick gate, unabridged, because a push is the last local moment
+    # before CI runs exactly this.
+    - name: check:quick
+      run: pnpm run check:quick
