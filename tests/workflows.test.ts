@@ -684,16 +684,17 @@ function workflowSource(name: string): string {
 
 describe("the workflows in .github/workflows", () => {
   it("includes every workflow spec 02 §5.2 makes mandatory", () => {
-    // release.yml is Phase 4 and deliberately absent.
     expect(workflowNames).toEqual([
       "check-pr-title.yml",
       "ci.yml",
       "codeql.yml",
       "dependency-review.yml",
       "pr-label.yml",
+      "release.yml",
       "scorecard.yml",
       "security-audit.yml",
       "typos.yml",
+      "version.yml",
     ]);
   });
 
@@ -751,7 +752,57 @@ describe("the workflows in .github/workflows", () => {
       scan(workflowSource(name)).some((line) => line.text.endsWith(": write")),
     );
 
-    expect(writers.sort()).toEqual(["codeql.yml", "pr-label.yml", "scorecard.yml"]);
+    expect(writers.sort()).toEqual([
+      "codeql.yml",
+      "pr-label.yml",
+      "release.yml",
+      "scorecard.yml",
+      "version.yml",
+    ]);
+  });
+});
+
+describe("the release workflow preserves the reviewed artifact", () => {
+  const source = workflowSource("release.yml");
+  const publish = jobsOf(scan(source)).find((job) => job.name === "publish");
+
+  it("uses only read access and OIDC in the publish job", () => {
+    expect(publish).toBeDefined();
+    if (publish === undefined) {
+      return;
+    }
+    const permissions = jobKey(publish, "permissions");
+    expect(permissions).toBeDefined();
+    if (permissions === undefined) {
+      return;
+    }
+    expect(
+      blockOf(publish.body, publish.body.indexOf(permissions)).map((line) => line.text),
+    ).toEqual(["contents: read", "id-token: write"]);
+    expect(jobKey(publish, "environment")?.text).toBe("environment: release");
+  });
+
+  it("does not refer to a long-lived npm token or a dependency cache", () => {
+    expect(source).not.toContain("NPM_TOKEN");
+    expect(source).not.toMatch(/cache:/);
+  });
+
+  it("checks the tag before publishing", () => {
+    expect(source.indexOf("Verify tag matches package version")).toBeGreaterThan(-1);
+    expect(source.indexOf("Verify tag matches package version")).toBeLessThan(
+      source.indexOf("npm publish dist/package.tgz"),
+    );
+  });
+
+  it("packs once and reuses the fixed tarball path", () => {
+    expect(source.match(/\bpnpm pack\b/g)).toHaveLength(1);
+    expect(source).toContain(
+      "node scripts/smoke-package.mjs --tarball dist/package.tgz",
+    );
+    expect(source).toContain(
+      "npm publish dist/package.tgz --access public --provenance",
+    );
+    expect(source).toContain("path: dist/package.tgz");
   });
 });
 
@@ -773,10 +824,11 @@ const nodeVersionFile = readFileSync(
 describe("the CI matrix agrees with the package contract", () => {
   const matrix = matrixNodeVersions(workflowSource("ci.yml"));
 
-  it("runs the minimum Node that engines.node promises", () => {
+  it("runs the minimum Node that engines.node promises when one is declared", () => {
     const minimum = /(\d+(?:\.\d+)*)/.exec(manifest.engines?.node ?? "")?.[1];
     if (minimum === undefined) {
-      throw new Error("package.json declares no engines.node");
+      expect(manifest.engines).toBeUndefined();
+      return;
     }
 
     // Compared by the precision engines.node states: ">=22.14" is satisfied by

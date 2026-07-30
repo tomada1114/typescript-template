@@ -23,29 +23,31 @@
 
 ---
 
-## 1. 現在地: Phase 3 完了
+## 1. 現在地: Phase 4 完了
 
-### 完了条件（仕様 03 §5 Template Phase 3）
+### 完了条件（仕様 03 §5 Template Phase 4）
 
-> 通常変更は高速に進められ、protected file と publish/Git bypass は決定論的に拒否される。
+> Definition of Done をすべて満たし、`zukai` の空リポジトリ生成に成功する。
 
 ### 検証済み（2026-07-30 時点、fresh run）
 
-Phase 3 セッションで実測した値です。Phase 1・2 の成果物も同じ実行に含まれています。
+Phase 4 セッションで実測した値です。Phase 1〜3 の成果物も同じ実行に含まれています。
 
-| コマンド                 | 環境                        | 結果                                                               |
-| ------------------------ | --------------------------- | ------------------------------------------------------------------ |
-| `pnpm run check`（フル） | Node 24.18.1 / pnpm 11.18.0 | exit 0（7 files / 286 tests passed）                               |
-| `pnpm run check`（フル） | Node 22.14.0 / pnpm 11.18.0 | exit 0（286 tests passed、`--config.runtime-on-fail=ignore` 付き） |
-| coverage                 | Node 24.18.1                | Stmts 92.64 / Branch 88.23 / Funcs 84.21 / Lines 92.59（閾値 80）  |
-| `lefthook validate`      | Node 24.18.1                | exit 0                                                             |
+| コマンド                     | 環境                        | 結果                                                               |
+| ---------------------------- | --------------------------- | ------------------------------------------------------------------ |
+| fresh install + `pnpm check` | Node 24.18.1 / pnpm 11.18.0 | exit 0（9 files / 320 tests passed）                               |
+| fresh install + `pnpm check` | Node 22.14.0 / pnpm 11.18.0 | exit 0（320 tests passed、`--config.runtime-on-fail=ignore` 付き） |
+| coverage                     | Node 24.18.1                | Stmts 92.64 / Branch 88.23 / Funcs 84.21 / Lines 92.59（閾値 80）  |
+| `pnpm run bootstrap:e2e`     | Node 24.18.1                | exit 0（3 profile + `zukai`、各 frozen install + full check）      |
+| `pnpm run publish:rehearsal` | Node 24.18.1                | exit 0（同一 tarball の npm dry-run + consumer install/import）    |
+| `actionlint`                 | 1.7.12                      | exit 0（`.github/workflows/*.yml`）                                |
 
-> Phase 1〜3 の成果物は**作業ツリーに未コミットで存在**します（この repo の運用どおり、
+> Phase 1〜4 の成果物は**作業ツリーに未コミットで存在**します（この repo の運用どおり、
 > 人間がレビューしてコミットする）。`git status --short` で確認してください。
 
 ### 現在のファイル構成
 
-Phase 0〜3 で追加されたもののみ。生成物（`dist/`, `coverage/`, `docs/api/`, `temp/`）は省略。
+Phase 0〜4 の生成物（`dist/`, `coverage/`, `docs/api/`, `temp/`）は省略。
 
 ```
 typescript-template/
@@ -54,16 +56,23 @@ typescript-template/
 │   ├── rules/                     #   source / testing / docs / package-json
 │   ├── skills/merge-dependabot/   #   唯一同梱する workflow skill
 │   └── settings.json              #   permission allowlist と hook 登録
-├── .github/                       # Phase 2
-│   ├── workflows/                 #   ci / codeql / scorecard / audit / zizmor ほか
+├── .changeset/                    # Phase 4: SemVer intent と version PR 設定
+├── .github/                       # Phase 2 + 4
+│   ├── ISSUE_TEMPLATE/            #   bug / feature / security report 導線
+│   ├── workflows/                 #   CI / security / version / OIDC release
+│   ├── PULL_REQUEST_TEMPLATE.md
 │   ├── dependabot.yml
 │   └── zizmor.yml
 ├── docs/
 │   ├── template-requirements/     # 要件4文書のコピー（日本語・変更しない）
 │   └── template-implementation/   # このディレクトリ
 ├── etc/                           # Phase 1: API Extractor の report（tracked）
-├── scripts/                       # Phase 0〜1
+├── scripts/                       # Phase 0〜4
 │   ├── lib/                       #   is-main / json / node-tools / tarball
+│   ├── bootstrap.mjs              #   profile-aware transactional bootstrap
+│   ├── verify-bootstrap.mjs       #   3 profile + zukai 生成 E2E
+│   ├── publish-rehearsal.mjs      #   npm dry-run + consumer smoke
+│   ├── check-repo-settings.mjs    #   gh api による read-only drift check
 │   ├── check-attw.mjs
 │   ├── check-package.mjs
 │   ├── clean.mjs
@@ -77,6 +86,8 @@ typescript-template/
 │   ├── index.ts                   # public API の唯一の起点
 │   └── timeout.ts                 # withTimeout
 ├── tests/
+│   ├── bootstrap.test.ts          # Phase 4: validation / profile / safety
+│   ├── docs.test.ts               # README quick start と public API の同期
 │   ├── cli.test.ts                # runCli の正常系・usage error(2)・rejected input(1)
 │   ├── hooks.test.ts              # Phase 3: hook の許可系・拒否系 fixture test
 │   ├── index.test.ts              # normalizeIdentifier の正常/異常/境界
@@ -85,7 +96,12 @@ typescript-template/
 │   ├── types.test.ts              # expectTypeOf による型テスト
 │   └── workflows.test.ts          # Phase 2: workflow の構造 assert
 ├── AGENTS.md                      # Phase 3: 全エージェント共通の正本
+├── CHANGELOG.md                   # Phase 4: Changesets が更新
 ├── CLAUDE.md                      # Phase 3: @AGENTS.md + Claude 固有の差分だけ
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
+├── LICENSE
+├── SECURITY.md
 ├── api-extractor.json             # Phase 1
 ├── eslint.config.mjs              # flat config + typed lint
 ├── lefthook.yml                   # Phase 3: pre-commit（staged 限定）/ pre-push（check:quick）
@@ -99,12 +115,8 @@ typescript-template/
 └── vitest.config.ts
 ```
 
-### Phase 4 以降で入るもの
+### Phase 5 で入るもの
 
-- `scripts/bootstrap.mjs` と `tests/bootstrap.test.ts`（Phase 4）
-- `.changeset/`、`.github/workflows/release.yml`、Issue / PR template（Phase 4）
-- LICENSE / CONTRIBUTING / SECURITY / CODE_OF_CONDUCT / CHANGELOG（Phase 4）
-- `docs/maintainer-checklist.md` と `scripts/check-repo-settings.mjs`（Phase 4）
 - 生成物側の `AGENTS.md` / `.claude/**` を bootstrap と整合させる変換（Phase 5）
 
 ---

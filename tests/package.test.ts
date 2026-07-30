@@ -492,12 +492,17 @@ describe("requiredEntryPaths", () => {
     const manifest: unknown = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     );
+    const hasBin =
+      typeof manifest === "object" &&
+      manifest !== null &&
+      "bin" in manifest &&
+      manifest.bin !== undefined;
 
     // The point of deriving this from the manifest is that adding an export
     // without building its file is caught. Hard-coding the list here would
     // reintroduce exactly the duplication spec 01 §1.3 forbids.
     expect(requiredEntryPaths(manifest)).toEqual([
-      "dist/bin.js",
+      ...(hasBin ? ["dist/bin.js"] : []),
       "dist/index.d.ts",
       "dist/index.js",
     ]);
@@ -626,7 +631,14 @@ describe("a tarball produced by npm pack", () => {
     execFileSync(
       process.execPath,
       [npmCliPath(), "pack", "--ignore-scripts", "--pack-destination", packDir],
-      { cwd: root, stdio: "pipe" },
+      {
+        cwd: root,
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          npm_config_cache: path.join(workspace, "npm-cache"),
+        },
+      },
     );
     tarballPath = findSingleTarball(packDir);
   });

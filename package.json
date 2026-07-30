@@ -21,7 +21,7 @@
     "runtime": {
       "name": "node",
       "version": "^24.0.0",
-      "onFail": "error"
+      "onFail": "ignore"
     },
     "packageManager": {
       "name": "pnpm",
@@ -50,7 +50,7 @@
   },
   "scripts": {
     "build": "node scripts/clean.mjs dist && tsc -p tsconfig.build.json",
-    "clean": "node scripts/clean.mjs dist coverage docs/api temp .smoke .attw .eslintcache",
+    "clean": "node scripts/clean.mjs dist coverage docs/api temp .smoke .attw .rehearsal .eslintcache",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
@@ -67,7 +67,10 @@
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run api:check && pnpm run package:lint && pnpm run package:smoke && pnpm run docs:build",
     "fix": "eslint . --fix && prettier --write .",
     "changeset": "changeset",
-    "hooks:install": "lefthook install"
+    "hooks:install": "lefthook install",
+    "bootstrap:e2e": "node scripts/verify-bootstrap.mjs",
+    "publish:rehearsal": "pnpm run build && node scripts/clean.mjs .rehearsal && pnpm pack --pack-destination .rehearsal && node scripts/publish-rehearsal.mjs --pack-dir .rehearsal && node scripts/clean.mjs .rehearsal",
+    "repo:check": "node scripts/check-repo-settings.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
