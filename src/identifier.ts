@@ -1,7 +1,11 @@
 import { InvalidInputError } from "./errors.js";
 import { assertPositiveInteger } from "./internal/assert.js";
 
-/** Options for {@link normalizeIdentifier}. */
+/**
+ * Options for {@link normalizeIdentifier}.
+ *
+ * @public
+ */
 export interface NormalizeIdentifierOptions {
   /**
    * Single non-alphanumeric character used to join retained runs.
@@ -74,6 +78,8 @@ function trimSeparator(value: string, separator: string): string {
  * normalizeIdentifier("Hello World"); // "hello-world"
  * normalizeIdentifier("Hello World", { separator: "_" }); // "hello_world"
  * ```
+ *
+ * @public
  */
 export function normalizeIdentifier(
   input: string,

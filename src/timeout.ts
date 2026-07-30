@@ -1,7 +1,11 @@
 import { TimeoutError } from "./errors.js";
 import { asError, assertPositiveInteger } from "./internal/assert.js";
 
-/** Options for {@link withTimeout}. */
+/**
+ * Options for {@link withTimeout}.
+ *
+ * @public
+ */
 export interface WithTimeoutOptions {
   /**
    * Deadline in milliseconds. Must be a whole number greater than 0.
@@ -50,6 +54,8 @@ export interface WithTimeoutOptions {
  *   timeoutMs: 5_000,
  * });
  * ```
+ *
+ * @public
  */
 export async function withTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,

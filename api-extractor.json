@@ -1,0 +1,50 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/api-extractor/v7/api-extractor.schema.json",
+
+  // The published declarations are the contract, not `src/`. Analyzing the
+  // build output means the report can only change when what consumers receive
+  // changes.
+  "mainEntryPointFilePath": "<projectFolder>/dist/index.d.ts",
+
+  "apiReport": {
+    "enabled": true,
+    "reportFolder": "<projectFolder>/etc/",
+    "reportTempFolder": "<projectFolder>/temp/"
+
+    // `reportFileName` is deliberately unset: the default is the unscoped
+    // package name, so bootstrap renaming the package renames the report too.
+  },
+
+  // Only the API report is wanted. A doc model and a .d.ts rollup would be
+  // extra generated artifacts with no gate attached, and TypeDoc already
+  // renders the documentation.
+  "docModel": {
+    "enabled": false
+  },
+  "dtsRollup": {
+    "enabled": false
+  },
+  "tsdocMetadata": {
+    "enabled": false
+  },
+
+  "messages": {
+    // Every category fails the run. A warning nobody reads is the same as no
+    // check at all, and `pnpm check` has to be all-or-nothing.
+    "compilerMessageReporting": {
+      "default": {
+        "logLevel": "error"
+      }
+    },
+    "extractorMessageReporting": {
+      "default": {
+        "logLevel": "error"
+      }
+    },
+    "tsdocMessageReporting": {
+      "default": {
+        "logLevel": "error"
+      }
+    }
+  }
+}
