@@ -587,6 +587,7 @@ function transform(root, options, year) {
   };
   manifest["bugs"] = { url: `https://github.com/${repository}/issues` };
   manifest["homepage"] = `https://github.com/${repository}#readme`;
+  delete manifest["packageManager"];
   const scripts = readKey(manifest, "scripts");
   if (typeof scripts === "object" && scripts !== null && !Array.isArray(scripts)) {
     delete (/** @type {Record<string, unknown>} */ (scripts)["bootstrap:e2e"]);
