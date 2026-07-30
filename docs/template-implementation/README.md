@@ -1,6 +1,6 @@
 # テンプレート実装ガイド（セッション分割用）
 
-このディレクトリは、`typescript-template` を Phase 0 → 4 まで作り切るための**作業側**ドキュメントです。
+このディレクトリは、`typescript-template` を Phase 0 → 5 まで作り切るための**作業側**ドキュメントです。
 要件の正本は `docs/template-requirements/`（および外部の `zenn-content` 側の同名4文書）で、
 このディレクトリは「いま何が出来ていて、次のセッションで何をやるか」を引き継ぐためだけに存在します。
 
@@ -15,6 +15,7 @@
 | [phase-2-ci-and-supply-chain.md](phase-2-ci-and-supply-chain.md)           | CI matrix / CodeQL / audit / Scorecard / zizmor / Dependabot                   |
 | [phase-3-ai-native-workflow.md](phase-3-ai-native-workflow.md)             | AGENTS.md / path-scoped rules / hooks / Lefthook                               |
 | [phase-4-bootstrap-and-release.md](phase-4-bootstrap-and-release.md)       | bootstrap / OSS 文書 / Changesets / OIDC release / 生成 E2E                    |
+| [phase-5-generated-repo-ai-layer.md](phase-5-generated-repo-ai-layer.md)   | 生成物の AGENTS.md / `.claude/**` を bootstrap と整合させる                    |
 
 > **重要**: `decisions.md` は Phase 0 の実装中に一次資料（npm registry、nodejs.org、各 CLI の
 > `--help`）で確認した事実と、そこから決めた設計をまとめたものです。**同じ調査を繰り返さないでください。**
@@ -22,30 +23,51 @@
 
 ---
 
-## 1. 現在地: Phase 0 完了
+## 1. 現在地: Phase 3 完了
 
-### 完了条件（仕様 03 §5 Template Phase 0）
+### 完了条件（仕様 03 §5 Template Phase 3）
 
-> placeholder public API が build/test され、Node 最小版と Node 24 で `pnpm check:quick` が通る。
+> 通常変更は高速に進められ、protected file と publish/Git bypass は決定論的に拒否される。
 
-### 検証済み（2026-07-29 時点、fresh run）
+### 検証済み（2026-07-30 時点、fresh run）
 
-| コマンド                 | 環境                        | 結果                                                                      |
-| ------------------------ | --------------------------- | ------------------------------------------------------------------------- |
-| `pnpm run check:quick`   | Node 24.18.1 / pnpm 11.18.0 | exit 0（74 tests passed）                                                 |
-| `pnpm run check:quick`   | Node 22.14.0 / pnpm 11.18.0 | exit 0（74 tests passed）                                                 |
-| `pnpm run build`         | Node 24.18.1                | exit 0（`dist/` に js + d.ts + 両 map）                                   |
-| `pnpm run test:coverage` | Node 24.18.1                | exit 0（Stmts 92.64 / Branch 88.23 / Funcs 84.21 / Lines 92.59、閾値 80） |
+Phase 3 セッションで実測した値です。Phase 1・2 の成果物も同じ実行に含まれています。
+
+| コマンド                 | 環境                        | 結果                                                               |
+| ------------------------ | --------------------------- | ------------------------------------------------------------------ |
+| `pnpm run check`（フル） | Node 24.18.1 / pnpm 11.18.0 | exit 0（7 files / 286 tests passed）                               |
+| `pnpm run check`（フル） | Node 22.14.0 / pnpm 11.18.0 | exit 0（286 tests passed、`--config.runtime-on-fail=ignore` 付き） |
+| coverage                 | Node 24.18.1                | Stmts 92.64 / Branch 88.23 / Funcs 84.21 / Lines 92.59（閾値 80）  |
+| `lefthook validate`      | Node 24.18.1                | exit 0                                                             |
+
+> Phase 1〜3 の成果物は**作業ツリーに未コミットで存在**します（この repo の運用どおり、
+> 人間がレビューしてコミットする）。`git status --short` で確認してください。
 
 ### 現在のファイル構成
 
+Phase 0〜3 で追加されたもののみ。生成物（`dist/`, `coverage/`, `docs/api/`, `temp/`）は省略。
+
 ```
 typescript-template/
+├── .claude/                       # Phase 3
+│   ├── hooks/                     #   guard / format / stop-check + lib/payload
+│   ├── rules/                     #   source / testing / docs / package-json
+│   ├── skills/merge-dependabot/   #   唯一同梱する workflow skill
+│   └── settings.json              #   permission allowlist と hook 登録
+├── .github/                       # Phase 2
+│   ├── workflows/                 #   ci / codeql / scorecard / audit / zizmor ほか
+│   ├── dependabot.yml
+│   └── zizmor.yml
 ├── docs/
 │   ├── template-requirements/     # 要件4文書のコピー（日本語・変更しない）
 │   └── template-implementation/   # このディレクトリ
-├── scripts/
-│   └── clean.mjs                  # 生成物削除（repo 外パスを拒否）
+├── etc/                           # Phase 1: API Extractor の report（tracked）
+├── scripts/                       # Phase 0〜1
+│   ├── lib/                       #   is-main / json / node-tools / tarball
+│   ├── check-attw.mjs
+│   ├── check-package.mjs
+│   ├── clean.mjs
+│   └── smoke-package.mjs
 ├── src/
 │   ├── internal/assert.ts         # 非公開ヘルパ（public barrel から export しない）
 │   ├── bin.ts                     # node-cli: shebang 付き実行エントリ
@@ -56,35 +78,34 @@ typescript-template/
 │   └── timeout.ts                 # withTimeout
 ├── tests/
 │   ├── cli.test.ts                # runCli の正常系・usage error(2)・rejected input(1)
+│   ├── hooks.test.ts              # Phase 3: hook の許可系・拒否系 fixture test
 │   ├── index.test.ts              # normalizeIdentifier の正常/異常/境界
+│   ├── package.test.ts            # Phase 1: tarball 解析と allowlist
 │   ├── timeout.test.ts            # timeout / abort / cleanup / 同期 throw
-│   └── types.test.ts              # expectTypeOf による型テスト
-├── .editorconfig
-├── .gitattributes
-├── .gitignore
-├── .node-version                  # "24"
-├── .prettierignore
-├── .prettierrc.json
+│   ├── types.test.ts              # expectTypeOf による型テスト
+│   └── workflows.test.ts          # Phase 2: workflow の構造 assert
+├── AGENTS.md                      # Phase 3: 全エージェント共通の正本
+├── CLAUDE.md                      # Phase 3: @AGENTS.md + Claude 固有の差分だけ
+├── api-extractor.json             # Phase 1
 ├── eslint.config.mjs              # flat config + typed lint
-├── lefthook.yml                   # ⚠ lefthook postinstall が作った雛形のまま（Phase 3 で置換）
+├── lefthook.yml                   # Phase 3: pre-commit（staged 限定）/ pre-push（check:quick）
 ├── package.json                   # my-package@0.1.0 / ESM-only / node-cli profile
 ├── pnpm-lock.yaml                 # 生成物・手編集禁止
-├── pnpm-workspace.yaml            # pnpm 11 supply-chain policy（Phase 2 の前提を先取り済み）
+├── pnpm-workspace.yaml            # pnpm 11 supply-chain policy
 ├── tsconfig.build.json
 ├── tsconfig.json
+├── typedoc.json                   # Phase 1
+├── typos.toml                     # Phase 2
 └── vitest.config.ts
 ```
 
-### まだ動かないもの（想定内）
+### Phase 4 以降で入るもの
 
-`package.json` の scripts は仕様 01 §7 の表どおり**全部**定義済みですが、次は Phase 1 以降で
-実体が入るまで失敗します。**これは既知の状態です**（Phase 0 の完了条件は `check:quick`）。
-
-- `api:check` / `api:update` → `api-extractor.json` が無い（Phase 1）
-- `package:lint` → `attw --pack` が `devEngines` と非互換（Phase 1 で書き換え。`decisions.md` §4 参照）
-- `package:smoke` → `scripts/smoke-package.mjs` が無い（Phase 1）
-- `docs:build` → `typedoc.json` が無い（Phase 1）
-- `pnpm check`（フル）→ 上記を含むので Phase 1 完了まで red
+- `scripts/bootstrap.mjs` と `tests/bootstrap.test.ts`（Phase 4）
+- `.changeset/`、`.github/workflows/release.yml`、Issue / PR template（Phase 4）
+- LICENSE / CONTRIBUTING / SECURITY / CODE_OF_CONDUCT / CHANGELOG（Phase 4）
+- `docs/maintainer-checklist.md` と `scripts/check-repo-settings.mjs`（Phase 4）
+- 生成物側の `AGENTS.md` / `.claude/**` を bootstrap と整合させる変換（Phase 5）
 
 ---
 
@@ -171,7 +192,7 @@ export PATH="$TMPDIR/tstmpl:$PATH"
 
 | DoD   | 内容                                                                             | 担当 Phase                                |
 | ----- | -------------------------------------------------------------------------------- | ----------------------------------------- |
-| **A** | テンプレートとしての再利用性（3 profile、bootstrap、placeholder ゼロ）           | 4                                         |
+| **A** | テンプレートとしての再利用性（3 profile、bootstrap、placeholder ゼロ）           | 4 + 5（指示文書と `.claude/**` の整合）   |
 | **B** | package 契約（ESM-only、exports/files allowlist、deep import 拒否、API report）  | 0（契約）+ 1（report / deep import 検証） |
 | **C** | 型・lint・format（strict、typed lint、非破壊 `pnpm check`）                      | 0（実装）+ 1（`pnpm check` フル green）   |
 | **D** | テスト（正常/異常/境界、async cleanup、型テスト、branch 80%）                    | 0                                         |
@@ -179,7 +200,7 @@ export PATH="$TMPDIR/tstmpl:$PATH"
 | **F** | dependency と security（frozen install、release age、audit、CodeQL、Dependabot） | 0（pnpm policy）+ 2（CI 側）              |
 | **G** | CI（Node 2版、OS 3種、最小権限、SHA pin、timeout、concurrency、zizmor）          | 2                                         |
 | **H** | release（Changeset、tag/version 照合、単一 tarball、OIDC、attestation）          | 4                                         |
-| **I** | AI ネイティブ（AGENTS.md、path-scoped rules、hooks、fixture test）               | 3                                         |
+| **I** | AI ネイティブ（AGENTS.md、path-scoped rules、hooks、fixture test）               | 3 + 5（生成物側でも成立させる）           |
 | **J** | OSS の見え方（README / CONTRIBUTING / SECURITY / LICENSE / CoC / templates）     | 4                                         |
 
 ### ローカルで完結しない項目の扱い
@@ -196,9 +217,13 @@ export PATH="$TMPDIR/tstmpl:$PATH"
 
 ---
 
-## 5. 最終ゴール（Phase 4 完了時）
+## 5. 最終ゴール（Phase 5 完了時）
 
 仕様 README §5 の15項目と 03 §6 の DoD A〜J を全て満たし、次が exit 0 になること。
+
+Phase 4 で下の全コマンドが exit 0 になり、Phase 5 は生成物の指示文書
+（`AGENTS.md` / `CLAUDE.md` / `.claude/**`）がその生成物自身を正しく説明していることを
+足します。**Phase 4 の完了条件は変わりません。**
 
 ```bash
 # クリーン環境での frozen install と フルチェック（両 Node）
