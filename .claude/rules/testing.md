@@ -158,10 +158,16 @@ paths:
 - `vitest.config.ts`'s `coverage.include` is `src/**/*.ts`, so a file with no
   test still counts as 0% instead of disappearing from the denominator. Do
   not add a file to the coverage exclude list to move a number up.
+
+<!-- profile:node-cli:start -->
+
 - `src/bin.ts` is deliberately at 0% unit coverage: it is a process-binding
   shim, all its logic lives in `src/cli.ts` (which is unit-tested), and
-  `bin.ts` itself is exercised end-to-end instead by the tarball smoke test
-  (`pnpm package:smoke`).
+  `bin.ts` itself is exercised end-to-end by `tests/cli.test.ts` and the
+  tarball smoke test (`pnpm package:smoke`).
+
+<!-- profile:node-cli:end -->
+
 - Don't write a trivial test just to move the percentage; add a real edge
   case or error path instead.
 

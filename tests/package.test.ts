@@ -23,6 +23,7 @@ import {
   requiredEntryPaths,
 } from "../scripts/check-package.mjs";
 import { findSingleTarball } from "../scripts/lib/tarball.mjs";
+import { resolveTarballArgument } from "../scripts/verify-package.mjs";
 
 // --- tar writing helpers -----------------------------------------------------
 //
@@ -492,12 +493,17 @@ describe("requiredEntryPaths", () => {
     const manifest: unknown = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     );
+    const hasBin =
+      typeof manifest === "object" &&
+      manifest !== null &&
+      "bin" in manifest &&
+      manifest.bin !== undefined;
 
     // The point of deriving this from the manifest is that adding an export
     // without building its file is caught. Hard-coding the list here would
     // reintroduce exactly the duplication spec 01 §1.3 forbids.
     expect(requiredEntryPaths(manifest)).toEqual([
-      "dist/bin.js",
+      ...(hasBin ? ["dist/bin.js"] : []),
       "dist/index.d.ts",
       "dist/index.js",
     ]);
@@ -550,6 +556,23 @@ describe("findAbsoluteMapSources", () => {
         entry("dist/index.js.map"),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("verify-package artifact selection", () => {
+  it("accepts one explicit release tarball", () => {
+    expect(resolveTarballArgument(["--", "--tarball", "dist/package.tgz"])).toBe(
+      path.resolve("dist/package.tgz"),
+    );
+  });
+
+  it.each([
+    { args: [] },
+    { args: ["--tarball"] },
+    { args: ["--tarball", "one.tgz", "--pack-dir", "pack"] },
+    { args: ["--unknown", "one.tgz"] },
+  ])("rejects ambiguous or incomplete arguments: $args", ({ args }) => {
+    expect(() => resolveTarballArgument(args)).toThrow();
   });
 });
 
@@ -626,7 +649,14 @@ describe("a tarball produced by npm pack", () => {
     execFileSync(
       process.execPath,
       [npmCliPath(), "pack", "--ignore-scripts", "--pack-destination", packDir],
-      { cwd: root, stdio: "pipe" },
+      {
+        cwd: root,
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          npm_config_cache: path.join(workspace, "npm-cache"),
+        },
+      },
     );
     tarballPath = findSingleTarball(packDir);
   });

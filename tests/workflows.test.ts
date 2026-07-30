@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -684,16 +684,17 @@ function workflowSource(name: string): string {
 
 describe("the workflows in .github/workflows", () => {
   it("includes every workflow spec 02 §5.2 makes mandatory", () => {
-    // release.yml is Phase 4 and deliberately absent.
     expect(workflowNames).toEqual([
       "check-pr-title.yml",
       "ci.yml",
       "codeql.yml",
       "dependency-review.yml",
       "pr-label.yml",
+      "release.yml",
       "scorecard.yml",
       "security-audit.yml",
       "typos.yml",
+      "version.yml",
     ]);
   });
 
@@ -751,7 +752,106 @@ describe("the workflows in .github/workflows", () => {
       scan(workflowSource(name)).some((line) => line.text.endsWith(": write")),
     );
 
-    expect(writers.sort()).toEqual(["codeql.yml", "pr-label.yml", "scorecard.yml"]);
+    expect(writers.sort()).toEqual([
+      "codeql.yml",
+      "pr-label.yml",
+      "release.yml",
+      "scorecard.yml",
+      "version.yml",
+    ]);
+  });
+});
+
+describe("the release workflow preserves the reviewed artifact", () => {
+  const source = workflowSource("release.yml");
+  const publish = jobsOf(scan(source)).find((job) => job.name === "publish");
+
+  it("uses only read access and OIDC in the publish job", () => {
+    expect(publish).toBeDefined();
+    if (publish === undefined) {
+      return;
+    }
+    const permissions = jobKey(publish, "permissions");
+    expect(permissions).toBeDefined();
+    if (permissions === undefined) {
+      return;
+    }
+    expect(
+      blockOf(publish.body, publish.body.indexOf(permissions)).map((line) => line.text),
+    ).toEqual(["contents: read", "id-token: write"]);
+    expect(jobKey(publish, "environment")?.text).toBe("environment: release");
+  });
+
+  it("does not refer to a long-lived npm token or a dependency cache", () => {
+    expect(source).not.toContain("NPM_TOKEN");
+    expect(source).not.toMatch(/cache:/);
+  });
+
+  it("checks the tag before publishing", () => {
+    expect(source.indexOf("Verify tag matches package version")).toBeGreaterThan(-1);
+    expect(source.indexOf("Verify tag matches package version")).toBeLessThan(
+      source.indexOf("npm publish dist/package.tgz"),
+    );
+  });
+
+  it("builds and packs once, then reuses the fixed tarball path", () => {
+    expect(source.match(/\bpnpm pack\b/g)).toHaveLength(1);
+    expect(source).toContain("pnpm run package:verify -- --tarball dist/package.tgz");
+    expect(source).toContain(
+      "npm publish dist/package.tgz --access public --provenance",
+    );
+    expect(source).toContain(
+      'npm pack "${PACKAGE}@${VERSION}" --pack-destination dist',
+    );
+    expect(source).toContain("path: dist/package.tgz");
+    expect(source).not.toContain("pnpm check");
+    expect(source).toContain("pnpm run check:source");
+  });
+
+  it("does not hide a rebuild or repack behind the release scripts", () => {
+    const scripts = (
+      JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {
+        scripts: Record<string, string>;
+      }
+    ).scripts;
+
+    expect(scripts["check:source"]?.match(/\bpnpm run build\b/g)).toHaveLength(1);
+    expect(scripts["check:source"]).not.toMatch(/\b(?:pnpm|npm) pack\b/);
+    expect(scripts["package:verify"]).not.toContain("build");
+    expect(scripts["package:verify"]).not.toMatch(/\b(?:pnpm|npm) pack\b/);
+  });
+});
+
+describe("workflow regression checks for repository automation", () => {
+  it("runs bootstrap E2E and Changeset intent checks in CI", () => {
+    const source = workflowSource("ci.yml");
+    if (existsSync(path.join(repoRoot, "docs", "template-implementation"))) {
+      expect(source).toContain("pnpm run bootstrap:e2e");
+    } else {
+      expect(source).not.toContain("pnpm run bootstrap:e2e");
+    }
+    expect(source).toContain("pnpm run changeset:check");
+    expect(source).toContain("git branch --force main origin/main");
+    expect(source).toContain("github.head_ref != 'changeset-release/main'");
+  });
+
+  it("fails closed after finite security-audit retries", () => {
+    const source = workflowSource("security-audit.yml");
+    expect(source).not.toContain("--ignore-registry-errors");
+    expect(source).toContain("for attempt in 1 2 3");
+    expect(source).toContain("exit 1");
+  });
+
+  it("fails closed and checks the human-managed repository settings", () => {
+    const source = readFileSync(
+      path.join(repoRoot, "scripts", "check-repo-settings.mjs"),
+      "utf8",
+    );
+    expect(source).not.toContain("repo-settings: skipped");
+    expect(source).toContain("required_approving_review_count");
+    expect(source).toContain("required_conversation_resolution");
+    expect(source).toContain("required_reviewers");
+    expect(source).toContain("can_approve_pull_request_reviews");
   });
 });
 
@@ -759,7 +859,10 @@ describe("the workflows in .github/workflows", () => {
 
 interface Manifest {
   engines?: { node?: string };
-  devEngines?: { packageManager?: { version?: string } };
+  devEngines?: {
+    runtime?: { onFail?: string };
+    packageManager?: { version?: string };
+  };
 }
 
 const manifest = JSON.parse(
@@ -773,10 +876,11 @@ const nodeVersionFile = readFileSync(
 describe("the CI matrix agrees with the package contract", () => {
   const matrix = matrixNodeVersions(workflowSource("ci.yml"));
 
-  it("runs the minimum Node that engines.node promises", () => {
+  it("runs the minimum Node that engines.node promises when one is declared", () => {
     const minimum = /(\d+(?:\.\d+)*)/.exec(manifest.engines?.node ?? "")?.[1];
     if (minimum === undefined) {
-      throw new Error("package.json declares no engines.node");
+      expect(manifest.engines).toBeUndefined();
+      return;
     }
 
     // Compared by the precision engines.node states: ">=22.14" is satisfied by
@@ -800,6 +904,12 @@ describe("the CI matrix agrees with the package contract", () => {
 
   it("runs nothing else, so a stale entry is noticed", () => {
     expect(matrix).toHaveLength(2);
+  });
+});
+
+describe("the development runtime contract fails closed", () => {
+  it("treats the Node 24 requirement as an error", () => {
+    expect(manifest.devEngines?.runtime?.onFail).toBe("error");
   });
 });
 

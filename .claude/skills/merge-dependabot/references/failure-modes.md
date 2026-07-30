@@ -56,10 +56,12 @@ default-days: 7`, so this normally cannot happen — except for **security
 updates**, which Dependabot deliberately exempts from its own cooldown.
 
 **Fix:** this is the one case where the tension is real: a security fix you want
-now against a cooldown that exists to catch a compromised release. Do not edit
-`minimumReleaseAge`. Report the advisory, the affected version, and its publish
-date, and let a human decide whether to wait out the remaining days or take the
-update deliberately.
+now against a cooldown that exists to catch a compromised release. Report the
+advisory, the affected version, and its publish date. A human must decide
+whether to wait out the remaining days or add that exact `package@version` to
+`minimumReleaseAgeExclude` in the reviewed dependency PR. Never add a wildcard
+or package-only exclusion, and record when the exception will be removed after
+the version ages out.
 
 ## F4 — Genuine tooling regression
 

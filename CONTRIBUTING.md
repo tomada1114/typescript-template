@@ -1,0 +1,76 @@
+# Contributing
+
+## Setup
+
+Use Node.js 24 and pnpm 11 through Corepack:
+
+```sh
+node --version
+corepack enable
+corepack pnpm@11.18.0 install --frozen-lockfile
+pnpm hooks:install
+pnpm check
+```
+
+The first command must report Node 24.x. `devEngines.runtime.onFail` is an
+intentional hard error for normal development; use the documented override
+only for the minimum-Node compatibility check below.
+
+Useful focused commands are `pnpm check:quick`, `pnpm test`,
+`pnpm test:coverage`, `pnpm build`, `pnpm api:check`, and
+`pnpm package:smoke`.
+
+## Bootstrap profiles
+
+The template starts as the superset `node-cli` profile. Bootstrap makes one
+irreversible choice for the generated repository:
+
+| Profile             | Runtime contract                                   | CLI files and `bin` | `sideEffects`      |
+| ------------------- | -------------------------------------------------- | ------------------- | ------------------ |
+| `node-library`      | Node.js >= 22.14                                   | removed             | `false`            |
+| `node-cli`          | Node.js >= 22.14, importable API plus executable   | retained            | `dist/bin.js` only |
+| `universal-library` | ES and DOM APIs; Node built-ins fail the src build | removed             | `false`            |
+
+The universal profile omits `engines.node`, sets build `types` to an empty
+array, and is exercised by the bundler-resolution smoke consumer. The other
+profiles retain Node types. Generated repositories never retain another
+profile's CLI files or package metadata.
+
+The seven-day dependency cooldown in `pnpm-workspace.yaml` is fail-closed. If
+an urgent security fix is younger than seven days, a maintainer may add the
+exact package and version to `minimumReleaseAgeExclude` in the same reviewed PR
+as the lockfile update. Record the advisory and why waiting is riskier, remove
+the exception after the version ages out, and never use a broad package-only
+or wildcard exclusion.
+
+To verify the minimum supported Node version, use Node 22.14 and run:
+
+```sh
+pnpm --config.runtime-on-fail=ignore install --frozen-lockfile
+pnpm --config.runtime-on-fail=ignore run check
+```
+
+## Pull requests
+
+Create a feature branch, keep commits focused, and use a Conventional Commit
+PR title. Update behavior tests, type tests, documentation, and the committed
+API report when the public contract changes. Run `pnpm check` before requesting
+review.
+
+Every pull request records release intent. Add a release Changeset with
+`pnpm changeset` whenever consumers can observe the change. For documentation,
+test, CI, or tooling changes with no release impact, run `pnpm changeset --empty`
+instead. CI validates this decision with `pnpm changeset:check`. Changesets'
+generated version PR is the only exception because it consumes the pending
+Changesets. During the 0.x period, a breaking change uses a minor bump and must
+include migration instructions; after 1.0 it uses a major bump.
+
+## Release recovery
+
+Releases are driven by a reviewed Changesets version PR and an annotated
+`vX.Y.Z` tag matching `package.json`. If a workflow fails before npm publish,
+fix the cause and rerun it. If npm already contains the version, never publish
+that version again: verify it with `npm view my-package@X.Y.Z version`, then
+repair only the GitHub Release by rerunning the release attachment job or
+uploading the original workflow artifact. Do not use unpublish as a routine
+rollback; release a corrected new version instead.

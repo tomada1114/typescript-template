@@ -223,7 +223,13 @@ function installConsumer(workspace, tarball) {
       // this keeps the smoke test from executing anything the tarball ships.
       "--ignore-scripts",
     ],
-    { cwd: consumer },
+    {
+      cwd: consumer,
+      env: {
+        ...process.env,
+        npm_config_cache: path.join(workspace, "npm-cache"),
+      },
+    },
   );
   if (result.status !== 0) {
     fail("ERR_SMOKE_INSTALL_FAILED", {

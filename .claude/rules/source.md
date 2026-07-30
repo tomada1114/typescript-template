@@ -16,6 +16,9 @@ paths:
   Extractor fails the build without one (`ae-missing-release-tag`); the
   `etc/` directory must also already exist for `api-extractor run` to write
   its report at all.
+
+<!-- profile:node-cli:start -->
+
 - Inject I/O, environment, and the clock as parameters instead of touching
   globals directly (`src/cli.ts`'s `CliIo` is the model: `stdout`/`stderr`
   callbacks and `version` are passed in, so `runCli` is a pure function
@@ -23,7 +26,10 @@ paths:
   binds these to the real process.
 - Keep the CLI split in mind when adding commands: business logic and
   argument parsing live in `src/cli.ts` (unit-tested); `src/bin.ts` stays a
-  thin shim that binds `runCli` to the real process and argv.
+  thin shim that binds `runCli` to the real process and argv, producing the
+  executable `dist/bin.js`.
+
+<!-- profile:node-cli:end -->
 
 ## Error handling
 

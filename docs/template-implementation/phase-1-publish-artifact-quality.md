@@ -134,15 +134,17 @@ command / summary / exit code を示すこと。
 ### 6. `package.json` の script 差し替え
 
 ```jsonc
-"clean":         "node scripts/clean.mjs dist coverage docs/api temp .smoke .attw .eslintcache",
-"package:lint":  "pnpm run build && publint --strict && node scripts/clean.mjs .attw && pnpm pack --pack-destination .attw && node scripts/check-attw.mjs --pack-dir .attw && node scripts/clean.mjs .attw",
-"package:smoke": "pnpm run build && node scripts/clean.mjs .smoke && pnpm pack --pack-destination .smoke && node scripts/smoke-package.mjs --pack-dir .smoke",
+"clean":          "node scripts/clean.mjs dist coverage docs/api temp .package .smoke .attw .rehearsal .eslintcache",
+"package:check":  "pnpm run build && ... pnpm pack --pack-destination .package && pnpm run package:verify -- --pack-dir .package",
+"package:verify": "node scripts/verify-package.mjs",
+"package:smoke":  "pnpm run build && ... pnpm pack --pack-destination .smoke && node scripts/smoke-package.mjs --pack-dir .smoke",
 ```
 
-`smoke-package.mjs` は release workflow 用に `--tarball <file>` も受け付ける
-（Phase 4 で「1回だけ生成した tarball を検査して publish」に使う）。
+`verify-package.mjs` が、すでに作成された 1 つの tarball に publint / attw /
+consumer smoke を順に適用する。release workflow は `--tarball <file>` を使い、
+検査・publish・GitHub Release 添付の対象を固定する。
 
-`.gitignore` に `.smoke/`、`.attw/`、`temp/` を追加。
+`.gitignore` に `.package/`、`.smoke/`、`.attw/`、`temp/` を追加。
 
 ### 7. `tests/package.test.ts`
 
@@ -159,7 +161,7 @@ command / summary / exit code を示すこと。
 ```bash
 # 単体
 pn24 run api:check
-pn24 run package:lint
+pn24 run package:check
 pn24 run package:smoke
 pn24 run docs:build
 

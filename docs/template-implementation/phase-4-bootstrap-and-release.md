@@ -90,7 +90,10 @@ Issue template・PR template の構造 / SECURITY.md の private report 方針�
 - `changelog`、`commit: false`、`access: "public"`、`baseBranch: "main"` を明示
 - **publish credential を Changesets action に渡さない**。Changesets は
   version/changelog PR の作成にのみ使う
-- docs / test / CI だけの変更は Changeset を必須にしない（consumer に見える変更が基準）
+- consumer-visible な変更は通常の Changeset、docs / test / CI / tooling
+  だけの変更は `pnpm changeset --empty` で release intent を明示する
+- PR CI の `changeset status --since=main` で記録漏れを fail させる
+  （Changesets 自身の version PR は消費済みなので対象外）
 
 ---
 
@@ -101,9 +104,10 @@ Issue template・PR template の構造 / SECURITY.md の private report 方針�
 ```
 tag == package.json.version を検査   ← publish 前に fail させる
 frozen install（cache なし）
-pnpm check
-pnpm pack → tarball を1回だけ生成
-tarball smoke test（Phase 1 の --tarball を使い、同一成果物を検査）
+check:source で source gate + build を1回
+未公開なら pnpm pack → tarball を1回だけ生成
+公開済みの再実行なら npm registry から元 tarball を回収
+package:verify で同一 tarball に publint / attw / consumer smoke
 build provenance attestation
 npm publish <exact-file>.tgz --access public   ← OIDC
 同じ tgz を GitHub Release へ添付
@@ -276,6 +280,7 @@ rm -rf "$WORK"
 - Dependabot alerts / security updates
 - private vulnerability reporting
 - CodeQL
+- GitHub Actions に Changesets version PR の作成を許可
 - GitHub Environment `release` と required reviewer
 - npm trusted publisher（repository と workflow filename を登録、`repository.url` を完全一致）
 - npm account 2FA
@@ -287,9 +292,11 @@ rm -rf "$WORK"
 
 screenshot ではなく **`gh api` の read-only check で drift を検出**します。
 
-- `gh` が無い / 未認証 / remote が無い場合は**明確なメッセージで skip**（exit 0）し、
-  設定を変更する操作は一切行わない
-- branch protection、secret scanning、vulnerability reporting、environment の有無を確認
+- `gh` が無い / 未認証 / remote が無い場合は**明確なエラーで fail closed**
+- required checks / approving review / conversation resolution / linear
+  history / force-push・delete 禁止を確認
+- secret scanning、vulnerability reporting、Actions の PR 作成権限、
+  release environment の human reviewer を確認
 - 差異は「何が期待値で何が実測か」の形で出力する
 
 ---

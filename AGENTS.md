@@ -27,8 +27,10 @@ pnpm test:coverage # tests with the coverage thresholds enforced
 pnpm build         # emit dist/ from src/
 pnpm api:update    # regenerate etc/*.api.md after an intentional API change
 pnpm api:check     # fail when the API report is out of date
-pnpm package:lint  # publint + are-the-types-wrong against a real tarball
+pnpm package:check # build and pack once, then run every artifact check
+pnpm package:lint  # compatibility alias for package:check
 pnpm package:smoke # install the tarball into throwaway consumers and run it
+pnpm changeset:check # verify that a PR records release intent
 pnpm docs:build    # TypeDoc into docs/api/
 ```
 
@@ -49,8 +51,8 @@ is the one case where that check is deliberately waived:
 pnpm --config.runtime-on-fail=ignore run check
 ```
 
-No other spelling works — see `docs/template-implementation/decisions.md` §3.
-Do not relax `onFail` in `package.json` to make this easier.
+No other spelling works. Do not relax `onFail` in `package.json` to make this
+easier.
 
 ## Architecture
 
@@ -58,8 +60,10 @@ Do not relax `onFail` in `package.json` to make this easier.
 src/
 ├── index.ts      # the public contract: the only module consumers can import
 ├── internal/     # private; never re-exported from index.ts
+<!-- profile:node-cli:start -->
 ├── cli.ts        # testable CLI logic — runCli(argv, io)
 ├── bin.ts        # the executable shim that binds runCli to the process
+<!-- profile:node-cli:end -->
 └── *.ts          # implementation modules, re-exported by name from index.ts
 ```
 
@@ -88,6 +92,9 @@ Everything it touches lands in the **same pull request**:
 
 A PR that adds an export without the report update fails `pnpm api:check`. That
 failure is the design working, not an obstacle to route around.
+
+Every other PR records an empty Changeset with `pnpm changeset --empty`, so CI
+can distinguish an explicit "no release" decision from a forgotten Changeset.
 
 ## Repository automation (`.mjs`)
 
@@ -153,8 +160,15 @@ generated — never hand-edited.
 ## Conventions
 
 - All committed code, comments, configuration, and public documentation are in
-  English. `docs/template-requirements/` is a verbatim Japanese copy of an
-  external source and is neither translated nor reformatted.
+  English.
+
+<!-- template-only:start -->
+
+- `docs/template-requirements/` is a verbatim Japanese copy of an external
+  source and is neither translated nor reformatted.
+
+<!-- template-only:end -->
+
 - Do what was asked; nothing more. Prefer editing an existing file to creating a
   new one, and do not add documentation files that were not requested.
 - Note improvements you spot outside the current scope instead of making them.
