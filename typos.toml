@@ -1,0 +1,27 @@
+[files]
+extend-exclude = [
+  # Generated files. A typo in a package name is upstream's, and rewriting it
+  # here would invalidate the lockfile or the API report.
+  "pnpm-lock.yaml",
+  "etc/*.api.md",
+  # Verbatim copies of the upstream requirement documents (Japanese).
+  "docs/template-requirements/",
+]
+
+# Each entry below is a word that is spelled the way it is on purpose. Prefer
+# fixing the text over adding to these lists.
+[default.extend-identifiers]
+# The session wrappers in docs/template-implementation; typos splits the
+# identifier and reads the "pn" half as "on".
+pn22 = "pn22"
+pn24 = "pn24"
+# Deliberately misspelled in tests/types.test.ts, where the point is that an
+# unknown option is a type error rather than an extension point.
+seperator = "seperator"
+
+[default.extend-words]
+# Node.js v22's LTS codename.
+Jod = "Jod"
+# normalizeIdentifier documents that "café" becomes "caf". That string is the
+# function's output, not a misspelling of "calf".
+caf = "caf"

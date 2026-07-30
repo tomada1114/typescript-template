@@ -1,0 +1,15 @@
+{
+  "name": "my-package",
+  // Matches .node-version and devEngines.runtime. The tag is the Node major so
+  // the image tracks the same line CI resolves.
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:24",
+  // pnpm is installed at an exact version rather than through Corepack, which
+  // rejects the `^11.18.0` range in devEngines.packageManager. The install is
+  // frozen: the container reproduces the committed lockfile, never rewrites it.
+  "postCreateCommand": "npm install --global pnpm@11.18.0 && pnpm install --frozen-lockfile",
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  }
+}

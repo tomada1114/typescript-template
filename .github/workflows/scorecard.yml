@@ -1,0 +1,50 @@
+name: Scorecard
+
+on:
+  schedule:
+    - cron: "30 1 * * 6"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A manual dispatch queues behind the scheduled run instead of killing it:
+  # a half-finished scan would upload a misleading SARIF.
+  cancel-in-progress: false
+
+jobs:
+  analysis:
+    name: OpenSSF Scorecard analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      security-events: write # to upload the SARIF result to the security tab
+      id-token: write # for the OIDC token publish_results signs the result with
+      contents: read # to check out the repository being scored
+      actions: read # for Scorecard to read this repository's workflow runs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publishing requires a public repository. Set this to false on a
+          # private fork of the template, or the run fails.
+          publish_results: true
+
+      - name: Upload the SARIF file as an artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scorecard-sarif
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        with:
+          sarif_file: results.sarif

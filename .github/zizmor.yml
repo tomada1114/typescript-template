@@ -1,0 +1,6 @@
+# Deliberate exceptions to zizmor's audits. Every entry needs a reason; an
+# entry without one is a finding that was silenced rather than fixed.
+#
+# There are none right now: `uvx zizmor .github/workflows/` is clean. Keep it
+# that way — fix the workflow rather than adding an ignore.
+rules: {}
