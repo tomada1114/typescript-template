@@ -147,6 +147,13 @@ export default defineConfig([
     rules: {
       // These files are the CLI surface of repository automation.
       "no-console": "off",
+
+      // Automation must run on plain Node before `pnpm install`, so it is
+      // authored as `.mjs` and declares its boundary types in JSDoc, which
+      // `checkJs` enforces just as strictly. This rule only recognises
+      // TypeScript annotations, so leaving it on would demand syntax that is
+      // not valid JavaScript.
+      "@typescript-eslint/explicit-module-boundary-types": "off",
     },
   },
   {

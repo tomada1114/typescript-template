@@ -1,0 +1,669 @@
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { gzipSync } from "node:zlib";
+
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import {
+  ALLOWED_PATHS,
+  FORBIDDEN_PATHS,
+  PACKAGE_LIMITS,
+  findAbsoluteMapSources,
+  inspectPackageEntries,
+  readTarEntries,
+  requiredEntryPaths,
+} from "../scripts/check-package.mjs";
+import { findSingleTarball } from "../scripts/lib/tarball.mjs";
+
+// --- tar writing helpers -----------------------------------------------------
+//
+// Synthetic archives cover the header variants a real `npm pack` never emits
+// (GNU long names, symlink entries) and let a single field be corrupted on
+// purpose. The real-tarball cases below use npm itself.
+
+/** Build one 512-byte ustar header block with a valid checksum. */
+function tarHeader(
+  name: string,
+  size: number,
+  options: { mode?: number; typeflag?: string; prefix?: string } = {},
+): Buffer {
+  const block = Buffer.alloc(512);
+  const octal = (value: number, width: number): string =>
+    `${value.toString(8).padStart(width - 1, "0")}\0`;
+
+  block.write(name, 0, 100, "utf8");
+  block.write(octal(options.mode ?? 0o644, 8), 100, 8, "ascii");
+  block.write(octal(0, 8), 108, 8, "ascii");
+  block.write(octal(0, 8), 116, 8, "ascii");
+  block.write(octal(size, 12), 124, 12, "ascii");
+  block.write(octal(0, 12), 136, 12, "ascii");
+  // The checksum is computed with this field read as eight spaces.
+  block.write("        ", 148, 8, "ascii");
+  block.write(options.typeflag ?? "0", 156, 1, "ascii");
+  block.write("ustar\0", 257, 6, "ascii");
+  block.write("00", 263, 2, "ascii");
+  block.write(options.prefix ?? "", 345, 155, "utf8");
+
+  let sum = 0;
+  for (const byte of block) {
+    sum += byte;
+  }
+  block.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148, 8, "ascii");
+  return block;
+}
+
+/** Pad entry data out to the next 512-byte boundary. */
+function tarBody(data: Buffer): Buffer {
+  const padded = Buffer.alloc(Math.ceil(data.length / 512) * 512);
+  data.copy(padded);
+  return padded;
+}
+
+/** Header plus padded body for one regular file. */
+function tarFile(
+  name: string,
+  contents: string,
+  options: { mode?: number; typeflag?: string; prefix?: string } = {},
+): Buffer[] {
+  const data = Buffer.from(contents, "utf8");
+  return [tarHeader(name, data.length, options), tarBody(data)];
+}
+
+/** Terminate and gzip an archive, as `npm pack` would. */
+function tarball(blocks: Buffer[]): Buffer {
+  return gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024)]));
+}
+
+// --- synthetic entry helpers -------------------------------------------------
+
+interface Entry {
+  path: string;
+  size: number;
+  mode: number;
+  type: "file" | "directory" | "symlink" | "other";
+  data?: Buffer;
+}
+
+function entry(entryPath: string, size = 10, overrides: Partial<Entry> = {}): Entry {
+  return { path: entryPath, size, mode: 0o644, type: "file", ...overrides };
+}
+
+/** A minimal manifest whose declared entries all exist in `entries`. */
+const SATISFIED_MANIFEST = {
+  exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
+};
+
+function codesOf(problems: { code: string }[]): string[] {
+  return problems.map((problem) => problem.code);
+}
+
+// --- readTarEntries ----------------------------------------------------------
+
+describe("readTarEntries", () => {
+  it("parses a plain ustar archive and strips the leading package/ prefix", () => {
+    const buffer = tarball([
+      ...tarFile("package/package.json", '{"name":"x"}'),
+      ...tarFile("package/dist/bin.js", "#!/usr/bin/env node\n", { mode: 0o755 }),
+    ]);
+
+    const entries = readTarEntries(buffer);
+
+    expect(entries.map((item) => item.path)).toEqual(["package.json", "dist/bin.js"]);
+    expect(entries[0]?.size).toBe(12);
+    expect(entries[1]?.mode).toBe(0o755);
+    expect(entries.every((item) => item.type === "file")).toBe(true);
+  });
+
+  it("exposes entry data so contents can be inspected", () => {
+    const buffer = tarball(tarFile("package/dist/index.js", "export const a = 1;\n"));
+
+    const entries = readTarEntries(buffer);
+
+    expect(entries[0]?.data?.toString("utf8")).toBe("export const a = 1;\n");
+  });
+
+  it("joins the ustar prefix field with the name field", () => {
+    const deep = "a".repeat(60);
+    const buffer = tarball(
+      tarFile("index.js", "x", { prefix: `package/dist/${deep}` }),
+    );
+
+    expect(readTarEntries(buffer).map((item) => item.path)).toEqual([
+      `dist/${deep}/index.js`,
+    ]);
+  });
+
+  it("applies a GNU long name header to the entry that follows it", () => {
+    const longPath = `package/dist/${"n".repeat(120)}.js`;
+    const nameData = Buffer.from(`${longPath}\0`, "utf8");
+    const buffer = tarball([
+      tarHeader("././@LongLink", nameData.length, { typeflag: "L" }),
+      tarBody(nameData),
+      ...tarFile(longPath.slice(0, 100), "x"),
+    ]);
+
+    expect(readTarEntries(buffer).map((item) => item.path)).toEqual([
+      longPath.slice("package/".length),
+    ]);
+  });
+
+  it("applies a pax extended header path to the entry that follows it", () => {
+    const longPath = `package/dist/${"p".repeat(120)}.js`;
+    const record = `path=${longPath}\n`;
+    const withLength = `${String(record.length + String(record.length).length + 1)} ${record}`;
+    const recordData = Buffer.from(withLength, "utf8");
+    const buffer = tarball([
+      tarHeader("PaxHeader/long", recordData.length, { typeflag: "x" }),
+      tarBody(recordData),
+      ...tarFile("truncated-name.js", "x"),
+    ]);
+
+    expect(readTarEntries(buffer).map((item) => item.path)).toEqual([
+      longPath.slice("package/".length),
+    ]);
+  });
+
+  it("lets a pax global header set a default for later entries", () => {
+    const record = "12 comment=x\n";
+    const recordData = Buffer.from(record, "utf8");
+    const buffer = tarball([
+      tarHeader("PaxHeader/global", recordData.length, { typeflag: "g" }),
+      tarBody(recordData),
+      ...tarFile("package/dist/index.js", "x"),
+    ]);
+
+    expect(readTarEntries(buffer).map((item) => item.path)).toEqual(["dist/index.js"]);
+  });
+
+  it("reports directory and symlink entries with a distinct type", () => {
+    const buffer = tarball([
+      ...tarFile("package/dist/", "", { typeflag: "5" }),
+      ...tarFile("package/dist/link.js", "", { typeflag: "2" }),
+    ]);
+
+    const entries = readTarEntries(buffer);
+
+    expect(entries.map((item) => item.type)).toEqual(["directory", "symlink"]);
+  });
+
+  it("rejects a buffer that is not gzip data", () => {
+    expect(() => readTarEntries(Buffer.from("not a tarball"))).toThrow(
+      /ERR_TARBALL_UNREADABLE/,
+    );
+  });
+
+  it("rejects a header whose checksum does not match", () => {
+    const blocks = tarFile("package/package.json", "{}");
+    const header = blocks[0];
+    if (header === undefined) {
+      throw new Error("test setup produced no header");
+    }
+    // Change the name after the checksum was computed over it.
+    header.write("package/tampered.json", 0, 100, "utf8");
+
+    expect(() => readTarEntries(tarball(blocks))).toThrow(/ERR_TARBALL_CORRUPT/);
+  });
+});
+
+// --- inspectPackageEntries ---------------------------------------------------
+
+describe("inspectPackageEntries", () => {
+  it("accepts the files npm always includes plus dist output", () => {
+    const problems = inspectPackageEntries(
+      [
+        entry("package.json"),
+        entry("README.md"),
+        entry("LICENSE"),
+        entry("LICENCE.md"),
+        entry("dist/index.js"),
+        entry("dist/index.d.ts"),
+        entry("dist/index.js.map"),
+        entry("dist/index.d.ts.map"),
+        entry("dist/internal/assert.js"),
+      ],
+      { manifest: SATISFIED_MANIFEST },
+    );
+
+    expect(problems).toEqual([]);
+  });
+
+  it("rejects a path that is not on the allowlist", () => {
+    const problems = inspectPackageEntries([entry("dist/index.css")], {});
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_PATH_NOT_ALLOWED");
+    expect(problems[0]?.path).toBe("dist/index.css");
+  });
+
+  it("rejects a dist file whose extension is not published output", () => {
+    const problems = inspectPackageEntries([entry("dist/index.ts")], {});
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_PATH_NOT_ALLOWED");
+  });
+
+  it.each([
+    ["dist/date.utils.js"],
+    ["dist/date.utils.d.ts"],
+    ["dist/my.module.d.ts.map"],
+    ["dist/internal/deep/nested.js.map"],
+  ])("accepts %s, which tsc emits for a source name containing a dot", (allowed) => {
+    expect(inspectPackageEntries([entry(allowed)], {})).toEqual([]);
+  });
+
+  it.each([["dist/.hidden.js"], ["dist/.DS_Store"]])(
+    "still rejects the dotfile %s under dist/",
+    (dotfile) => {
+      expect(codesOf(inspectPackageEntries([entry(dotfile)], {}))).not.toEqual([]);
+    },
+  );
+
+  it.each([["dist/tests/helper.js"], ["dist/coverage/report.js"], ["dist/test/x.js"]])(
+    "flags %s even though the allowlist alone would accept it",
+    (nested) => {
+      expect(codesOf(inspectPackageEntries([entry(nested)], {}))).toContain(
+        "ERR_PACKAGE_PATH_FORBIDDEN",
+      );
+    },
+  );
+
+  it("names the actual danger for a forbidden path, not just the allowlist", () => {
+    const problems = inspectPackageEntries([entry("src/index.ts")], {});
+    const forbidden = problems.filter(
+      (problem) => problem.code === "ERR_PACKAGE_PATH_FORBIDDEN",
+    );
+
+    expect(forbidden).toHaveLength(1);
+    expect(forbidden[0]?.message).toMatch(/source/i);
+  });
+
+  it.each([
+    [".env"],
+    [".env.local"],
+    [".envrc"],
+    ["secrets/token.txt"],
+    [".npmrc"],
+    ["dist/server.pem"],
+    ["dist/server.key"],
+    ["dist/cert.p12"],
+    ["dist/cert.pfx"],
+    ["id_rsa"],
+    ["src/index.ts"],
+    ["test/index.test.js"],
+    ["tests/index.test.js"],
+    ["dist/index.test.js"],
+    ["fixtures/sample.json"],
+    ["fixture/sample.json"],
+    ["coverage/lcov.info"],
+    ["node_modules/left-pad/index.js"],
+    ["dist/tsconfig.tsbuildinfo"],
+    [".gitignore"],
+    [".github/workflows/ci.yml"],
+    [".claude/settings.json"],
+    ["scripts/clean.mjs"],
+    ["etc/my-package.api.md"],
+    ["docs/api/index.html"],
+  ])("flags %s as forbidden", (forbiddenPath) => {
+    const problems = inspectPackageEntries([entry(forbiddenPath)], {});
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_PATH_FORBIDDEN");
+  });
+
+  it("rejects path traversal and absolute paths", () => {
+    const problems = inspectPackageEntries(
+      [entry("../outside.js"), entry("/etc/passwd")],
+      {},
+    );
+
+    expect(
+      problems.filter((problem) => problem.code === "ERR_PACKAGE_PATH_UNSAFE"),
+    ).toHaveLength(2);
+  });
+
+  it("rejects an entry that is not a regular file", () => {
+    const problems = inspectPackageEntries(
+      [entry("dist/index.js", 0, { type: "symlink" })],
+      {},
+    );
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_ENTRY_TYPE");
+  });
+
+  describe("limits", () => {
+    const limits = { maxUnpackedBytes: 100, maxFileCount: 2, maxSingleFileBytes: 60 };
+
+    it("accepts a single file of exactly the maximum size", () => {
+      const problems = inspectPackageEntries([entry("dist/index.js", 60)], { limits });
+
+      expect(problems).toEqual([]);
+    });
+
+    it("rejects a single file one byte over the maximum", () => {
+      const problems = inspectPackageEntries([entry("dist/index.js", 61)], { limits });
+
+      expect(codesOf(problems)).toEqual(["ERR_PACKAGE_FILE_TOO_LARGE"]);
+      expect(problems[0]?.message).toContain("61");
+      expect(problems[0]?.message).toContain("60");
+    });
+
+    it("accepts exactly the maximum file count", () => {
+      const problems = inspectPackageEntries(
+        [entry("dist/index.js", 1), entry("dist/cli.js", 1)],
+        { limits },
+      );
+
+      expect(problems).toEqual([]);
+    });
+
+    it("rejects one file over the maximum count", () => {
+      const problems = inspectPackageEntries(
+        [entry("dist/index.js", 1), entry("dist/cli.js", 1), entry("dist/bin.js", 1)],
+        { limits },
+      );
+
+      expect(codesOf(problems)).toEqual(["ERR_PACKAGE_TOO_MANY_FILES"]);
+    });
+
+    it("accepts an unpacked size of exactly the maximum", () => {
+      const problems = inspectPackageEntries(
+        [entry("dist/index.js", 50), entry("dist/cli.js", 50)],
+        { limits },
+      );
+
+      expect(problems).toEqual([]);
+    });
+
+    it("rejects an unpacked size one byte over the maximum", () => {
+      const problems = inspectPackageEntries(
+        [entry("dist/index.js", 50), entry("dist/cli.js", 51)],
+        { limits },
+      );
+
+      expect(codesOf(problems)).toEqual(["ERR_PACKAGE_TOO_LARGE"]);
+      // Spec 02 §7.3: point at the files responsible, not just the total.
+      expect(problems[0]?.message).toContain("dist/cli.js");
+    });
+
+    it("counts directory entries neither toward size nor toward the file count", () => {
+      const problems = inspectPackageEntries(
+        [
+          entry("dist/index.js", 50),
+          entry("dist/cli.js", 50),
+          entry("dist/", 0, { type: "directory" }),
+        ],
+        { limits },
+      );
+
+      expect(problems).toEqual([]);
+    });
+  });
+
+  it("reports a declared entry point that the tarball does not contain", () => {
+    const problems = inspectPackageEntries([entry("dist/index.js")], {
+      manifest: {
+        exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
+      },
+    });
+
+    expect(codesOf(problems)).toEqual(["ERR_PACKAGE_ENTRY_MISSING"]);
+    expect(problems[0]?.path).toBe("dist/index.d.ts");
+  });
+
+  it("exposes the limits as plain numbers so raising one shows in a diff", () => {
+    expect(PACKAGE_LIMITS.maxUnpackedBytes).toBeTypeOf("number");
+    expect(PACKAGE_LIMITS.maxFileCount).toBeTypeOf("number");
+    expect(PACKAGE_LIMITS.maxSingleFileBytes).toBeTypeOf("number");
+  });
+
+  it("keeps both path lists non-empty", () => {
+    expect(ALLOWED_PATHS.length).toBeGreaterThan(0);
+    expect(FORBIDDEN_PATHS.length).toBeGreaterThan(0);
+  });
+});
+
+// --- requiredEntryPaths ------------------------------------------------------
+
+describe("requiredEntryPaths", () => {
+  it("collects string leaves from nested exports conditions", () => {
+    expect(
+      requiredEntryPaths({
+        exports: {
+          ".": {
+            types: "./dist/index.d.ts",
+            import: "./dist/index.js",
+          },
+          "./sub": {
+            import: { types: "./dist/sub.d.ts", default: "./dist/sub.js" },
+          },
+        },
+      }),
+    ).toEqual(["dist/index.d.ts", "dist/index.js", "dist/sub.d.ts", "dist/sub.js"]);
+  });
+
+  it("reads bin in both its string and object forms", () => {
+    expect(requiredEntryPaths({ bin: "./dist/bin.js" })).toEqual(["dist/bin.js"]);
+    expect(requiredEntryPaths({ bin: { a: "./dist/a.js", b: "dist/b.js" } })).toEqual([
+      "dist/a.js",
+      "dist/b.js",
+    ]);
+  });
+
+  it("reads types, main and module", () => {
+    expect(
+      requiredEntryPaths({
+        types: "./dist/index.d.ts",
+        main: "./dist/index.cjs",
+        module: "./dist/index.js",
+      }),
+    ).toEqual(["dist/index.cjs", "dist/index.d.ts", "dist/index.js"]);
+  });
+
+  it("strips a leading ./ and de-duplicates", () => {
+    expect(
+      requiredEntryPaths({ types: "./dist/index.d.ts", exports: "dist/index.d.ts" }),
+    ).toEqual(["dist/index.d.ts"]);
+  });
+
+  it("ignores fallback arrays' non-paths, null targets and bare specifiers", () => {
+    expect(
+      requiredEntryPaths({
+        exports: {
+          ".": ["./dist/index.js"],
+          "./blocked": null,
+          "./external": "some-other-package",
+          "./absolute": "/etc/passwd",
+        },
+      }),
+    ).toEqual(["dist/index.js"]);
+  });
+
+  it("returns nothing for a manifest that declares no entry points", () => {
+    expect(requiredEntryPaths({})).toEqual([]);
+  });
+
+  it("matches the entry points this repository actually declares", () => {
+    const manifest: unknown = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    );
+
+    // The point of deriving this from the manifest is that adding an export
+    // without building its file is caught. Hard-coding the list here would
+    // reintroduce exactly the duplication spec 01 §1.3 forbids.
+    expect(requiredEntryPaths(manifest)).toEqual([
+      "dist/bin.js",
+      "dist/index.d.ts",
+      "dist/index.js",
+    ]);
+  });
+});
+
+// --- findAbsoluteMapSources --------------------------------------------------
+
+describe("findAbsoluteMapSources", () => {
+  function mapEntry(mapPath: string, map: unknown): Entry {
+    return entry(mapPath, 0, { data: Buffer.from(JSON.stringify(map), "utf8") });
+  }
+
+  it("accepts relative sources", () => {
+    expect(
+      findAbsoluteMapSources([
+        mapEntry("dist/index.js.map", { sources: ["../src/index.ts"] }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ["/Users/someone/repo/src/index.ts"],
+    ["C:\\Users\\someone\\repo\\src\\index.ts"],
+    ["file:///Users/someone/repo/src/index.ts"],
+  ])("flags the absolute source %s", (source) => {
+    const found = findAbsoluteMapSources([
+      mapEntry("dist/index.js.map", { sources: [source] }),
+    ]);
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.path).toBe("dist/index.js.map");
+  });
+
+  it("flags an absolute sourceRoot", () => {
+    expect(
+      findAbsoluteMapSources([
+        mapEntry("dist/index.d.ts.map", {
+          sourceRoot: "/Users/someone/repo",
+          sources: ["index.ts"],
+        }),
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it("ignores entries that are not maps and maps without data", () => {
+    expect(
+      findAbsoluteMapSources([
+        mapEntry("dist/index.js", { sources: ["/absolute.ts"] }),
+        entry("dist/index.js.map"),
+      ]),
+    ).toEqual([]);
+  });
+});
+
+// --- a real npm-produced tarball --------------------------------------------
+
+/**
+ * Locate the npm CLI that ships with the running Node.
+ *
+ * @remarks
+ * Invoked as a script through `process.execPath` rather than as `npm`, so the
+ * test does not depend on PATH or on a shell, and works the same on Windows
+ * where `npm` is a `.cmd` shim. The two candidate layouts are the POSIX and
+ * Windows installation trees.
+ */
+function npmCliPath(): string {
+  const nodeDir = path.dirname(process.execPath);
+  const candidates = [
+    path.join(nodeDir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
+    path.join(nodeDir, "node_modules", "npm", "bin", "npm-cli.js"),
+  ];
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (found === undefined) {
+    throw new Error(
+      `Could not find the npm CLI next to ${process.execPath}. Looked in: ${candidates.join(", ")}`,
+    );
+  }
+  return found;
+}
+
+describe("a tarball produced by npm pack", () => {
+  // `npm pack` is used rather than `pnpm pack` because pnpm's own path is not
+  // available to a child process here, and because this fixture must not depend
+  // on the repository having been built: `pnpm check` runs tests before build.
+  let workspace: string;
+  let tarballPath: string;
+  const longName = `${"long-file-name".repeat(9)}.js`;
+  const manifest = {
+    name: "fixture-package",
+    version: "1.2.3",
+    type: "module",
+    private: false,
+    license: "MIT",
+    files: ["dist"],
+    bin: { fixture: "./dist/bin.js" },
+    types: "./dist/index.d.ts",
+    exports: {
+      ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+    },
+  };
+
+  beforeAll(() => {
+    workspace = mkdtempSync(path.join(tmpdir(), "package-fixture-"));
+    const root = path.join(workspace, "fixture-package");
+    mkdirSync(path.join(root, "dist"), { recursive: true });
+    writeFileSync(path.join(root, "package.json"), JSON.stringify(manifest, null, 2));
+    writeFileSync(path.join(root, "README.md"), "# fixture\n");
+    writeFileSync(path.join(root, "LICENSE"), "MIT\n");
+    writeFileSync(path.join(root, "dist", "index.js"), "export const a = 1;\n");
+    writeFileSync(
+      path.join(root, "dist", "index.d.ts"),
+      "export declare const a: 1;\n",
+    );
+    writeFileSync(
+      path.join(root, "dist", "index.js.map"),
+      JSON.stringify({ version: 3, sources: ["../src/index.ts"], mappings: "" }),
+    );
+    writeFileSync(path.join(root, "dist", "bin.js"), "#!/usr/bin/env node\n");
+    // A basename over 100 bytes cannot be split across the ustar prefix and
+    // name fields, so npm's packer must emit a pax extended header for it.
+    writeFileSync(path.join(root, "dist", longName), "export const b = 2;\n");
+
+    const packDir = path.join(workspace, "pack");
+    mkdirSync(packDir);
+    execFileSync(
+      process.execPath,
+      [npmCliPath(), "pack", "--ignore-scripts", "--pack-destination", packDir],
+      { cwd: root, stdio: "pipe" },
+    );
+    tarballPath = findSingleTarball(packDir);
+  });
+
+  afterAll(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it("parses every entry, including a pax long name", () => {
+    const entries = readTarEntries(readFileSync(tarballPath));
+    const paths = entries.map((item) => item.path).sort();
+
+    expect(paths).toEqual(
+      [
+        "LICENSE",
+        "README.md",
+        "dist/bin.js",
+        "dist/index.d.ts",
+        "dist/index.js",
+        "dist/index.js.map",
+        `dist/${longName}`,
+        "package.json",
+      ].sort(),
+    );
+    expect(entries.every((item) => item.type === "file")).toBe(true);
+    expect(entries.every((item) => item.size > 0)).toBe(true);
+  });
+
+  it("reports no problems", () => {
+    const entries = readTarEntries(readFileSync(tarballPath));
+
+    expect(inspectPackageEntries(entries, { manifest })).toEqual([]);
+  });
+
+  it("has no absolute paths in its source maps", () => {
+    const entries = readTarEntries(readFileSync(tarballPath));
+
+    expect(findAbsoluteMapSources(entries)).toEqual([]);
+  });
+});
