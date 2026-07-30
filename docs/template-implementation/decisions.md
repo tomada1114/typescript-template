@@ -156,18 +156,17 @@ npm error EBADDEVENGINES   required: { name: 'pnpm', version: '^11.18.0', onFail
 attw は `attw <file.tgz>` を受け付けます。副作用として、**publish される tarball そのものを
 attw が検査する**ことになり、仕様の意図（成果物を検証する）にむしろ合致します。
 
-`publint` は内部で `pnpm pack` を使うため**そのまま動作します**（`publint --strict` → `All good!` を確認）。
-
-Phase 1 で `package:lint` を次の形に置き換えます:
+`publint run <file.tgz> --strict` も既存 tarball を受け付けます。したがって
+Phase 1 の artifact gate は次の形に統一します:
 
 ```
 pnpm run build
-  && publint --strict
-  && node scripts/clean.mjs .attw
-  && pnpm pack --pack-destination .attw
-  && node scripts/check-attw.mjs --pack-dir .attw
-  && node scripts/clean.mjs .attw
+  && pnpm pack --pack-destination .package
+  && node scripts/verify-package.mjs --pack-dir .package
 ```
+
+`verify-package.mjs` は同じ `.tgz` に publint / attw / consumer smoke を適用する。
+release では `--tarball dist/package.tgz` を渡すため、検査後の rebuild / repack はない。
 
 ---
 

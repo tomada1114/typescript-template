@@ -23,6 +23,7 @@ import {
   requiredEntryPaths,
 } from "../scripts/check-package.mjs";
 import { findSingleTarball } from "../scripts/lib/tarball.mjs";
+import { resolveTarballArgument } from "../scripts/verify-package.mjs";
 
 // --- tar writing helpers -----------------------------------------------------
 //
@@ -555,6 +556,23 @@ describe("findAbsoluteMapSources", () => {
         entry("dist/index.js.map"),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("verify-package artifact selection", () => {
+  it("accepts one explicit release tarball", () => {
+    expect(resolveTarballArgument(["--", "--tarball", "dist/package.tgz"])).toBe(
+      path.resolve("dist/package.tgz"),
+    );
+  });
+
+  it.each([
+    { args: [] },
+    { args: ["--tarball"] },
+    { args: ["--tarball", "one.tgz", "--pack-dir", "pack"] },
+    { args: ["--unknown", "one.tgz"] },
+  ])("rejects ambiguous or incomplete arguments: $args", ({ args }) => {
+    expect(() => resolveTarballArgument(args)).toThrow();
   });
 });
 

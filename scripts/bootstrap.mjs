@@ -17,6 +17,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
@@ -40,6 +41,7 @@ const EXCLUDED_PARTS = new Set([
   "coverage",
   ".cache",
   ".eslintcache",
+  ".package",
   ".smoke",
   ".attw",
   "temp",
@@ -52,6 +54,8 @@ const RESERVED_NAMES = new Set(["node_modules", "favicon.ico"]);
 // the source-to-generated relationship explicit to reviewers.
 const TEMPLATE_ONLY_BLOCK =
   /<!-- template-only:start -->[\s\S]*?<!-- template-only:end -->/g;
+const TEMPLATE_ONLY_YAML_BLOCK =
+  /^[ \t]*# template-only:start\s*$[\s\S]*?^[ \t]*# template-only:end\s*$\n?/gm;
 const PROFILE_BLOCK =
   /<!-- profile:([a-z0-9-]+):start -->([\s\S]*?)<!-- profile:\1:end -->/g;
 const AI_LAYER_FILES = new Set(["AGENTS.md", "CLAUDE.md"]);
@@ -360,7 +364,7 @@ function replaceText(file, replacements, profile) {
   }
   const isMarkdown = file.endsWith(".md");
   const isInstructionFile = ["AGENTS.md", "CLAUDE.md"].includes(path.basename(file));
-  let updated = original;
+  let updated = original.replace(TEMPLATE_ONLY_YAML_BLOCK, "");
   if (isMarkdown || isInstructionFile) {
     updated = updated.replace(TEMPLATE_ONLY_BLOCK, "");
     /** @type {(match: string, markedProfile: string, contents: string) => string} */
@@ -468,10 +472,11 @@ function readObject(file) {
  * Produce the complete ISC license text.
  *
  * @param {string} author
+ * @param {number} year
  * @returns {string}
  */
-function iscLicense(author) {
-  return `Copyright 2026 ${author}
+function iscLicense(author, year) {
+  return `Copyright ${String(year)} ${author}
 
 Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted, provided that the above
@@ -492,9 +497,10 @@ PERFORMANCE OF THIS SOFTWARE.
  *
  * @param {string} root
  * @param {ReturnType<typeof parseArguments>} options
+ * @param {number} year
  * @returns {string[]}
  */
-function transform(root, options) {
+function transform(root, options, year) {
   const names = deriveNames(options.packageName);
   const repository = `${options.githubUser}/${names.unscoped}`;
   /** @type {[string, string][]} */
@@ -515,6 +521,16 @@ function transform(root, options) {
     if (existsSync(target)) {
       rmSync(target, { recursive: true });
       changed.push(`${relative}/ (removed)`);
+    }
+  }
+
+  const changesetDirectory = path.join(root, ".changeset");
+  if (existsSync(changesetDirectory)) {
+    for (const entry of readdirSync(changesetDirectory, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
+        rmSync(path.join(changesetDirectory, entry.name));
+        changed.push(`.changeset/${entry.name} (removed)`);
+      }
     }
   }
 
@@ -602,7 +618,22 @@ function transform(root, options) {
   changed.push("tsconfig.build.json");
 
   if (options.license === "ISC") {
-    writeFileSync(path.join(root, "LICENSE"), iscLicense(options.author));
+    writeFileSync(path.join(root, "LICENSE"), iscLicense(options.author, year));
+    changed.push("LICENSE");
+  } else {
+    const licensePath = path.join(root, "LICENSE");
+    const license = readFileSync(licensePath, "utf8");
+    const copyrightYear = /^Copyright \(c\) \d{4} /m;
+    if (!copyrightYear.test(license)) {
+      throw new BootstrapError(
+        "ERR_LICENSE_YEAR",
+        "MIT license has no replaceable copyright year.\n" +
+          "Expected: `Copyright (c) <year> <author>`\n" +
+          "Next: restore the standard MIT copyright line, then rerun bootstrap.",
+      );
+    }
+    const dated = license.replace(copyrightYear, `Copyright (c) ${String(year)} `);
+    writeFileSync(licensePath, dated);
     changed.push("LICENSE");
   }
 
@@ -615,7 +646,9 @@ function transform(root, options) {
  * @param {string} root
  */
 function regenerateLockfile(root) {
-  const manifest = readObject(path.join(root, "package.json"));
+  const manifestPath = path.join(root, "package.json");
+  const manifestText = readFileSync(manifestPath, "utf8");
+  const manifest = readObject(manifestPath);
   const packageManager = readKey(readKey(manifest, "devEngines"), "packageManager");
   const range = readString(packageManager, "version");
   const lockfile = readFileSync(path.join(root, "pnpm-lock.yaml"), "utf8");
@@ -651,6 +684,10 @@ function regenerateLockfile(root) {
       },
     },
   );
+  // Corepack and pnpm may materialize their effective project settings in the
+  // manifest. Bootstrap owns package.json and this step owns only the lockfile,
+  // so restore the already-validated manifest byte-for-byte.
+  writeFileSync(manifestPath, manifestText);
   if (result.status !== 0) {
     throw new BootstrapError(
       "ERR_LOCKFILE_GENERATION",
@@ -714,17 +751,24 @@ export function findPlaceholders(root) {
  *
  * @param {string} root
  * @param {ReturnType<typeof parseArguments>} options
+ * @param {object} [context] - Injectable run context for deterministic tests.
+ * @param {number} [context.year] - Copyright year; defaults to the current UTC year.
  * @returns {string[]}
  */
-export function bootstrap(root, options) {
+export function bootstrap(
+  root,
+  options,
+  context = { year: new Date().getUTCFullYear() },
+) {
   assertTemplate(root);
   const files = projectFiles(root);
-  const workspace = mkdtempSync(path.join(path.dirname(root), ".bootstrap-"));
+  const year = context.year ?? new Date().getUTCFullYear();
+  const workspace = mkdtempSync(path.join(tmpdir(), "typescript-template-bootstrap-"));
   const staged = path.join(workspace, "repository");
   mkdirSync(staged);
   try {
     copyFiles(root, staged, files);
-    const changed = transform(staged, options);
+    const changed = transform(staged, options, year);
     if (!options.dryRun) {
       regenerateLockfile(staged);
     }

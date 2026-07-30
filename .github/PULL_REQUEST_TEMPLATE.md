@@ -5,6 +5,6 @@
 ## Checklist
 
 - [ ] `pnpm check` passes
-- [ ] Consumer-visible changes include a Changeset
+- [ ] Release intent is recorded (`pnpm changeset`, or `pnpm changeset --empty`)
 - [ ] Public API changes include an updated API report
 - [ ] README and affected docs are updated

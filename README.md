@@ -26,7 +26,8 @@ private and blocked by the package export map.
 
 ## API
 
-- `normalizeIdentifier(input, options?)` creates a safe ASCII identifier.
+- `normalizeIdentifier(input, options?)` creates a URL- and filename-safe ASCII
+  identifier using `-`, `_`, `.`, or `~` as its separator.
 - `withTimeout(operation, options)` runs an abortable operation with a deadline.
 - `InvalidInputError` and `TimeoutError` expose stable error codes.
 

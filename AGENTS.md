@@ -27,8 +27,10 @@ pnpm test:coverage # tests with the coverage thresholds enforced
 pnpm build         # emit dist/ from src/
 pnpm api:update    # regenerate etc/*.api.md after an intentional API change
 pnpm api:check     # fail when the API report is out of date
-pnpm package:lint  # publint + are-the-types-wrong against a real tarball
+pnpm package:check # build and pack once, then run every artifact check
+pnpm package:lint  # compatibility alias for package:check
 pnpm package:smoke # install the tarball into throwaway consumers and run it
+pnpm changeset:check # verify that a PR records release intent
 pnpm docs:build    # TypeDoc into docs/api/
 ```
 
@@ -90,6 +92,9 @@ Everything it touches lands in the **same pull request**:
 
 A PR that adds an export without the report update fails `pnpm api:check`. That
 failure is the design working, not an obstacle to route around.
+
+Every other PR records an empty Changeset with `pnpm changeset --empty`, so CI
+can distinguish an explicit "no release" decision from a forgotten Changeset.
 
 ## Repository automation (`.mjs`)
 

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -794,15 +794,64 @@ describe("the release workflow preserves the reviewed artifact", () => {
     );
   });
 
-  it("packs once and reuses the fixed tarball path", () => {
+  it("builds and packs once, then reuses the fixed tarball path", () => {
     expect(source.match(/\bpnpm pack\b/g)).toHaveLength(1);
-    expect(source).toContain(
-      "node scripts/smoke-package.mjs --tarball dist/package.tgz",
-    );
+    expect(source).toContain("pnpm run package:verify -- --tarball dist/package.tgz");
     expect(source).toContain(
       "npm publish dist/package.tgz --access public --provenance",
     );
+    expect(source).toContain(
+      'npm pack "${PACKAGE}@${VERSION}" --pack-destination dist',
+    );
     expect(source).toContain("path: dist/package.tgz");
+    expect(source).not.toContain("pnpm check");
+    expect(source).toContain("pnpm run check:source");
+  });
+
+  it("does not hide a rebuild or repack behind the release scripts", () => {
+    const scripts = (
+      JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {
+        scripts: Record<string, string>;
+      }
+    ).scripts;
+
+    expect(scripts["check:source"]?.match(/\bpnpm run build\b/g)).toHaveLength(1);
+    expect(scripts["check:source"]).not.toMatch(/\b(?:pnpm|npm) pack\b/);
+    expect(scripts["package:verify"]).not.toContain("build");
+    expect(scripts["package:verify"]).not.toMatch(/\b(?:pnpm|npm) pack\b/);
+  });
+});
+
+describe("workflow regression checks for repository automation", () => {
+  it("runs bootstrap E2E and Changeset intent checks in CI", () => {
+    const source = workflowSource("ci.yml");
+    if (existsSync(path.join(repoRoot, "docs", "template-implementation"))) {
+      expect(source).toContain("pnpm run bootstrap:e2e");
+    } else {
+      expect(source).not.toContain("pnpm run bootstrap:e2e");
+    }
+    expect(source).toContain("pnpm run changeset:check");
+    expect(source).toContain("git branch --force main origin/main");
+    expect(source).toContain("github.head_ref != 'changeset-release/main'");
+  });
+
+  it("fails closed after finite security-audit retries", () => {
+    const source = workflowSource("security-audit.yml");
+    expect(source).not.toContain("--ignore-registry-errors");
+    expect(source).toContain("for attempt in 1 2 3");
+    expect(source).toContain("exit 1");
+  });
+
+  it("fails closed and checks the human-managed repository settings", () => {
+    const source = readFileSync(
+      path.join(repoRoot, "scripts", "check-repo-settings.mjs"),
+      "utf8",
+    );
+    expect(source).not.toContain("repo-settings: skipped");
+    expect(source).toContain("required_approving_review_count");
+    expect(source).toContain("required_conversation_resolution");
+    expect(source).toContain("required_reviewers");
+    expect(source).toContain("can_approve_pull_request_reviews");
   });
 });
 
@@ -810,7 +859,10 @@ describe("the release workflow preserves the reviewed artifact", () => {
 
 interface Manifest {
   engines?: { node?: string };
-  devEngines?: { packageManager?: { version?: string } };
+  devEngines?: {
+    runtime?: { onFail?: string };
+    packageManager?: { version?: string };
+  };
 }
 
 const manifest = JSON.parse(
@@ -852,6 +904,12 @@ describe("the CI matrix agrees with the package contract", () => {
 
   it("runs nothing else, so a stale entry is noticed", () => {
     expect(matrix).toHaveLength(2);
+  });
+});
+
+describe("the development runtime contract fails closed", () => {
+  it("treats the Node 24 requirement as an error", () => {
+    expect(manifest.devEngines?.runtime?.onFail).toBe("error");
   });
 });
 

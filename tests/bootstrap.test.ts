@@ -195,13 +195,17 @@ describe("bootstrap profiles", () => {
       readFileSync(path.join(root, "package.json"), "utf8"),
     ) as {
       name: string;
+      packageManager?: string;
       dependencies?: Record<string, string>;
       bin?: Record<string, string>;
+      devEngines: { runtime: { onFail: string } };
       engines?: Record<string, string>;
       sideEffects: false | string[];
       repository: { url: string };
     };
     expect(manifest.name).toBe(packageName);
+    expect(manifest.packageManager).toBeUndefined();
+    expect(manifest.devEngines.runtime.onFail).toBe("error");
     expect(manifest.dependencies).toBeUndefined();
     expect(manifest.repository.url).not.toContain("@acme/");
     expect(findPlaceholders(root)).toEqual([]);
@@ -209,6 +213,10 @@ describe("bootstrap profiles", () => {
       binaryBefore,
     );
     expect(existsSync(path.join(root, "docs", "template-implementation"))).toBe(false);
+    expect(relativeFiles(root, ".changeset")).toEqual([
+      ".changeset/README.md",
+      ".changeset/config.json",
+    ]);
     expect(readFileSync(path.join(root, "README.md"), "utf8")).not.toContain(
       "Use this template",
     );
@@ -247,6 +255,9 @@ describe("bootstrap profiles", () => {
     expect(
       existsSync(path.join(root, ".github", "workflows", "check-pr-title.yml")),
     ).toBe(true);
+    expect(
+      readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8"),
+    ).not.toContain("bootstrap:e2e");
     expect(
       existsSync(
         path.join(
@@ -352,13 +363,25 @@ describe("bootstrap profiles", () => {
       "--license",
       "ISC",
     ]);
-    bootstrap(root, isc);
+    bootstrap(root, isc, { year: 2030 });
     const manifest = JSON.parse(
       readFileSync(path.join(root, "package.json"), "utf8"),
     ) as { license: string };
     expect(manifest.license).toBe("ISC");
     expect(readFileSync(path.join(root, "LICENSE"), "utf8")).toContain(
       'THE SOFTWARE IS PROVIDED "AS IS"',
+    );
+    expect(readFileSync(path.join(root, "LICENSE"), "utf8")).toContain(
+      "Copyright 2030 Ada Lovelace",
+    );
+  });
+
+  it("uses the injected year in the generated MIT license", () => {
+    const root = copyTemplate();
+    bootstrap(root, options("mit-package", "node-library"), { year: 2042 });
+
+    expect(readFileSync(path.join(root, "LICENSE"), "utf8")).toContain(
+      "Copyright (c) 2042 Ada Lovelace",
     );
   });
 

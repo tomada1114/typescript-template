@@ -37,15 +37,15 @@ Phase 5 セッションで実測した値です。Phase 1〜4 の成果物も同
 
 | コマンド                     | 環境                        | 結果                                                                           |
 | ---------------------------- | --------------------------- | ------------------------------------------------------------------------------ |
-| fresh install + `pnpm check` | Node 24.18.1 / pnpm 11.18.0 | exit 0（9 files / 320 tests passed）                                           |
-| fresh install + `pnpm check` | Node 22.14.0 / pnpm 11.18.0 | exit 0（320 tests passed、`--config.runtime-on-fail=ignore` 付き）             |
-| coverage                     | Node 24.18.1                | Stmts 92.64 / Branch 88.23 / Funcs 84.21 / Lines 92.59（閾値 80）              |
+| fresh install + `pnpm check` | Node 24.18.1 / pnpm 11.18.0 | exit 0（9 files / 341 tests passed）                                           |
+| fresh install + `pnpm check` | Node 22.14.0 / pnpm 11.18.0 | exit 0（341 tests passed、`--config.runtime-on-fail=ignore` 付き）             |
+| coverage                     | Node 24.18.1                | Stmts 92.64 / Branch 87.95 / Funcs 84.21 / Lines 92.59（閾値 80）              |
 | `pnpm run bootstrap:e2e`     | Node 24.18.1                | exit 0（3 profile + `zukai`、各 frozen install + full check、AI layer assert） |
 | `pnpm run publish:rehearsal` | Node 24.18.1                | exit 0（同一 tarball の npm dry-run + consumer install/import）                |
 | `actionlint`                 | 1.7.12                      | exit 0（`.github/workflows/*.yml`）                                            |
 
-> Phase 1〜5 の成果物は**作業ツリーに未コミットで存在**します（この repo の運用どおり、
-> 人間がレビューしてコミットする）。`git status --short` で確認してください。
+> Phase 1〜5 の実装はリポジトリに反映済みです。以後のレビュー修正については、
+> `git status --short` と各 gate の fresh な結果を正本にしてください。
 
 ### 現在のファイル構成
 
@@ -78,7 +78,8 @@ typescript-template/
 │   ├── check-attw.mjs
 │   ├── check-package.mjs
 │   ├── clean.mjs
-│   └── smoke-package.mjs
+│   ├── smoke-package.mjs
+│   └── verify-package.mjs        #   単一 tarball に全 artifact gate を適用
 ├── src/
 │   ├── internal/assert.ts         # 非公開ヘルパ（public barrel から export しない）
 │   ├── bin.ts                     # node-cli: shebang 付き実行エントリ

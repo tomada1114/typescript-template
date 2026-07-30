@@ -43,6 +43,11 @@ published less than 7 days ago will not resolve, for any install.
   since there is no older version for a pin to fall back to.
 - Before adding or bumping a dependency, check how long its target version
   has been published; do not assume `latest` will resolve.
+- For an urgent security fix younger than seven days, a human may approve an
+  exact `package@version` entry in `minimumReleaseAgeExclude`. The same PR must
+  cite the advisory, explain why waiting is riskier, include the generated
+  lockfile, and state when the exception will be removed. Never add a wildcard
+  or a package-only exclusion.
 
 ## `exports` and `files` are allowlists
 

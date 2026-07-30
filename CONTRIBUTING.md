@@ -5,11 +5,16 @@
 Use Node.js 24 and pnpm 11 through Corepack:
 
 ```sh
+node --version
 corepack enable
 corepack pnpm@11.18.0 install --frozen-lockfile
 pnpm hooks:install
 pnpm check
 ```
+
+The first command must report Node 24.x. `devEngines.runtime.onFail` is an
+intentional hard error for normal development; use the documented override
+only for the minimum-Node compatibility check below.
 
 Useful focused commands are `pnpm check:quick`, `pnpm test`,
 `pnpm test:coverage`, `pnpm build`, `pnpm api:check`, and
@@ -31,6 +36,13 @@ array, and is exercised by the bundler-resolution smoke consumer. The other
 profiles retain Node types. Generated repositories never retain another
 profile's CLI files or package metadata.
 
+The seven-day dependency cooldown in `pnpm-workspace.yaml` is fail-closed. If
+an urgent security fix is younger than seven days, a maintainer may add the
+exact package and version to `minimumReleaseAgeExclude` in the same reviewed PR
+as the lockfile update. Record the advisory and why waiting is riskier, remove
+the exception after the version ages out, and never use a broad package-only
+or wildcard exclusion.
+
 To verify the minimum supported Node version, use Node 22.14 and run:
 
 ```sh
@@ -45,10 +57,13 @@ PR title. Update behavior tests, type tests, documentation, and the committed
 API report when the public contract changes. Run `pnpm check` before requesting
 review.
 
-Add a Changeset with `pnpm changeset` whenever consumers can observe the change.
-Documentation-only, test-only, and CI-only changes do not require one. During
-the 0.x period, a breaking change uses a minor bump and must include migration
-instructions; after 1.0 it uses a major bump.
+Every pull request records release intent. Add a release Changeset with
+`pnpm changeset` whenever consumers can observe the change. For documentation,
+test, CI, or tooling changes with no release impact, run `pnpm changeset --empty`
+instead. CI validates this decision with `pnpm changeset:check`. Changesets'
+generated version PR is the only exception because it consumes the pending
+Changesets. During the 0.x period, a breaking change uses a minor bump and must
+include migration instructions; after 1.0 it uses a major bump.
 
 ## Release recovery
 

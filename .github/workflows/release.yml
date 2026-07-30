@@ -48,19 +48,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run the full package gate
-        run: pnpm check
-
-      - name: Pack the release artifact once
-        run: |
-          mkdir -p dist
-          pnpm pack --pack-destination dist
-          TARBALL="$(find dist -maxdepth 1 -name '*.tgz' -type f)"
-          test "$(printf '%s\n' "${TARBALL}" | sed '/^$/d' | wc -l | tr -d ' ')" = "1"
-          mv "${TARBALL}" dist/package.tgz
-
-      - name: Smoke test the exact release artifact
-        run: node scripts/smoke-package.mjs --tarball dist/package.tgz
+      # This gate builds dist exactly once. Artifact checks run after the one
+      # pack below, against the fixed release tarball.
+      - name: Check source and build once
+        run: pnpm run check:source
 
       - name: Check whether this version is already published
         id: registry
@@ -72,6 +63,31 @@ jobs:
           else
             echo "published=false" >> "${GITHUB_OUTPUT}"
           fi
+
+      - name: Pack the new release artifact once
+        if: steps.registry.outputs.published != 'true'
+        run: |
+          mkdir -p dist
+          pnpm pack --pack-destination dist
+          TARBALL="$(find dist -maxdepth 1 -name '*.tgz' -type f)"
+          test "$(printf '%s\n' "${TARBALL}" | sed '/^$/d' | wc -l | tr -d ' ')" = "1"
+          mv "${TARBALL}" dist/package.tgz
+
+      # A rerun after npm accepted the version must attach npm's original
+      # bytes, not a newly generated equivalent tarball.
+      - name: Recover the already-published artifact
+        if: steps.registry.outputs.published == 'true'
+        run: |
+          PACKAGE="$(node --input-type=module -e 'import manifest from "./package.json" with { type: "json" }; process.stdout.write(manifest.name)')"
+          VERSION="$(node --input-type=module -e 'import manifest from "./package.json" with { type: "json" }; process.stdout.write(manifest.version)')"
+          mkdir -p dist
+          npm pack "${PACKAGE}@${VERSION}" --pack-destination dist
+          TARBALL="$(find dist -maxdepth 1 -name '*.tgz' -type f)"
+          test "$(printf '%s\n' "${TARBALL}" | sed '/^$/d' | wc -l | tr -d ' ')" = "1"
+          mv "${TARBALL}" dist/package.tgz
+
+      - name: Verify the exact release artifact
+        run: pnpm run package:verify -- --tarball dist/package.tgz
 
       - name: Publish with npm trusted publishing and provenance
         if: steps.registry.outputs.published != 'true'

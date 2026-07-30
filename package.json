@@ -21,7 +21,7 @@
     "runtime": {
       "name": "node",
       "version": "^24.0.0",
-      "onFail": "ignore"
+      "onFail": "error"
     },
     "packageManager": {
       "name": "pnpm",
@@ -50,7 +50,7 @@
   },
   "scripts": {
     "build": "node scripts/clean.mjs dist && tsc -p tsconfig.build.json",
-    "clean": "node scripts/clean.mjs dist coverage docs/api temp .smoke .attw .rehearsal .eslintcache",
+    "clean": "node scripts/clean.mjs dist coverage docs/api temp .package .smoke .attw .rehearsal .eslintcache",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
@@ -60,13 +60,17 @@
     "test:coverage": "vitest run --coverage",
     "api:check": "api-extractor run --verbose",
     "api:update": "api-extractor run --local --verbose",
-    "package:lint": "pnpm run build && publint --strict && node scripts/clean.mjs .attw && pnpm pack --pack-destination .attw && node scripts/check-attw.mjs --pack-dir .attw && node scripts/clean.mjs .attw",
+    "package:lint": "pnpm run package:check",
     "package:smoke": "pnpm run build && node scripts/clean.mjs .smoke && pnpm pack --pack-destination .smoke && node scripts/smoke-package.mjs --pack-dir .smoke",
+    "package:check": "pnpm run build && node scripts/clean.mjs .package && pnpm pack --pack-destination .package && pnpm run package:verify -- --pack-dir .package && node scripts/clean.mjs .package",
+    "package:verify": "node scripts/verify-package.mjs",
     "docs:build": "typedoc",
     "check:quick": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
-    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run api:check && pnpm run package:lint && pnpm run package:smoke && pnpm run docs:build",
+    "check:source": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run api:check && pnpm run docs:build",
+    "check": "pnpm run check:source && node scripts/clean.mjs .package && pnpm pack --pack-destination .package && pnpm run package:verify -- --pack-dir .package && node scripts/clean.mjs .package",
     "fix": "eslint . --fix && prettier --write .",
     "changeset": "changeset",
+    "changeset:check": "changeset status --since=main",
     "hooks:install": "lefthook install",
     "bootstrap:e2e": "node scripts/verify-bootstrap.mjs",
     "publish:rehearsal": "pnpm run build && node scripts/clean.mjs .rehearsal && pnpm pack --pack-destination .rehearsal && node scripts/publish-rehearsal.mjs --pack-dir .rehearsal && node scripts/clean.mjs .rehearsal",

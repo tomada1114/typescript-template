@@ -92,12 +92,27 @@ describe("normalizeIdentifier", () => {
       );
     });
 
+    it.each(["/", "\\", ":", "\0", "\n", "💥"])(
+      "rejects filename-unsafe separator %j",
+      (separator) => {
+        expect(() => normalizeIdentifier("a b", { separator })).toThrow(
+          InvalidInputError,
+        );
+      },
+    );
+
+    it.each(["-", "_", ".", "~"])("accepts safe separator %j", (separator) => {
+      expect(normalizeIdentifier("a b", { separator })).toBe(`a${separator}b`);
+    });
+
     it("names the separator option in the error", () => {
       try {
         normalizeIdentifier("a b", { separator: "??" });
         expect.unreachable("normalizeIdentifier should have thrown");
       } catch (error) {
-        expect((error as InvalidInputError).field).toBe("options.separator");
+        const invalid = error as InvalidInputError;
+        expect(invalid.field).toBe("options.separator");
+        expect(invalid.message).toContain("-, _, ., ~");
       }
     });
 

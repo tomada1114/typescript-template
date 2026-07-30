@@ -8,7 +8,8 @@ import { assertPositiveInteger } from "./internal/assert.js";
  */
 export interface NormalizeIdentifierOptions {
   /**
-   * Single non-alphanumeric character used to join retained runs.
+   * One URL-unreserved, filename-safe punctuation character used to join
+   * retained runs: `-`, `_`, `.`, or `~`.
    *
    * @defaultValue `"-"`
    */
@@ -35,7 +36,7 @@ export interface NormalizeIdentifierOptions {
 
 const DEFAULT_SEPARATOR = "-";
 const UNSAFE_RUN = /[^A-Za-z0-9]+/g;
-const ALPHANUMERIC = /^[A-Za-z0-9]$/;
+const SAFE_SEPARATORS = new Set(["-", "_", ".", "~"]);
 
 /**
  * Remove the separator from both ends of a value.
@@ -57,7 +58,8 @@ function trimSeparator(value: string, separator: string): string {
 }
 
 /**
- * Convert arbitrary text into a URL- and filename-safe ASCII identifier.
+ * Convert arbitrary text into a URL- and cross-platform filename-safe ASCII
+ * identifier.
  *
  * @remarks
  * Every run of characters outside `[A-Za-z0-9]` collapses into one separator,
@@ -86,10 +88,10 @@ export function normalizeIdentifier(
   options: NormalizeIdentifierOptions = {},
 ): string {
   const separator = options.separator ?? DEFAULT_SEPARATOR;
-  if (separator.length !== 1 || ALPHANUMERIC.test(separator)) {
+  if (!SAFE_SEPARATORS.has(separator)) {
     throw new InvalidInputError(
       "options.separator",
-      "options.separator must be exactly one non-alphanumeric character.",
+      "options.separator must be one of: -, _, ., ~.",
     );
   }
 

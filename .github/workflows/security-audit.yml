@@ -38,8 +38,17 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # Only what consumers install. A dev-only advisory is handled by the
-      # Dependabot PR, and must not page whoever reads this schedule.
-      # `--ignore-registry-errors` keeps a registry outage from reading as a
-      # vulnerability; a real advisory still fails the job.
+      # Dependabot PR, and must not page whoever reads this schedule. Registry
+      # failures are retried briefly and then fail closed: an unavailable audit
+      # service must never produce a green security result.
       - name: Audit
-        run: pnpm audit --prod --audit-level=moderate --ignore-registry-errors
+        run: |
+          for attempt in 1 2 3; do
+            pnpm audit --prod --audit-level=moderate && exit 0
+            if [ "${attempt}" -lt 3 ]; then
+              echo "Audit attempt ${attempt} failed; retrying in 10 seconds."
+              sleep 10
+            fi
+          done
+          echo "::error::Production dependency audit failed after 3 attempts."
+          exit 1
