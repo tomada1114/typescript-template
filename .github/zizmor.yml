@@ -1,6 +1,18 @@
 # Deliberate exceptions to zizmor's audits. Every entry needs a reason; an
 # entry without one is a finding that was silenced rather than fixed.
 #
-# There are none right now: `uvx zizmor .github/workflows/` is clean. Keep it
-# that way — fix the workflow rather than adding an ignore.
-rules: {}
+# Fix the workflow rather than adding an ignore whenever that is possible.
+#
+# Each entry is pinned to `file:line:column`, so it stops matching if the step
+# moves and the finding comes back rather than silently covering a different
+# line. Editing a workflow above an ignored step means updating the line here.
+rules:
+  adhoc-packages:
+    ignore:
+      # release.yml upgrades the runner's global npm before publishing, so
+      # that `npm publish --provenance` can use npm's trusted-publishing
+      # (OIDC) support, which is not available in the npm bundled with
+      # actions/setup-node's supported Node versions. There is no
+      # lockfile-based way to pin a global CLI upgrade; the version is
+      # pinned as an explicit `npm@<version>` argument instead.
+      - release.yml:43:14

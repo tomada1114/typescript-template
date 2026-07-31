@@ -204,7 +204,8 @@ describe("bootstrap profiles", () => {
       repository: { url: string };
     };
     expect(manifest.name).toBe(packageName);
-    expect(manifest.packageManager).toBeUndefined();
+    // Corepack and Dependabot read this field and both need an exact version.
+    expect(manifest.packageManager).toBe("pnpm@11.18.0");
     expect(manifest.devEngines.runtime.onFail).toBe("error");
     expect(manifest.dependencies).toBeUndefined();
     expect(manifest.repository.url).not.toContain("@acme/");

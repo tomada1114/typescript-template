@@ -47,8 +47,14 @@ To verify the minimum supported Node version, use Node 22.14 and run:
 
 ```sh
 pnpm --config.runtime-on-fail=ignore install --frozen-lockfile
+git restore package.json
 pnpm --config.runtime-on-fail=ignore run check
 ```
+
+The `git restore` is not optional. `pnpm install` writes its effective settings
+back into `package.json`, so the flag turns `devEngines.runtime.onFail` into
+`"ignore"` on disk; leaving it there both dirties the working tree and fails the
+tests that assert on the manifest. `pnpm run` does not write the manifest.
 
 ## Pull requests
 

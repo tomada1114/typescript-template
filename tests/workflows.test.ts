@@ -419,35 +419,23 @@ function pnpmSetupVersions(source: string): string[] {
   return versions;
 }
 
-function versionParts(version: string): number[] {
-  return version.split(".").map((part) => Number(part));
-}
-
-/** Compare two dotted numeric versions, shorter meaning "unspecified, so equal". */
-function compareVersions(left: string, right: string): number {
-  const a = versionParts(left);
-  const b = versionParts(right);
-  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
-    const difference = (a[index] ?? 0) - (b[index] ?? 0);
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-  return 0;
-}
-
-/** Whether `version` satisfies a `^x.y.z` range. Only the form this repo declares. */
-function satisfiesCaret(version: string, range: string): boolean {
-  const floor = /^\^(\d+\.\d+\.\d+)$/.exec(range)?.[1];
-  if (floor === undefined) {
+/**
+ * Whether `version` satisfies `declared`.
+ *
+ * @remarks
+ * Only the exact `x.y.z` form this repo declares. `devEngines.packageManager`
+ * carries an exact version so that it matches the top-level `packageManager`
+ * string byte for byte (docs/template-implementation/decisions.md §1), so a
+ * range would be a deliberate change of that decision — it throws here rather
+ * than being quietly approximated.
+ */
+function satisfiesDeclared(version: string, declared: string): boolean {
+  if (!/^\d+\.\d+\.\d+$/.test(declared)) {
     throw new Error(
-      `Unsupported range: ${range}. Extend satisfiesCaret if this is intended.`,
+      `Unsupported version declaration: ${declared}. Extend satisfiesDeclared if this is intended.`,
     );
   }
-  return (
-    versionParts(version)[0] === versionParts(floor)[0] &&
-    compareVersions(version, floor) >= 0
-  );
+  return version === declared;
 }
 
 // --- fixtures ----------------------------------------------------------------
@@ -744,6 +732,24 @@ describe("the workflows in .github/workflows", () => {
     expect(collectors).toHaveLength(1);
   });
 
+  it("restores package.json after an install that overrides runtime-on-fail", () => {
+    // `pnpm install` writes its effective settings back into package.json, so
+    // `--config.runtime-on-fail=ignore` leaves `devEngines.runtime.onFail` as
+    // "ignore" on disk. A later step that reads the manifest — the tests in
+    // this file and in tests/bootstrap.test.ts — then sees a contract nobody
+    // committed. Whoever adds the override owns restoring the manifest.
+    const overriding = runCommands(workflowSource("ci.yml")).filter(
+      ({ command }) =>
+        command.includes("--config.runtime-on-fail=ignore") &&
+        /\bpnpm\b[^\n;&|]*\binstall\b/.test(command),
+    );
+
+    expect(overriding).not.toEqual([]);
+    expect(
+      overriding.filter(({ command }) => !command.includes("git restore package.json")),
+    ).toEqual([]);
+  });
+
   it("grants a write scope only where the job cannot do its work without one", () => {
     // codeql and scorecard upload to the security tab; pr-label writes a label
     // and tolerates the read-only token a fork PR gets. Everything else, and in
@@ -782,9 +788,12 @@ describe("the release workflow preserves the reviewed artifact", () => {
     expect(jobKey(publish, "environment")?.text).toBe("environment: release");
   });
 
-  it("does not refer to a long-lived npm token or a dependency cache", () => {
+  it("does not refer to a long-lived npm token or enable a dependency cache", () => {
     expect(source).not.toContain("NPM_TOKEN");
-    expect(source).not.toMatch(/cache:/);
+    // setup-node's package-manager-cache is explicitly disabled (zizmor
+    // cache-poisoning): a release workflow must never restore build state
+    // from a previous run's cache.
+    expect(source).not.toMatch(/cache:\s*(?!false\b)\S/);
   });
 
   it("checks the tag before publishing", () => {
@@ -859,6 +868,7 @@ describe("workflow regression checks for repository automation", () => {
 
 interface Manifest {
   engines?: { node?: string };
+  packageManager?: string;
   devEngines?: {
     runtime?: { onFail?: string };
     packageManager?: { version?: string };
@@ -920,13 +930,13 @@ describe("the pnpm version in CI agrees with devEngines", () => {
     expect(declared).toBeTypeOf("string");
   });
 
-  it.each(workflowNames)("%s sets up a pnpm the range allows", (name) => {
+  it.each(workflowNames)("%s sets up a pnpm the declaration allows", (name) => {
     if (declared === undefined) {
       throw new Error("package.json declares no devEngines.packageManager.version");
     }
 
     for (const version of pnpmSetupVersions(workflowSource(name))) {
-      expect(satisfiesCaret(version, declared)).toBe(true);
+      expect(satisfiesDeclared(version, declared)).toBe(true);
     }
   });
 
@@ -936,5 +946,12 @@ describe("the pnpm version in CI agrees with devEngines", () => {
     );
 
     expect([...versions]).toHaveLength(1);
+  });
+
+  it("declares the same pnpm string in packageManager and devEngines", () => {
+    // pnpm warns on every command when the two disagree, and says it will
+    // ignore `packageManager` — the field corepack and Dependabot read. Keep
+    // them byte-identical so neither the warning nor the drift can return.
+    expect(manifest.packageManager).toBe(`pnpm@${declared ?? ""}`);
   });
 });
