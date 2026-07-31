@@ -32,6 +32,28 @@ COREPACK_ENABLE_DOWNLOAD_PROMPT=0 mise exec node@24.18.1 -- corepack pnpm@11.18.
 記録されています（pnpm 11 の自己管理機能）。`devEngines.packageManager.onFail: "download"` と
 `pnpm-workspace.yaml` の `pmOnFail: download` がこれを再現します。
 
+### `packageManager` と `devEngines.packageManager` は同一文字列にする —— 仕様 01 §3 からの逸脱
+
+仕様 01 §3 は `devEngines.packageManager.version` を `"^11.18.0"`（range）と書いていますが、
+実装では **exact `"11.18.0"`** にしています。理由は 2 つあります。
+
+1. トップレベルの `packageManager` フィールドが必要です。corepack と Dependabot は
+   ここを読み、**exact semver でないと解決に失敗**します（range の
+   `devEngines.packageManager` にフォールバックすると "semver version required" で
+   Dependabot の pnpm 更新ジョブが落ちる）。
+2. その `packageManager` と `devEngines.packageManager.version` の**文字列が食い違うと**、
+   pnpm は毎コマンド `[WARN] "packageManager" and "devEngines.packageManager" specify
+different versions of pnpm ... "packageManager" will be ignored` を出します。
+   `pnpm check:quick` 1 回で 6 回出るため、テンプレートの初期状態としては不適切です。
+
+exact にしても range の意図（lockfile が解決した pnpm を `pmOnFail: download` で再現する）は
+損なわれません。より厳しくなるだけです。両者の一致は
+`tests/workflows.test.ts` の "declares the same pnpm string in packageManager and devEngines" と
+`scripts/bootstrap.mjs` の `regenerateLockfile()` が守ります。
+
+なおこの `[WARN]` は、後述の `--config.runtime-on-fail=ignore` による package.json 書き戻しとは
+**無関係**です。両方を exact に揃えても書き戻しは起きます（実測）。
+
 ### TypeScript は 6.0.3 —— 7.x を使わない
 
 **これが最も重要な選定です。** registry の `dist-tags.latest` は **7.0.2** ですが、仕様が要求する
@@ -133,6 +155,23 @@ pnpm --config.runtime-on-fail=ignore run check
 `devEngines.runtime.onFail` を `warn` に緩めるのは仕様の設計変更なので**しません**。
 開発既定を Node 24 に強制するガードは残したまま、互換性検証だけ opt-out します。
 CI の最小 Node job でも同じフラグが必要です（Phase 2）。
+
+### `pnpm install` は実効設定を package.json に書き戻す（実測）
+
+`--config.runtime-on-fail=ignore` を付けた `pnpm install` は、その実効値を
+`package.json` に**書き戻します**（`devEngines.runtime.onFail` が `"error"` →
+`"ignore"` になる）。書き換わるのはこの 1 フィールドだけで、`pnpm-workspace.yaml`
+と `pnpm-lock.yaml` は変わりません。
+
+書き戻すのは `install` だけで、`pnpm run` は package.json を触りません。
+`packageManager` と `devEngines.packageManager` のバージョン文字列を一致させても
+書き戻しは止まりません（両方 `11.18.0` にして実測済み）。
+
+したがって、このフラグ付きの install の直後には必ず `git restore package.json` を
+置きます。置かないと、後続ステップが読む manifest が誰もコミットしていない内容に
+なり、`tests/workflows.test.ts` と `tests/bootstrap.test.ts` の
+`devEngines.runtime.onFail === "error"` アサーションが落ちます。CI の最小 Node job
+と `scripts/bootstrap.mjs` の `regenerateLockfile()` は、どちらもこの復元を行います。
 
 ---
 

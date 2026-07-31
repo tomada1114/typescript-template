@@ -162,6 +162,10 @@ export PATH="$TMPDIR/tstmpl:$PATH"
 
 以降このドキュメント群では `pn24` / `pn22` と書きます。
 
+`pn22 install` は `--config.runtime-on-fail=ignore` の実効値を `package.json` に
+書き戻すので（decisions.md §3）、install の直後には `git restore package.json` を
+実行してください。`pn22 run …` は書き戻しません。
+
 ---
 
 ## 3. 全 Phase 共通のルール

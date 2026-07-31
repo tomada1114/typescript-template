@@ -587,7 +587,9 @@ function transform(root, options, year) {
   };
   manifest["bugs"] = { url: `https://github.com/${repository}/issues` };
   manifest["homepage"] = `https://github.com/${repository}#readme`;
-  delete manifest["packageManager"];
+  // `packageManager` stays in the generated manifest. Corepack and Dependabot
+  // read it and both need an exact version; without it, Dependabot's pnpm
+  // updates fail against the `devEngines.packageManager` declaration.
   const scripts = readKey(manifest, "scripts");
   if (typeof scripts === "object" && scripts !== null && !Array.isArray(scripts)) {
     delete (/** @type {Record<string, unknown>} */ (scripts)["bootstrap:e2e"]);
@@ -651,20 +653,27 @@ function regenerateLockfile(root) {
   const manifestText = readFileSync(manifestPath, "utf8");
   const manifest = readObject(manifestPath);
   const packageManager = readKey(readKey(manifest, "devEngines"), "packageManager");
-  const range = readString(packageManager, "version");
+  // Exact, not a range: pnpm warns on every command when this string differs
+  // from the top-level `packageManager` field, and both must stay pinned to
+  // the version the lockfile resolved.
+  const declared = readString(packageManager, "version");
+  const topLevel = readString(manifest, "packageManager");
   const lockfile = readFileSync(path.join(root, "pnpm-lock.yaml"), "utf8");
   const resolved = /pnpm:\s*\n\s*specifier:\s*([^\s]+)\s*\n\s*version:\s*([^\s]+)/.exec(
     lockfile,
   );
   if (
-    range === undefined ||
-    !range.startsWith("^11.") ||
+    declared !== "11.18.0" ||
+    topLevel !== "pnpm@11.18.0" ||
     resolved?.[1] !== "11.18.0" ||
     resolved[2] !== "11.18.0"
   ) {
     throw new BootstrapError(
       "ERR_PACKAGE_MANAGER_MISMATCH",
-      `devEngines.packageManager (${range ?? "missing"}) and lockfile pnpm resolution must agree on pnpm 11.18.0.`,
+      "packageManager, devEngines.packageManager and the lockfile pnpm resolution must all agree on pnpm 11.18.0.\n" +
+        `Expected: packageManager "pnpm@11.18.0", devEngines.packageManager.version "11.18.0"\n` +
+        `Actual: packageManager ${topLevel ?? "missing"}, devEngines.packageManager.version ${declared ?? "missing"}, lockfile ${resolved?.[2] ?? "missing"}\n` +
+        "Next: restore the pinned versions in package.json, then rerun bootstrap.",
     );
   }
   const result = spawnSync(
@@ -677,10 +686,9 @@ function regenerateLockfile(root) {
       env: {
         ...process.env,
         COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
-        // Corepack expects an exact package-manager version in devEngines,
-        // while pnpm deliberately supports the compatible range required by
-        // this template. The exact version is supplied in argv and validated
-        // against the lockfile immediately above.
+        // The version to run is supplied in argv and was validated against
+        // the manifest and the lockfile immediately above, so Corepack has no
+        // reason to re-derive it from the project it is about to rewrite.
         COREPACK_ENABLE_PROJECT_SPEC: "0",
       },
     },

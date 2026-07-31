@@ -88,12 +88,16 @@ GitHub 上での実行はこのセッションではできません。**ロー�
 ### 4. pnpm セットアップの型
 
 `corepack` + `devEngines.packageManager` で pnpm を解決します。
-`packageManager` フィールドは使っていないので、`corepack pnpm@<version>` 相当の
-明示指定か、`pnpm/action-setup` を SHA pin して使うかを選び、**理由をコメントに書く**。
+トップレベルの `packageManager` フィールドは corepack と Dependabot が読む exact
+version として持ち、`devEngines.packageManager.version` も**同一文字列**にします
+（decisions.md §1「pnpm」）。CI では `corepack pnpm@<version>` 相当の明示指定か、
+`pnpm/action-setup` を SHA pin して使うかを選び、**理由をコメントに書く**。
 
 最小 Node job だけ `--config.runtime-on-fail=ignore` を付ける（decisions.md §3）。
 **このフラグを付ける理由をワークフロー内にコメントで残すこと** —— さもないと
 次の人が「不要なバイパス」と誤解して外し、job が壊れます。
+また、このフラグ付きの `install` は実効値を `package.json` に書き戻すので、
+直後に `git restore package.json` を置くこと（decisions.md §3）。
 
 ### 5. supply chain 設定
 

@@ -3,8 +3,9 @@
   // Matches .node-version and devEngines.runtime. The tag is the Node major so
   // the image tracks the same line CI resolves.
   "image": "mcr.microsoft.com/devcontainers/typescript-node:24",
-  // pnpm is installed at an exact version rather than through Corepack, which
-  // rejects the `^11.18.0` range in devEngines.packageManager. The install is
+  // pnpm is installed directly rather than through Corepack, so the container
+  // needs no Corepack download step to reach the pinned version. Keep the
+  // version in step with `packageManager` in package.json. The install is
   // frozen: the container reproduces the committed lockfile, never rewrites it.
   "postCreateCommand": "npm install --global pnpm@11.18.0 && pnpm install --frozen-lockfile",
   "customizations": {

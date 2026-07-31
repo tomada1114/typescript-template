@@ -102,9 +102,17 @@ jobs:
       # out here is what makes the `engines.node` floor testable: removing the
       # flag does not make CI stricter, it breaks the job. See
       # docs/template-implementation/decisions.md §3.
+      #
+      # `pnpm install` materializes its effective settings back into
+      # package.json, so the flag rewrites `devEngines.runtime.onFail` to
+      # "ignore" on disk. The manifest is part of what the tests below assert
+      # on, so restore it before they read it. Only `install` writes it back;
+      # the `pnpm run` step that follows leaves the manifest alone.
       - name: Install dependencies (minimum Node)
         if: ${{ matrix.minimum }}
-        run: pnpm --config.runtime-on-fail=ignore install --frozen-lockfile
+        run: |
+          pnpm --config.runtime-on-fail=ignore install --frozen-lockfile
+          git restore package.json
 
       # This leg is the single source of coverage: spec 02 §5.2 forbids
       # collecting it more than once across the matrix.
