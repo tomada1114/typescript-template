@@ -4,10 +4,13 @@ import console from "node:console";
 import {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   rmSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -58,6 +61,13 @@ function copyTemplate(destination) {
     }
     const target = path.join(destination, relative);
     mkdirSync(path.dirname(target), { recursive: true });
+    // A symlink (`.agents/skills/merge-dependabot` bridges into
+    // `.claude/skills/**`) must be recreated as a symlink, not followed —
+    // copyFileSync resolves it to the directory it points at and fails.
+    if (lstatSync(source).isSymbolicLink()) {
+      symlinkSync(readlinkSync(source), target);
+      continue;
+    }
     copyFileSync(source, target);
   }
 }
