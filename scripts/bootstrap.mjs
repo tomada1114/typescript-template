@@ -337,6 +337,10 @@ function copyFiles(sourceRoot, destinationRoot, files) {
     mkdirSync(path.dirname(destination), { recursive: true });
     const stat = lstatSync(source);
     if (stat.isSymbolicLink()) {
+      // Unlike copyFileSync below, symlinkSync fails with EEXIST rather than
+      // overwriting — this branch can run more than once at the same
+      // destination (bootstrap copies root -> staged -> root again).
+      rmSync(destination, { force: true });
       symlinkSync(readlinkSync(source), destination);
       continue;
     }
@@ -388,13 +392,27 @@ function replaceText(file, replacements, profile) {
 /**
  * Return the generated AI-native instruction files.
  *
+ * @remarks
+ * `AI_LAYER_FILES` is matched by basename, not the full relative path, so a
+ * subdirectory master such as `tests/AGENTS.md` is included alongside the
+ * root pair. A symlink — `.agents/skills/**` bridges into `.claude/skills/**`
+ * — is excluded: it is scanned at its real path already, and `readFileSync`
+ * on a symlink to a directory throws.
+ *
  * @param {string} root
  * @returns {string[]}
  */
 function aiLayerFiles(root) {
-  return projectFiles(root).filter(
-    (relative) => AI_LAYER_FILES.has(relative) || relative.startsWith(".claude/"),
-  );
+  return projectFiles(root).filter((relative) => {
+    if (lstatSync(path.join(root, relative)).isSymbolicLink()) {
+      return false;
+    }
+    return (
+      AI_LAYER_FILES.has(path.basename(relative)) ||
+      relative.startsWith(".claude/") ||
+      relative.startsWith(".agents/")
+    );
+  });
 }
 
 /**

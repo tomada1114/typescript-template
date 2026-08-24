@@ -9,6 +9,9 @@ pnpm-lock.yaml
 CHANGELOG.md
 etc/*.api.md
 
+# Symlinks into .claude/skills/**, already formatted at their real path.
+.agents/skills/
+
 # Verbatim copies of the upstream requirement documents; reflowing them would
 # make diffs against the source unreadable.
 docs/template-requirements/
