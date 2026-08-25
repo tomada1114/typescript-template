@@ -3,7 +3,6 @@ import { spawnSync } from "node:child_process";
 import console from "node:console";
 import {
   copyFileSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -19,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { isolatedGitEnv } from "./lib/git-env.mjs";
 import { isMain } from "./lib/is-main.mjs";
+import { classifyCopyPath, describeLinkTarget } from "./lib/symlinks.mjs";
 import { parseJson, readKey } from "./lib/json.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -46,32 +46,24 @@ function run(command, args, cwd) {
 }
 
 /**
- * Distinguish an absent path from a symlink whose target is absent.
+ * Report whether a source path belongs in the copy set, refusing a symlink that
+ * points nowhere rather than skipping it as absent.
  *
  * @param {string} source
  * @param {string} relative
  * @returns {boolean}
  */
 function isCopyableSource(source, relative) {
-  let stat;
-  try {
-    stat = lstatSync(source);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return false;
-    }
-    throw error;
-  }
-  if (stat.isSymbolicLink() && !existsSync(source)) {
-    const target = readlinkSync(source);
+  const state = classifyCopyPath(source);
+  if (state.kind === "dangling") {
     throw new Error(
       `ERR_BROKEN_SYMLINK: Link: ${relative}\n` +
         "Expected: the symlink target to exist.\n" +
-        `Actual: missing target ${target}.\n` +
+        `Actual: missing target ${describeLinkTarget(state.target)}.\n` +
         "Next: restore the target or remove the link, then rerun `pnpm run bootstrap:e2e`.",
     );
   }
-  return true;
+  return state.kind === "present";
 }
 
 /**

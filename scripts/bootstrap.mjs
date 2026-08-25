@@ -23,6 +23,7 @@ import process from "node:process";
 
 import { isolatedGitEnv } from "./lib/git-env.mjs";
 import { isMain } from "./lib/is-main.mjs";
+import { classifyCopyPath, describeLinkTarget } from "./lib/symlinks.mjs";
 import { parseJson, readKey, readString } from "./lib/json.mjs";
 
 const TEMPLATE_PACKAGE = "my-package";
@@ -326,34 +327,25 @@ function projectFiles(root) {
 }
 
 /**
- * Distinguish an absent path from a symlink whose target is absent.
+ * Report whether a candidate path belongs in the copy set, refusing a symlink
+ * that points nowhere rather than skipping it as absent.
  *
  * @param {string} root
  * @param {string} relative
  * @returns {boolean}
  */
 function isCopyablePath(root, relative) {
-  const absolute = path.join(root, relative);
-  let stat;
-  try {
-    stat = lstatSync(absolute);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return false;
-    }
-    throw error;
-  }
-  if (stat.isSymbolicLink() && !existsSync(absolute)) {
-    const target = readlinkSync(absolute);
+  const state = classifyCopyPath(path.join(root, relative));
+  if (state.kind === "dangling") {
     throw new BootstrapError(
       "ERR_BROKEN_SYMLINK",
       `Link: ${relative}\n` +
         "Expected: the symlink target to exist.\n" +
-        `Actual: missing target ${target}.\n` +
+        `Actual: missing target ${describeLinkTarget(state.target)}.\n` +
         "Next: restore the target or remove the link, then rerun `node scripts/bootstrap.mjs` with the same arguments.",
     );
   }
-  return true;
+  return state.kind === "present";
 }
 
 /**
