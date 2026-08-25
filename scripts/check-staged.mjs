@@ -2,7 +2,7 @@
 // Pre-commit gate: refuse a commit whose staged content is unsafe, from the
 // git index alone — no tool call, no running agent.
 //
-// This is the second of the three checks described in AGENTS.md's
+// This is the third of the four layers described in AGENTS.md's
 // "Enforcement layers": the Claude Code guard hook (.claude/hooks/guard.mjs)
 // only ever sees what happens inside a Claude Code session; this script sees
 // what actually reaches `git commit`, from any author — a human, Codex, or
@@ -59,6 +59,16 @@ function git(args, cwd) {
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
   });
+  // `status` is null when git never ran or was killed — a missing binary, or
+  // output past maxBuffer. Reporting "exited null" with an empty stderr would
+  // tell the reader nothing about which of those happened.
+  if (result.error !== undefined) {
+    throw new Error(
+      `ERR_GIT_UNAVAILABLE: git ${args.join(" ")} could not be run to completion.\n` +
+        `Actual: ${result.error.message}\n` +
+        "Next: check that git is on PATH and that the staged file is not larger than 32 MiB.",
+    );
+  }
   if (result.status !== 0) {
     throw new Error(
       `ERR_GIT_FAILED: git ${args.join(" ")} exited ${String(result.status)}.\n` +
@@ -133,14 +143,16 @@ export function checkStagedChange(change, cwd = repoRoot) {
     return null;
   }
 
-  const after = readStaged(change.path, cwd);
-
   // Reuses the same .env*/secrets/** classification checkRead applies to an
   // agent's Read call — the rule is "this path is secret-shaped", independent
-  // of who or what is about to expose it.
+  // of who or what is about to expose it. Decided before the blob is read, so
+  // a secret file's content is never pulled into this process to reach a
+  // verdict the path alone already gives.
   if (checkRead(change.path) !== null) {
     return `${change.path} looks like it holds secrets and must not be committed. Add it to .gitignore instead, or commit a .example/.sample/.template variant.`;
   }
+
+  const after = readStaged(change.path, cwd);
 
   const credentialReason = checkCredentials(after);
   if (credentialReason !== null) {

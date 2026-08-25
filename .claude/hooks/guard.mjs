@@ -1,6 +1,6 @@
 // PreToolUse hook: block edits to protected files and dangerous commands.
 //
-// This is one of three enforcement layers (see "Enforcement layers" in
+// This is one of four enforcement layers (see "Enforcement layers" in
 // AGENTS.md): `.claude/settings.json`'s `permissions.deny` handles clean
 // path/command matches declaratively; this hook catches the semantic cases a
 // deny pattern cannot express reliably — the official Claude Code docs warn

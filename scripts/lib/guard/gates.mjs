@@ -73,6 +73,11 @@ export const GATE_MARKERS = [
   { pattern: /codeql/i, name: "the CodeQL analysis" },
   { pattern: /zizmor/, name: "the workflow security audit" },
   { pattern: /persist-credentials/, name: "the checkout credential hardening" },
+  // Wiring, not content: scripts/check-staged.mjs is protected from deletion
+  // by ENFORCEMENT_FILES, but the pre-commit layer disappears just as
+  // completely if the job that runs it is dropped from lefthook.yml or the
+  // script from package.json.
+  { pattern: /check[-:]staged/, name: "the staged-content pre-commit check" },
 ];
 
 /** The coverage floor that spec 02 §3.3 fixes; the guard refuses to see it lowered. */

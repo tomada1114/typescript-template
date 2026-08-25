@@ -96,6 +96,18 @@ describe("gates: isGateFile / checkGateRemoval", () => {
     ).toMatch(/frozen-lockfile/);
   });
 
+  it("blocks dropping the staged-content check from the git hooks", () => {
+    // The script file is protected from deletion, but removing the job that
+    // runs it takes the whole pre-commit layer out just as effectively.
+    expect(
+      checkGateRemoval(
+        "lefthook.yml",
+        "    - name: check:staged\n      run: pnpm run check:staged\n",
+        "",
+      ),
+    ).toMatch(/staged-content pre-commit check/);
+  });
+
   it("leaves prose that merely mentions a gate alone", () => {
     // Gate rules apply to gate files, not to every file that says the word.
     expect(

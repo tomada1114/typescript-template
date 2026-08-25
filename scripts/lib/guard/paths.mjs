@@ -4,7 +4,7 @@
 // of what a tool call is or what it carries. Shared by the Claude Code guard
 // hook (.claude/hooks/guard.mjs, which sees a pending tool call) and the
 // pre-commit staged-content check (scripts/check-staged.mjs, which sees a
-// git diff) — the deletion of a lockfile-hand-edit path here on purpose: a
+// git diff) — with the lockfile rule left out of the latter on purpose: a
 // re-generated lockfile is normal to commit, and a git diff cannot tell that
 // apart from a hand edit. Only a tool-call-aware caller can, so lockfile
 // hand-editing stays a guard.mjs-only check (see checkWrite below).
