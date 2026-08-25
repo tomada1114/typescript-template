@@ -311,6 +311,24 @@ describe("guard: quality gates", () => {
     const after = "  timeout-minutes: 15\n  permissions:\n    contents: read\n";
     expect(checkGateRemoval(".github/workflows/ci.yml", before, after)).toBeNull();
   });
+
+  it("blocks removing a gate marker through an absolute file_path", () => {
+    // Claude Code always sends an absolute file_path for Edit/Write, so this
+    // is the shape isGateFile must actually handle. It previously compared an
+    // anchored pattern (`/^eslint\.config\.mjs$/`) against the untouched
+    // absolute path and never matched, silently disabling gate-removal
+    // detection for every real Edit/Write call.
+    const result = runHook("guard.mjs", {
+      tool_name: "Edit",
+      tool_input: {
+        file_path: path.join(repoRoot, "eslint.config.mjs"),
+        old_string: "reportUnusedDisableDirectives",
+        new_string: "// removed",
+      },
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(/unused-disable check/);
+  });
 });
 
 describe("guard: command parsing", () => {

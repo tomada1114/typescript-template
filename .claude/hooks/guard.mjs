@@ -1,9 +1,12 @@
 // PreToolUse hook: block edits to protected files and dangerous commands.
 //
-// Permission `deny` rules are advisory in some Claude Code versions
-// (anthropics/claude-code#6699), and hooks fire even in bypassPermissions mode,
-// so this hook — not the allow/deny list in .claude/settings.json — is the
-// enforcement backstop for the rules below.
+// `.claude/settings.json`'s `permissions.deny` is a hard block in every mode,
+// including bypassPermissions — it is not advisory. It is still fragile for
+// constraining Bash arguments, though: the official Claude Code docs warn
+// that a deny pattern cannot tell `git commit` from `git commit --no-verify`,
+// does not see through an `&&` chain, and a wrapper like `sh -c '…'` defeats
+// it entirely. This hook exists for exactly those semantic cases, and fires
+// even in bypassPermissions mode.
 //
 // Bash commands are split on shell control operators and each segment's argv is
 // inspected on its own, so a flag in one command can neither trigger nor excuse
@@ -20,6 +23,7 @@ import process from "node:process";
 
 import { isMain } from "../../scripts/lib/is-main.mjs";
 import { readKey, readString } from "../../scripts/lib/json.mjs";
+import { repoRoot } from "../../scripts/lib/node-tools.mjs";
 import { readPayload } from "./lib/payload.mjs";
 
 /** Suffixes that mark a committed, secret-free sample of a `.env` file. */
@@ -252,14 +256,33 @@ export function checkCredentials(text) {
 }
 
 /**
+ * Resolve a path to repo-relative POSIX form for matching against
+ * {@link GATE_FILES}.
+ *
+ * @remarks
+ * An absolute `filePath` — which a real Claude Edit/Write call routinely
+ * carries — resolves the same way regardless of the base, since
+ * `path.resolve` discards a relative base once the path being resolved is
+ * already absolute. Without this resolution step, an absolute-path edit of a
+ * gate file silently skipped gate-removal detection: `/^package\.json$/`
+ * never matches `/Users/x/repo/package.json`.
+ *
+ * @param {string} filePath - Path the call targets, absolute or relative.
+ * @returns {string} Path relative to the repository root, POSIX-separated.
+ */
+function toRepoRelative(filePath) {
+  const absolute = path.resolve(repoRoot, filePath.replace(/\\/g, "/"));
+  return path.relative(repoRoot, absolute).split(path.sep).join("/");
+}
+
+/**
  * Report whether a path is one of the files that hold a quality gate.
  *
  * @param {string} filePath - Path the tool call targets.
  * @returns {boolean} True when gate-removal rules apply to this file.
  */
 function isGateFile(filePath) {
-  const { posix } = describePath(filePath);
-  const relative = posix.replace(/^\.\//, "");
+  const relative = toRepoRelative(filePath);
   return GATE_FILES.some((pattern) => pattern.test(relative));
 }
 
@@ -275,9 +298,13 @@ export function checkGateRemoval(filePath, before, after) {
   if (!isGateFile(filePath)) {
     return null;
   }
+  // The reported path is the repo-relative one: a real call carries an
+  // absolute path, and an error an agent reads must never echo a home
+  // directory back out.
+  const relative = toRepoRelative(filePath);
   for (const { pattern, name } of GATE_MARKERS) {
     if (pattern.test(before) && !pattern.test(after)) {
-      return `This edit removes ${name} from ${filePath}. Weakening a quality or supply-chain gate needs a human decision, not an agent edit.`;
+      return `This edit removes ${name} from ${relative}. Weakening a quality or supply-chain gate needs a human decision, not an agent edit.`;
     }
   }
   for (const match of after.matchAll(COVERAGE_THRESHOLD)) {
@@ -744,8 +771,11 @@ export function evaluate(payload) {
       return credentialReason;
     }
     // An Edit says what it replaces; a Write replaces the whole file, so the
-    // current content on disk is what it is being compared against.
-    const before = oldString ?? readIfPresent(filePath);
+    // current content on disk is what it is being compared against. The path
+    // is resolved against the repository root, the same base isGateFile uses,
+    // so a relative path cannot be judged a gate file here and read from
+    // somewhere else.
+    const before = oldString ?? readIfPresent(path.resolve(repoRoot, filePath));
     return checkGateRemoval(filePath, before, after);
   }
 
