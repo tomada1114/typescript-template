@@ -83,16 +83,17 @@ const universalSourceRestrictions = isUniversalProfile()
 
 export default defineConfig([
   // Only generated trees are ignored; everything hand-written is linted,
-  // including repository automation and config files. `.agents/skills/` holds
-  // symlinks into `.claude/skills/**`, already linted at their real path —
-  // following the link here would lint the same files twice.
-  // `.claude/worktrees/` holds full working copies created by agent sessions,
-  // linted in their own checkout.
+  // including repository automation and config files. The explicit
+  // `.agents/skills/merge-dependabot` entry is the symlink bridge into
+  // `.claude/skills/**`, already linted at its real path — naming the bridge
+  // rather than the directory keeps a real file added elsewhere under
+  // `.agents/skills/` linted. `.claude/worktrees/` holds full working copies
+  // created by agent sessions, linted in their own checkout.
   globalIgnores([
     "dist/",
     "coverage/",
     "docs/api/",
-    ".agents/skills/",
+    ".agents/skills/merge-dependabot",
     ".claude/worktrees/",
   ]),
   {

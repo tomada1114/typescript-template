@@ -9,8 +9,8 @@ pnpm-lock.yaml
 CHANGELOG.md
 etc/*.api.md
 
-# Symlinks into .claude/skills/**, already formatted at their real path.
-.agents/skills/
+# Symlink bridge; keep each bridge explicit so real files stay formatted.
+.agents/skills/merge-dependabot
 
 # Full working copies created by agent sessions; formatted in their own checkout.
 .claude/worktrees/
