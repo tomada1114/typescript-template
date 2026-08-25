@@ -124,8 +124,9 @@ can distinguish an explicit "no release" decision from a forgotten Changeset.
 
 `scripts/**` and `.claude/hooks/**` must run on a plain Node before
 `pnpm install` has been run, so they are authored as `.mjs` rather than
-TypeScript. They may only import `node:*` builtins and the shared helpers
-under `scripts/lib/` — never a dependency from `node_modules`; a hook that
+TypeScript. They may only import `node:*` builtins, the shared helpers under
+`scripts/lib/`, and helpers local to their own tree (`.claude/hooks/lib/` for
+the hooks) — never a dependency from `node_modules`; a hook that
 needs an installed tool resolves it at run time through
 `resolveDependencyBin` instead of importing it.
 

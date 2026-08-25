@@ -340,7 +340,7 @@ function copyFiles(sourceRoot, destinationRoot, files) {
       // Unlike copyFileSync below, symlinkSync fails with EEXIST rather than
       // overwriting — this branch can run more than once at the same
       // destination (bootstrap copies root -> staged -> root again).
-      rmSync(destination, { force: true });
+      rmSync(destination, { force: true, recursive: true });
       symlinkSync(readlinkSync(source), destination);
       continue;
     }

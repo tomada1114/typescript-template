@@ -93,7 +93,12 @@ function relativeFiles(root: string, directory: string): string[] {
   return files.sort();
 }
 
-/** Subdirectory AI-layer masters, mirroring `AI_LAYER_FILES` in bootstrap.mjs. */
+/**
+ * Subdirectory AI-layer masters. `bootstrap.mjs` finds these by matching
+ * `AI_LAYER_FILES` against the basename at any depth; this list is the
+ * explicit enumeration of what that match currently selects outside the root,
+ * and must be extended when a new subdirectory master is added.
+ */
 const AI_LAYER_SUBDIR_FILES = ["tests/AGENTS.md", "tests/CLAUDE.md"];
 
 function generatedAiLayer(root: string): string {
@@ -273,6 +278,11 @@ describe("bootstrap profiles", () => {
     for (const [file, contents] of stableAiFiles) {
       expect(readFileSync(path.join(root, file), "utf8")).toBe(contents);
     }
+    expect(existsSync(path.join(root, ".claude", "hooks", "guard.mjs"))).toBe(true);
+    expect(existsSync(path.join(root, ".claude", "hooks", "format.mjs"))).toBe(true);
+    expect(existsSync(path.join(root, ".claude", "hooks", "stop-check.mjs"))).toBe(
+      true,
+    );
     const dependabotBridge = path.join(root, ".agents", "skills", "merge-dependabot");
     expect(lstatSync(dependabotBridge).isSymbolicLink()).toBe(true);
     expect(existsSync(dependabotBridge)).toBe(true);
