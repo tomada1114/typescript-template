@@ -85,7 +85,9 @@ export function checkWrite(filePath) {
     return `${name} is generated — run \`pnpm install\`, \`pnpm add\` or \`pnpm update\` instead of editing it.`;
   }
   // A read block is also a write block: the write-side counterpart of the
-  // Read(.env)/Read(secrets/**) deny rules in .claude/settings.json.
+  // Read(/.env), Read(/.env.*) and Read(/secrets/**) deny rules in
+  // .claude/settings.json. Those are anchored to the settings file; this layer
+  // matches by path shape, so it holds from any cwd.
   const readReason = checkRead(filePath);
   if (readReason !== null) {
     return readReason.replace("read by the agent", "written by the agent");
