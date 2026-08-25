@@ -17,7 +17,6 @@ import { spawnSync } from "node:child_process";
 import console from "node:console";
 import process from "node:process";
 
-import { isolatedGitEnv } from "../../scripts/lib/git-env.mjs";
 import { isMain } from "../../scripts/lib/is-main.mjs";
 import { readKey } from "../../scripts/lib/json.mjs";
 import {
@@ -110,8 +109,6 @@ function gitStatus() {
     cwd: repoRoot,
     encoding: "utf8",
     timeout: 30_000,
-    // `repoRoot` names the repository — see scripts/lib/git-env.mjs.
-    env: isolatedGitEnv(),
   });
   return result.status === 0 ? result.stdout : "";
 }

@@ -9,11 +9,14 @@
 // throwaway fixture repository built that way stages its `.env` into the real
 // index and rewrites the real `.git/config`.
 //
-// Every git spawn in this repository's automation and tests names the
-// repository it means, as a `cwd` or an explicit `-C`, so every one of them
-// clears these variables and lets that name decide. Under a hook the two agree;
-// under a test driving a fixture repository they do not, and the inherited one
-// wins by default.
+// A git spawn that names the repository it means — an explicit `-C`, or a
+// throwaway directory it just created — clears these variables and lets that
+// name decide. `scripts/check-staged.mjs` is the one deliberate exception: it
+// *is* the pre-commit layer, and `git commit -- <path>` hands its hook a
+// temporary index through GIT_INDEX_FILE that the default index does not
+// contain, so it has to inherit. Its tests clear the variables from their own
+// process instead (`vi.stubEnv`), which is also how `tests/bootstrap.test.ts`
+// keeps its fixtures out of the checkout.
 import process from "node:process";
 
 /**
@@ -25,7 +28,9 @@ import process from "node:process";
  * `GIT_CEILING_DIRECTORIES` and the `GIT_CONFIG_*` family all redirect where git
  * reads and writes, and a list that has to be kept in step with git's own is a
  * list that will be out of date the next time one is added. A fixture repository
- * needs none of them.
+ * needs none of them. Nothing spawned with this environment talks to a remote,
+ * so the transport and credential variables in that prefix have nothing to
+ * carry: `git init`, `add`, `ls-files` and `show` against a local directory.
  *
  * @param {NodeJS.ProcessEnv} [env] - Environment to copy. Defaults to the
  * current process environment.

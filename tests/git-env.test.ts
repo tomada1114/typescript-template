@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -32,6 +32,11 @@ function makeRepo(prefix: string): string {
  */
 function hookEnvironment(outer: string): NodeJS.ProcessEnv {
   return { ...isolatedGitEnv(), GIT_DIR: path.join(outer, ".git") };
+}
+
+/** A repository's own config file, which a fixture's `git init`/`git config` would rewrite. */
+function configOf(dir: string): string {
+  return readFileSync(path.join(dir, ".git", "config"), "utf8");
 }
 
 /** The staged paths of a repository, as `git diff --cached --name-only` reports them. */
@@ -90,15 +95,24 @@ describe("git spawned under a hook's GIT_DIR", () => {
     const outer = makeRepo("git-env-outer-");
     const fixture = makeRepo("git-env-fixture-");
     const hookEnv = hookEnvironment(outer);
+    const outerConfig = configOf(outer);
     writeFileSync(path.join(fixture, ".env"), "TOKEN=fixture\n", "utf8");
 
     execFileSync("git", ["add", ".env"], {
       cwd: fixture,
       env: isolatedGitEnv(hookEnv),
     });
+    execFileSync("git", ["config", "user.email", "fixture@example.com"], {
+      cwd: fixture,
+      env: isolatedGitEnv(hookEnv),
+    });
 
     expect(stagedPaths(fixture)).toStrictEqual([".env"]);
     expect(stagedPaths(outer)).toStrictEqual([]);
+    // `git init` and `git config` rewrite the *repository's* config, which is
+    // shared by every worktree — the damage that outlives a single index.
+    expect(configOf(outer)).toBe(outerConfig);
+    expect(configOf(fixture)).toContain("fixture@example.com");
   });
 
   it("stages into the repository that set GIT_DIR when the variable is inherited", () => {
