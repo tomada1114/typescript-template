@@ -120,6 +120,39 @@ failure is the design working, not an obstacle to route around.
 Every other PR records an empty Changeset with `pnpm changeset --empty`, so CI
 can distinguish an explicit "no release" decision from a forgotten Changeset.
 
+## Filing and triaging issues
+
+Labels carry the triage decision, so it is made once and read back rather than
+re-derived every time the backlog is looked at. An issue is filed with a type
+label and left untiered; triage adds the priority.
+
+| Label             | Means                                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| `priority: P0`    | Ship now — other open issues are blocked on it, or damage is being taken (red main, vulnerability) |
+| `priority: P1`    | Do next — leverage: CI, schema, shared types, config, the ground later issues stand on             |
+| `priority: P2`    | Normal — a real, self-contained change; nothing waits on it                                        |
+| `priority: P3`    | Defer — nice-to-have, docs polish, cosmetics                                                       |
+| `blocked: design` | The approach is not settled; needs a human decision before anyone implements it                    |
+
+Priority here means impact on the rest of the backlog, not how interesting the
+work is. Tier and design-readiness are independent: an issue carrying
+`blocked: design` still gets a tier, so it ranks correctly the moment the block
+clears. A label that turns out to be wrong gets corrected, not worked around —
+ranking around a stale label in your head leaves the next reader to make the
+same mistake.
+
+Two things belong in the issue body because nothing else can recover them
+later: what is wrong today, with a `path:line`, and what observable result
+closes it — named as a test or a command, not as a feeling of doneness. An
+ordering constraint between issues is written as `Depends on: #12`, which is
+the spelling automation parses; prose like "after the guard work lands" is not.
+
+The type labels are `bug`, `enhancement`, `documentation`, `chore`, and
+`security`. Only the first three are GitHub defaults, so `chore` and `security`
+have to be created before the forms in `.github/ISSUE_TEMPLATE/` can apply
+them — GitHub silently drops a label a repository does not have, rather than
+reporting one.
+
 ## Repository automation (`.mjs`)
 
 `scripts/**` and `.claude/hooks/**` must run on a plain Node before
