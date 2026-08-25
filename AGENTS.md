@@ -302,6 +302,47 @@ published less than 7 days ago will not resolve, for any install.
   `@ts-ignore`, no blanket `eslint-disable`, no skipped or deleted test. If a
   gate is wrong, say so and let a human decide.
 
+## Enforcement layers
+
+The rules above are enforced by four layers, from declarative to procedural.
+Each layer holds only what belongs there — the rule itself lives in exactly
+one place, never copied between layers:
+
+| Layer                                        | Fires on                  | Applies to             | Holds                                                                       |
+| -------------------------------------------- | ------------------------- | ---------------------- | --------------------------------------------------------------------------- |
+| `.claude/settings.json`'s `permissions.deny` | every tool call           | Claude Code only       | Rules a path or command pattern can state declaratively                     |
+| `.claude/hooks/guard.mjs` (PreToolUse)       | every tool call           | Claude Code only       | Rules that need to see the actual shell command or diff, not just a pattern |
+| `lefthook` pre-commit / pre-push             | `git commit` / `git push` | every author, any tool | Rules a staged diff or the full test suite can decide                       |
+| This file                                    | read at session start     | every agent            | Everything else — the reasons behind the rules above                        |
+
+`permissions.deny` rules are a hard block, including in `bypassPermissions`
+mode — they are not advisory. They are declarative pattern matches, though,
+and the official Claude Code docs warn that a Bash pattern constraining
+arguments is fragile: it cannot tell `git commit` from `git commit
+--no-verify`, does not see through an `&&` chain or an `eval`, and a wrapper
+like `sh -c '…'` defeats it entirely. `guard.mjs` exists for exactly the
+rules a pattern cannot express reliably — see its own header comment for the
+full reasoning.
+
+The Claude-only layers (`permissions.deny`, `guard.mjs`) exist because a
+Claude Code session is the only place they can run — a permission system and
+a PreToolUse hook are both concepts specific to this host. The rule engine
+they share lives in `scripts/lib/guard/`, imported by `guard.mjs` and by
+`scripts/check-staged.mjs` (the pre-commit layer) alike, so a rule is never
+maintained twice. `scripts/check-staged.mjs`'s own header explains exactly
+which rules it shares with the hook and which it cannot enforce from a diff
+alone. Hooks are Claude Code only for now; a Codex CLI adapter, when it
+exists, is expected to import the same `scripts/lib/guard/` modules rather
+than reimplement their rules.
+
+The lockfile rule is split on purpose, and is the clearest example of why a
+rule sometimes belongs in only one layer: hand-editing `pnpm-lock.yaml` is
+refused by `permissions.deny` and by `guard.mjs`, but **not** by
+`check-staged.mjs`. A regenerated lockfile (`pnpm install`) is an ordinary,
+expected commit, and a git diff cannot tell that apart from a hand edit —
+only a layer that sees the actual tool call knows which command produced the
+change.
+
 ## Conventions: `docs/**/*.md`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`
 
 - Document non-obvious behavior, architecture decisions, and trade-offs. Do

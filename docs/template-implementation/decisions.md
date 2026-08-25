@@ -439,3 +439,41 @@ Phase 0〜9 の記述時点では path-scoped rules は Claude Code 専用の `.
   `scripts/bootstrap.mjs` の `copyFiles` はこの移設で初めてリポジトリに symlink が入り、
   シンボリックリンクを再コピーする際に `EEXIST` で失敗する既存バグを踏んだため、
   上書き前に `rmSync(destination, { force: true })` を挟むよう修正した。
+
+---
+
+## 18. Enforcement を4層に分割し、hooks は Claude Code 専用のまま強化（2026-08-24 追記）
+
+§17 の移設を試みた別セッションでは、hooks も `.agents/hooks/` へ移して Codex CLI の
+`apply_patch` 方言まで解析させていました。しかしそれは時期尚早と判断し、hooks は
+`.claude/hooks/` に残したまま Claude Code 専用としています。Codex 対応は別途行います。
+
+代わりに、強制（enforcement）を4層に整理しました。詳細は `AGENTS.md` の
+「Enforcement layers」節。
+
+1. `.claude/settings.json` の `permissions.deny` — 宣言的に書けるパス／コマンドの拒否。
+   **現行 Claude Code では bypassPermissions を含む全モードでハード enforce される**
+   （`deny` が advisory だったのは古い認識で、`guard.mjs` の旧コメントに残っていた
+   誤記は訂正した）。ただし公式ドキュメントは「引数を制約する Bash パターンは
+   fragile」と明言しており、`git commit` と `git commit --no-verify` の区別、
+   `&&` チェーンの読み解き、`eval`/wrapper の迂回といった意味判断はできない。
+2. `.claude/hooks/guard.mjs`（PreToolUse）— (1) が表現できない意味判断を担う。
+   絶対パスの gate ファイル判定が実は常に false になっていたバグ
+   （`isGateFile` がアンカー付き正規表現を Claude の送る絶対パスにそのまま
+   当てていた）をここで修正した。
+3. `lefthook` pre-commit / pre-push — 誰が（人間・Codex・その他ツール）コミットしても
+   効く唯一の層。新設の `scripts/check-staged.mjs` が staged diff から
+   認証情報混入・gate マーカー削除・gate ファイルの staged deletion・
+   `.env*`/`secrets/**` の staging を検査する。**lockfile の手編集はここでは検査しない**
+   — 再生成された lockfile のコミットは正常な作業であり、diff だけでは
+   「手編集」と「`pnpm install` の出力」を区別できないため。
+4. `AGENTS.md` 自身 — 上記3層がなぜそうなっているかの説明。
+
+規則の実装は `scripts/lib/guard/`（`paths.mjs` / `credentials.mjs` / `gates.mjs` /
+`shell.mjs` / `commands.mjs`）に一本化し、`.claude/hooks/guard.mjs` と
+`scripts/check-staged.mjs` の両方がそこから import する。将来 Codex 側の hook を
+書くときも、この層をそのまま import する薄いアダプタを足すだけで済む設計にした。
+
+`lefthook.yml` の pre-commit には `typecheck`（プロジェクト全体、実測 ~2秒）と
+`test:related`（`vitest related` で staged ファイルのモジュールグラフから
+関係するテストだけを走らせる）も追加した。
