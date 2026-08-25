@@ -6,14 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import {
-  checkCredentials,
-  checkGateRemoval,
-  evaluate,
-  segments,
-  shortClusterHas,
-  writtenFiles,
-} from "../.claude/hooks/guard.mjs";
+import { evaluate } from "../.claude/hooks/guard.mjs";
 import {
   CHECKS,
   checkCommand,
@@ -213,6 +206,25 @@ describe("guard: calls that must be blocked", () => {
     expect(result.status).toBe(2);
     expect(result.stderr).toMatch(reason);
   });
+
+  it("blocks removing a gate marker through an absolute file_path", () => {
+    // Claude Code always sends an absolute file_path for Edit/Write. Gate-file
+    // detection is anchored against a path relative to the repository root
+    // (isGateFile in scripts/lib/guard/gates.mjs), so this only catches the
+    // removal when that absolute path is resolved back to a relative one
+    // first — the regression this guards against left every Edit/Write call
+    // to a gate file unchecked.
+    const result = runHook("guard.mjs", {
+      tool_name: "Edit",
+      tool_input: {
+        file_path: path.join(repoRoot, "eslint.config.mjs"),
+        old_string: "reportUnusedDisableDirectives",
+        new_string: "// removed",
+      },
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(/unused-disable check/);
+  });
 });
 
 /**
@@ -231,7 +243,6 @@ function secretShaped(...parts: string[]): string {
 describe("guard: credentials", () => {
   const npmToken = secretShaped("npm_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8");
   const authTokenLine = secretShaped("//registry.npmjs.org/:_auth", "Token=", npmToken);
-  const privateKey = secretShaped("-----BEGIN RSA ", "PRIVATE ", "KEY-----");
 
   it("blocks writing a registry auth token into an npmrc", () => {
     const result = runHook("guard.mjs", writePayload(".npmrc", `${authTokenLine}\n`));
@@ -247,10 +258,6 @@ describe("guard: credentials", () => {
     expect(result.status).toBe(2);
   });
 
-  it("blocks committing a private key", () => {
-    expect(checkCredentials(`${privateKey}\nMIIE…\n`)).toMatch(/private key/);
-  });
-
   it("allows an npmrc that only configures a registry", () => {
     const result = runHook(
       "guard.mjs",
@@ -258,111 +265,14 @@ describe("guard: credentials", () => {
     );
     expect(result.status).toBe(0);
   });
-
-  it("does not flag ordinary prose", () => {
-    expect(
-      checkCredentials("Store the token in the environment, never in a file."),
-    ).toBeNull();
-  });
 });
 
-describe("guard: quality gates", () => {
-  it("blocks lowering a coverage threshold", () => {
-    const before = "thresholds: { lines: 80, branches: 80 }";
-    const after = "thresholds: { lines: 50, branches: 80 }";
-    expect(checkGateRemoval("vitest.config.ts", before, after)).toMatch(
-      /coverage threshold/,
-    );
-  });
-
-  it("allows raising a coverage threshold", () => {
-    const before = "thresholds: { lines: 80 }";
-    const after = "thresholds: { lines: 90 }";
-    expect(checkGateRemoval("vitest.config.ts", before, after)).toBeNull();
-  });
-
-  it("blocks dropping a workflow's permissions block", () => {
-    const before = "jobs:\n  build:\n    permissions:\n      contents: read\n";
-    const after = "jobs:\n  build:\n    runs-on: ubuntu-latest\n";
-    expect(checkGateRemoval(".github/workflows/ci.yml", before, after)).toMatch(
-      /least-privilege/,
-    );
-  });
-
-  it("blocks dropping --frozen-lockfile from a workflow", () => {
-    expect(
-      checkGateRemoval(
-        ".github/workflows/ci.yml",
-        "run: pnpm install --frozen-lockfile",
-        "run: pnpm install",
-      ),
-    ).toMatch(/frozen-lockfile/);
-  });
-
-  it("leaves prose that merely mentions a gate alone", () => {
-    // Gate rules apply to gate files, not to every file that says the word.
-    expect(
-      checkGateRemoval("docs/notes.md", "we use --frozen-lockfile", "we removed it"),
-    ).toBeNull();
-  });
-
-  it("does not fire when a gate file is edited without touching a gate", () => {
-    const before = "  timeout-minutes: 10\n  permissions:\n    contents: read\n";
-    const after = "  timeout-minutes: 15\n  permissions:\n    contents: read\n";
-    expect(checkGateRemoval(".github/workflows/ci.yml", before, after)).toBeNull();
-  });
-
-  it("blocks removing a gate marker through an absolute file_path", () => {
-    // Claude Code always sends an absolute file_path for Edit/Write, so this
-    // is the shape isGateFile must actually handle. It previously compared an
-    // anchored pattern (`/^eslint\.config\.mjs$/`) against the untouched
-    // absolute path and never matched, silently disabling gate-removal
-    // detection for every real Edit/Write call.
-    const result = runHook("guard.mjs", {
-      tool_name: "Edit",
-      tool_input: {
-        file_path: path.join(repoRoot, "eslint.config.mjs"),
-        old_string: "reportUnusedDisableDirectives",
-        new_string: "// removed",
-      },
-    });
-    expect(result.status).toBe(2);
-    expect(result.stderr).toMatch(/unused-disable check/);
-  });
-});
-
-describe("guard: command parsing", () => {
-  it("splits on control operators", () => {
-    expect(segments("pnpm test && git push -f origin main")).toEqual([
-      ["pnpm", "test"],
-      ["git", "push", "-f", "origin", "main"],
-    ]);
-  });
-
-  it("keeps a quoted control operator inside its token", () => {
-    expect(segments('git commit -m "a && b"')).toEqual([
-      ["git", "commit", "-m", "a && b"],
-    ]);
-  });
-
-  it("joins a line continuation", () => {
-    expect(segments("pnpm run \\\n  build")).toEqual([["pnpm", "run", "build"]]);
-  });
-
-  it("stops reading a short cluster at an option that takes a value", () => {
-    // In `-mn` the `n` is part of the commit message, not --no-verify.
-    expect(shortClusterHas("-mn", "n", "mFCct")).toBe(false);
-    expect(shortClusterHas("-nm", "n", "mFCct")).toBe(true);
-    expect(shortClusterHas("--no-verify", "n", "mFCct")).toBe(false);
-  });
-
-  it("finds redirection targets in both spellings", () => {
-    expect(writtenFiles(["echo", "x", ">", "out.txt"])).toContain("out.txt");
-    expect(writtenFiles(["echo", "x", ">>out.txt"])).toContain("out.txt");
-    expect(writtenFiles(["tee", "out.txt"])).toContain("out.txt");
-    expect(writtenFiles(["sed", "-i", "s/a/b/", "out.txt"])).toContain("out.txt");
-  });
-
+// Pure-function coverage for the rule engine itself — checkCredentials,
+// checkGateRemoval, segments, shortClusterHas, writtenFiles, and friends —
+// lives in tests/guard-rules.test.ts. What stays here is the integration
+// contract: that .claude/hooks/guard.mjs, run as a real process against a
+// real payload, produces the right exit code.
+describe("guard: dispatch", () => {
   it("evaluates an unknown tool as harmless", () => {
     expect(
       evaluate({ tool_name: "Glob", tool_input: { pattern: "**/*.ts" } }),

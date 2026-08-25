@@ -28,6 +28,30 @@ pre-commit:
     - name: prettier
       run: pnpm exec prettier --check --ignore-unknown {staged_files}
 
+    # Type-checks the whole program, not only the staged files — a change in
+    # one file routinely breaks a type in another that this commit does not
+    # touch. Cheap enough (~2s) to run on every commit that touches code.
+    - name: typecheck
+      glob: "*.{ts,mts,cts,js,mjs,cjs}"
+      run: pnpm run typecheck
+
+    # Only the test files reachable from the staged files' module graph, not
+    # the whole suite — `pnpm run check:quick` (pre-push, below) is where the
+    # full suite runs. No glob: unlike eslint/typecheck this needs to see
+    # every staged path itself to decide what is related, including a staged
+    # test file with no production-code counterpart.
+    - name: test:related
+      run: pnpm run test:related {staged_files}
+
+    # Content-based checks git itself can see: a credential in a staged file,
+    # a quality gate stripped out of a gate file, a staged deletion of one, an
+    # .env*/secrets/** file about to be committed. No glob: this is the layer
+    # that must see every staged file, whatever its extension — see
+    # scripts/check-staged.mjs's header for what it does and does not cover,
+    # and how it differs from the Claude Code guard hook.
+    - name: check:staged
+      run: pnpm run check:staged
+
 pre-push:
   skip:
     - merge

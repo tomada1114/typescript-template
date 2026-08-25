@@ -470,3 +470,46 @@ Claude Code バージョンでは advisory」という誤記が残っていま�
 
 ルールエンジンを `scripts/lib/guard/` へ抽出し、git の staged content を検査する
 pre-commit 層(`scripts/check-staged.mjs`)を新設する話は別途行う。§19 参照。
+
+---
+
+## 19. ルールエンジンを `scripts/lib/guard/` に抽出し、pre-commit 層を新設（2026-08-24 追記）
+
+§18 の時点で `.claude/hooks/guard.mjs` は 775 行の単一ファイルで、Claude Code
+セッションの中でしか効かなかった。人間が直接コミットした場合や別ツールが
+コミットした場合には一切効かないため、誰がコミットしても効く層を別途設けることにした。
+
+Enforcement を4層に整理した(詳細は `AGENTS.md` の「Enforcement layers」節):
+
+1. `.claude/settings.json` の `permissions.deny` — §18 で追加済み。宣言的に書ける
+   パス/コマンドの拒否。
+2. `.claude/hooks/guard.mjs`(PreToolUse)— (1) が表現できない意味判断を担う。
+3. `lefthook` pre-commit / pre-push — 誰が(人間・Codex・その他ツール)コミットしても
+   効く唯一の層。新設の `scripts/check-staged.mjs` が staged diff から
+   認証情報混入・gate マーカー削除・gate ファイルの staged deletion・
+   `.env*`/`secrets/**` の staging を検査する。**lockfile の手編集はここでは検査しない**
+   — 再生成された lockfile のコミットは正常な作業であり、diff だけでは
+   「手編集」と「`pnpm install` の出力」を区別できないため。
+4. `AGENTS.md` 自身 — 上記3層がなぜそうなっているかの説明。
+
+規則の実装(パス/認証情報/gate マーカー判定、shell の字句解析)は `guard.mjs` から
+`scripts/lib/guard/`(`paths.mjs` / `credentials.mjs` / `gates.mjs` / `shell.mjs` /
+`commands.mjs`)に一本化した。移動した約683行は `export` を付けた以外バイト単位で
+同一で、振る舞いの変更はない。`.claude/hooks/guard.mjs` と `scripts/check-staged.mjs`
+の両方がそこから import することで、規則が二重管理にならない。将来 Codex 側の hook を
+書くときも、この層をそのまま import する薄いアダプタを足すだけで済む設計にした。
+
+抽出は §18 のバグとは別の自己参照バグを顕在化させた。旧 `GATE_FILES` は
+`CONFIG_GATE_FILES`(マーカー走査 + 削除保護の対象になる設定ファイル)と
+`ENFORCEMENT_FILES`(削除保護のみの対象 — エンジン自身の実装ファイル)に分割した。
+`GATE_MARKERS` の正規表現ソース文字列自体が `gates.mjs` に載っているため、
+このファイル自身を「マーカーが消えたか」で走査すると、抽出のようなリファクタが
+軒並み「gate 削除」と誤検知される。実際に必要なマーカー走査対象は
+`CONFIG_GATE_FILES` の設定ファイル群だけであり、エンジンの実装ファイルは
+削除保護だけ効けばよい。
+
+`lefthook.yml` の pre-commit には `check:staged`(`scripts/check-staged.mjs` を叩く)
+に加えて `typecheck`(プロジェクト全体、実測 ~2秒)と `test:related`(`vitest related`
+で staged ファイルのモジュールグラフから関係するテストだけを走らせる)も追加した。
+この2つは enforcement 層そのものとは無関係な pre-commit の強化だが、過分割を避けて
+同じコミットにまとめた。

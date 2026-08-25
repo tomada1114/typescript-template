@@ -18,11 +18,12 @@ file only records what Claude Code adds on top of them.
   `git commit --no-verify`, plain force-pushes, `npm`/`pnpm publish`, workflow
   dispatch, and edits that remove a quality gate. It inspects each segment of a
   shell command separately, so hiding a blocked command behind `&&` does not
-  work, and fires even in bypassPermissions mode. `.claude/settings.json`'s
-  `permissions.deny` (see the bullet below) declares the same rules where a
-  path or command pattern can state them declaratively — it is a hard block
-  in every mode too, not advisory — but is fragile for constraining Bash
-  arguments, which is what this hook is for.
+  work, and fires even in bypassPermissions mode. Its rule engine lives in
+  `scripts/lib/guard/`, shared with `scripts/check-staged.mjs` — see
+  AGENTS.md's "Enforcement layers" for the full four-layer design and why some
+  of these same rules are also declared as `permissions.deny` entries below.
+  Hooks are Claude Code only for now; a future Codex adapter would import the
+  same `scripts/lib/guard/` modules rather than duplicate them.
 - `.claude/hooks/stop-check.mjs` (Stop) — runs the `pnpm check:quick` gate
   before a turn ends, but only when the working tree has changed TypeScript,
   JavaScript, or package configuration.
