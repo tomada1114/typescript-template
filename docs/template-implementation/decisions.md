@@ -439,3 +439,34 @@ Phase 0〜9 の記述時点では path-scoped rules は Claude Code 専用の `.
   `scripts/bootstrap.mjs` の `copyFiles` はこの移設で初めてリポジトリに symlink が入り、
   シンボリックリンクを再コピーする際に `EEXIST` で失敗する既存バグを踏んだため、
   上書き前に `rmSync(destination, { force: true })` を挟むよう修正した。
+
+---
+
+## 18. `permissions.deny` を宣言的に整備し、gate ファイル判定の絶対パスバグを修正（2026-08-24 追記）
+
+`.claude/hooks/guard.mjs` のヘッダーコメントには「permission `deny` ルールは一部の
+Claude Code バージョンでは advisory」という誤記が残っていましたが、これは古い認識
+（anthropics/claude-code#6699 由来）で、**現行 Claude Code では bypassPermissions を
+含む全モードで `deny` はハード enforce される**。ただし公式ドキュメントは「引数を
+制約する Bash パターンは fragile」と明言しており(`git commit` と `git commit
+--no-verify` の区別、`&&` チェーンの読み解き、`sh -c '…'` のような wrapper の迂回は
+できない)、これは今後も `guard.mjs` の役割として残る。
+
+これを踏まえ `.claude/settings.json` の `permissions.deny` に、パスやコマンドの
+完全一致で表現できるルール(lockfile 5 種の `Edit`、`npm`/`pnpm`/`yarn`/`bun` の
+`publish`、`gh workflow run`、`gh release create`)を宣言的に追加した。あわせて、
+`Edit(path)` が全ての編集ツールを既に覆っているため一度もマッチしていなかった
+並行の `Write(.env)` / `Write(.env.*)` / `Write(secrets/**)` エントリは削除した
+(`Write` という別ツールが存在するかのような誤解を招くだけで、実効性がなかった)。
+
+`guard.mjs` 側では実バグも見つかった。gate ファイル判定 (`isGateFile`) は
+`/^package\.json$/` のようなアンカー付き正規表現を、パスの先頭 `./` を落としただけの
+文字列に当てていたが、Claude Code が Edit/Write で送る `file_path` は常に
+**絶対パス**であり、`/Users/x/repo/package.json` のような文字列はどのパターンにも
+一致しない。つまり **gate 除去検知は実際の Edit/Write 呼び出しに対して一度も
+発火していなかった**。`scripts/lib/node-tools.mjs` の既存 export `repoRoot` を使い、
+`path.resolve` + `path.relative` でリポジトリ相対パスに正規化してから照合するよう
+修正し、絶対パスでの gate マーカー削除をブロックする回帰テストを追加した。
+
+ルールエンジンを `scripts/lib/guard/` へ抽出し、git の staged content を検査する
+pre-commit 層(`scripts/check-staged.mjs`)を新設する話は別途行う。§19 参照。

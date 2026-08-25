@@ -18,9 +18,11 @@ file only records what Claude Code adds on top of them.
   `git commit --no-verify`, plain force-pushes, `npm`/`pnpm publish`, workflow
   dispatch, and edits that remove a quality gate. It inspects each segment of a
   shell command separately, so hiding a blocked command behind `&&` does not
-  work. It is the enforcement backstop rather than a reminder: permission
-  `deny` rules are advisory in some versions, and hooks fire even in
-  bypassPermissions mode.
+  work, and fires even in bypassPermissions mode. `.claude/settings.json`'s
+  `permissions.deny` (see the bullet below) declares the same rules where a
+  path or command pattern can state them declaratively — it is a hard block
+  in every mode too, not advisory — but is fragile for constraining Bash
+  arguments, which is what this hook is for.
 - `.claude/hooks/stop-check.mjs` (Stop) — runs the `pnpm check:quick` gate
   before a turn ends, but only when the working tree has changed TypeScript,
   JavaScript, or package configuration.
@@ -35,9 +37,13 @@ file only records what Claude Code adds on top of them.
   symlink to this directory so Codex CLI can see it too — edit the real
   files here, never the symlink.
 - `.claude/settings.json` — the shared permission allowlist, limited to local
-  build, lint, and test commands. Personal preferences (model, output style,
-  extra permissions) belong in `.claude/settings.local.json`, which is
-  gitignored, and never here.
+  build, lint, and test commands, plus `permissions.deny` entries for the
+  rules a path or command pattern can state declaratively (`.env*`,
+  `secrets/**`, every lockfile, `npm`/`pnpm publish`, workflow dispatch).
+  These are a hard block in every mode, including bypassPermissions — they
+  are not advisory. Personal preferences (model, output style, extra
+  permissions) belong in `.claude/settings.local.json`, which is gitignored,
+  and never here.
 
 When the guard blocks something, the answer is to fix what made the bypass look
 necessary, or to ask. It is not to find another spelling.
