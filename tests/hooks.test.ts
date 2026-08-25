@@ -33,9 +33,9 @@ interface HookResult {
 }
 
 /** Run one hook the way Claude Code runs it: payload on stdin, answer as an exit code. */
-function runHook(hook: string, payload: unknown): HookResult {
+function runHook(hook: string, payload: unknown, cwd: string = repoRoot): HookResult {
   const result = spawnSync(process.execPath, [path.join(hooksDir, hook)], {
-    cwd: repoRoot,
+    cwd,
     input: typeof payload === "string" ? payload : JSON.stringify(payload),
     encoding: "utf8",
     timeout: 60_000,
@@ -224,6 +224,23 @@ describe("guard: calls that must be blocked", () => {
     });
     expect(result.status).toBe(2);
     expect(result.stderr).toMatch(/unused-disable check/);
+  });
+
+  it.each([
+    [
+      "the repository-root lockfile",
+      writePayload(path.join(repoRoot, "pnpm-lock.yaml")),
+      /pnpm-lock\.yaml is generated/,
+    ],
+    [
+      "the repository-root dotenv file",
+      { tool_name: "Read", tool_input: { file_path: path.join(repoRoot, ".env") } },
+      /\.env\*/,
+    ],
+  ])("blocks %s from a non-root cwd", (_label, payload, reason) => {
+    const result = runHook("guard.mjs", payload, path.join(repoRoot, "src"));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(reason);
   });
 });
 
