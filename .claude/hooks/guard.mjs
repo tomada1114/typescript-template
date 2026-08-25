@@ -298,9 +298,13 @@ export function checkGateRemoval(filePath, before, after) {
   if (!isGateFile(filePath)) {
     return null;
   }
+  // The reported path is the repo-relative one: a real call carries an
+  // absolute path, and an error an agent reads must never echo a home
+  // directory back out.
+  const relative = toRepoRelative(filePath);
   for (const { pattern, name } of GATE_MARKERS) {
     if (pattern.test(before) && !pattern.test(after)) {
-      return `This edit removes ${name} from ${filePath}. Weakening a quality or supply-chain gate needs a human decision, not an agent edit.`;
+      return `This edit removes ${name} from ${relative}. Weakening a quality or supply-chain gate needs a human decision, not an agent edit.`;
     }
   }
   for (const match of after.matchAll(COVERAGE_THRESHOLD)) {
@@ -767,8 +771,11 @@ export function evaluate(payload) {
       return credentialReason;
     }
     // An Edit says what it replaces; a Write replaces the whole file, so the
-    // current content on disk is what it is being compared against.
-    const before = oldString ?? readIfPresent(filePath);
+    // current content on disk is what it is being compared against. The path
+    // is resolved against the repository root, the same base isGateFile uses,
+    // so a relative path cannot be judged a gate file here and read from
+    // somewhere else.
+    const before = oldString ?? readIfPresent(path.resolve(repoRoot, filePath));
     return checkGateRemoval(filePath, before, after);
   }
 

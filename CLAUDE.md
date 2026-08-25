@@ -39,7 +39,8 @@ file only records what Claude Code adds on top of them.
 - `.claude/settings.json` — the shared permission allowlist, limited to local
   build, lint, and test commands, plus `permissions.deny` entries for the
   rules a path or command pattern can state declaratively (`.env*`,
-  `secrets/**`, every lockfile, `npm`/`pnpm publish`, workflow dispatch).
+  `secrets/**`, every lockfile, `publish` on every package manager, workflow
+  dispatch, `gh release create`).
   These are a hard block in every mode, including bypassPermissions — they
   are not advisory. Personal preferences (model, output style, extra
   permissions) belong in `.claude/settings.local.json`, which is gitignored,
