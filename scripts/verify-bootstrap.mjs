@@ -46,6 +46,35 @@ function run(command, args, cwd) {
 }
 
 /**
+ * Distinguish an absent path from a symlink whose target is absent.
+ *
+ * @param {string} source
+ * @param {string} relative
+ * @returns {boolean}
+ */
+function isCopyableSource(source, relative) {
+  let stat;
+  try {
+    stat = lstatSync(source);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+  if (stat.isSymbolicLink() && !existsSync(source)) {
+    const target = readlinkSync(source);
+    throw new Error(
+      `ERR_BROKEN_SYMLINK: Link: ${relative}\n` +
+        "Expected: the symlink target to exist.\n" +
+        `Actual: missing target ${target}.\n` +
+        "Next: restore the target or remove the link, then rerun `pnpm run bootstrap:e2e`.",
+    );
+  }
+  return true;
+}
+
+/**
  * @param {string} destination
  */
 function copyTemplate(destination) {
@@ -59,7 +88,7 @@ function copyTemplate(destination) {
   }
   for (const relative of files.stdout.split("\0").filter(Boolean)) {
     const source = path.join(ROOT, relative);
-    if (!existsSync(source)) {
+    if (!isCopyableSource(source, relative)) {
       continue;
     }
     const target = path.join(destination, relative);

@@ -295,7 +295,7 @@ function projectFiles(root) {
       .split("\0")
       .filter(Boolean)
       .map(normalizeRelativePath)
-      .filter((relative) => existsSync(path.join(root, relative)));
+      .filter((relative) => isCopyablePath(root, relative));
   }
 
   /** @type {string[]} */
@@ -322,7 +322,38 @@ function projectFiles(root) {
     }
   };
   visit(root);
-  return files.sort();
+  return files.filter((relative) => isCopyablePath(root, relative)).sort();
+}
+
+/**
+ * Distinguish an absent path from a symlink whose target is absent.
+ *
+ * @param {string} root
+ * @param {string} relative
+ * @returns {boolean}
+ */
+function isCopyablePath(root, relative) {
+  const absolute = path.join(root, relative);
+  let stat;
+  try {
+    stat = lstatSync(absolute);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+  if (stat.isSymbolicLink() && !existsSync(absolute)) {
+    const target = readlinkSync(absolute);
+    throw new BootstrapError(
+      "ERR_BROKEN_SYMLINK",
+      `Link: ${relative}\n` +
+        "Expected: the symlink target to exist.\n" +
+        `Actual: missing target ${target}.\n` +
+        "Next: restore the target or remove the link, then rerun `node scripts/bootstrap.mjs` with the same arguments.",
+    );
+  }
+  return true;
 }
 
 /**

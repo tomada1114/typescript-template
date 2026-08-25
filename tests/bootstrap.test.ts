@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -368,6 +369,31 @@ describe("bootstrap profiles", () => {
       "my-package",
     );
     expect(findPlaceholders(root)).toEqual([]);
+  });
+
+  it("rejects a dangling symlink instead of dropping it from the copy set", () => {
+    const root = copyTemplate();
+    const relative = ".claude/skills/missing-skill";
+    const link = path.join(root, relative);
+    mkdirSync(path.dirname(link), { recursive: true });
+    symlinkSync("missing-target", link);
+    execFileSync("git", ["add", relative], { cwd: root });
+
+    let caught: unknown;
+    try {
+      bootstrap(root, options("broken-link", "node-library"));
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(BootstrapError);
+    if (!(caught instanceof BootstrapError)) {
+      return;
+    }
+    expect(caught.code).toBe("ERR_BROKEN_SYMLINK");
+    expect(caught.message).toContain(`Link: ${relative}`);
+    expect(caught.message).toContain("Actual: missing target missing-target.");
+    expect(caught.message).toContain("Next:");
   });
 
   it("makes dry-run non-mutating", () => {
