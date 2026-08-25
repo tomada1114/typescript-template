@@ -86,17 +86,40 @@ describe("gates: isGateFile / checkGateRemoval", () => {
     );
   });
 
-  it("blocks dropping the settings permission deny list", () => {
-    const before = JSON.stringify(
-      { permissions: { deny: ["Read(.env)"], allow: [] } },
-      null,
-      2,
-    );
-    const after = JSON.stringify({ permissions: { allow: [] } }, null, 2);
+  const settingsWithDeny = JSON.stringify(
+    { permissions: { deny: ["Read(.env)"], allow: [] } },
+    null,
+    2,
+  );
 
-    expect(checkGateRemoval(".claude/settings.json", before, after)).toMatch(
+  it.each([
+    ["the key is deleted", JSON.stringify({ permissions: { allow: [] } }, null, 2)],
+    // Emptying the array leaves every declarative rule gone while the key
+    // survives, so a marker that only looked for `"deny": [` would pass it.
+    [
+      "the list is emptied",
+      JSON.stringify({ permissions: { deny: [], allow: [] } }, null, 2),
+    ],
+    // The guard sees the text a tool call is about to write, before Prettier
+    // ever runs on it.
+    [
+      "the file is rewritten on one line without it",
+      JSON.stringify({ permissions: { allow: [] } }),
+    ],
+  ])("blocks the settings permission deny list going away when %s", (_label, after) => {
+    expect(checkGateRemoval(".claude/settings.json", settingsWithDeny, after)).toMatch(
       /permission deny list/,
     );
+  });
+
+  it("allows a settings.json rewritten on one line that keeps the deny list", () => {
+    const after = JSON.stringify({
+      permissions: { deny: ["Read(.env)", "Edit(.env)"], allow: [] },
+    });
+
+    expect(
+      checkGateRemoval(".claude/settings.json", settingsWithDeny, after),
+    ).toBeNull();
   });
 
   it("blocks dropping --frozen-lockfile from a workflow", () => {

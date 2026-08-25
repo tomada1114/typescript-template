@@ -67,7 +67,11 @@ export const GATE_MARKERS = [
   { pattern: /strictDepBuilds/, name: "the lifecycle-script allowlist" },
   { pattern: /strictPeerDependencies/, name: "the peer dependency check" },
   { pattern: /^\s*permissions:/m, name: "a workflow's least-privilege permissions" },
-  { pattern: /^\s*"deny"\s*:\s*\[/m, name: "the agent permission deny list" },
+  // Deliberately not line-anchored, unlike the YAML marker above, and it
+  // requires the array to hold at least one entry: a settings.json rewritten
+  // on one line, or left as `"deny": []`, has lost the gate just as completely
+  // as one with the key deleted.
+  { pattern: /"deny"\s*:\s*\[\s*"/, name: "the agent permission deny list" },
   { pattern: /thresholds/, name: "the coverage thresholds" },
   { pattern: /publint/, name: "the publint gate" },
   { pattern: /check-attw|arethetypeswrong/, name: "the type-resolution gate" },
