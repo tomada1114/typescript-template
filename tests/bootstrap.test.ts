@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -43,7 +44,18 @@ function copyTemplate(withGit = true): string {
     }
     const destination = path.join(workspace, relative);
     mkdirSync(path.dirname(destination), { recursive: true });
-    cpSync(source, destination, { dereference: false });
+    // `recursive: true` is required for `cpSync` to accept a symlink whose
+    // target is a directory (`.agents/skills/merge-dependabot`) at all, even
+    // though `dereference: false` means it copies the symlink itself rather
+    // than descending into what it points at. `verbatimSymlinks: true` keeps
+    // that symlink's relative target relative — without it `cpSync` rewrites
+    // the target to an absolute path back into this checkout, which would
+    // make the copied workspace's bridge point outside itself.
+    cpSync(source, destination, {
+      dereference: false,
+      recursive: true,
+      verbatimSymlinks: true,
+    });
   }
   const binary = path.join(workspace, "tests", "fixtures", "binary.dat");
   mkdirSync(path.dirname(binary), { recursive: true });
@@ -63,6 +75,12 @@ function relativeFiles(root: string, directory: string): string[] {
   const files: string[] = [];
   const visit = (current: string): void => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
+      // A symlink (`.agents/skills/merge-dependabot` bridges into
+      // `.claude/skills/**`, already covered by that walk) is not followed:
+      // reading it here would resolve to a directory and throw.
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
       const absolute = path.join(current, entry.name);
       if (entry.isDirectory()) {
         visit(absolute);
@@ -75,13 +93,33 @@ function relativeFiles(root: string, directory: string): string[] {
   return files.sort();
 }
 
+/**
+ * Subdirectory AI-layer masters. `bootstrap.mjs` finds these by matching
+ * `AI_LAYER_FILES` against the basename at any depth; this list is the
+ * explicit enumeration of what that match currently selects outside the root,
+ * and must be extended when a new subdirectory master is added.
+ */
+const AI_LAYER_SUBDIR_FILES = ["tests/AGENTS.md", "tests/CLAUDE.md"];
+
 function generatedAiLayer(root: string): string {
-  const files = ["AGENTS.md", "CLAUDE.md", ...relativeFiles(root, ".claude")];
+  const files = [
+    "AGENTS.md",
+    "CLAUDE.md",
+    ...AI_LAYER_SUBDIR_FILES,
+    ...relativeFiles(root, ".claude"),
+    ...relativeFiles(root, ".agents"),
+  ];
   return files.map((file) => readFileSync(path.join(root, file), "utf8")).join("\n");
 }
 
 function aiLayerFiles(root: string): string[] {
-  return ["AGENTS.md", "CLAUDE.md", ...relativeFiles(root, ".claude")];
+  return [
+    "AGENTS.md",
+    "CLAUDE.md",
+    ...AI_LAYER_SUBDIR_FILES,
+    ...relativeFiles(root, ".claude"),
+    ...relativeFiles(root, ".agents"),
+  ];
 }
 
 function options(
@@ -245,6 +283,9 @@ describe("bootstrap profiles", () => {
     expect(existsSync(path.join(root, ".claude", "hooks", "stop-check.mjs"))).toBe(
       true,
     );
+    const dependabotBridge = path.join(root, ".agents", "skills", "merge-dependabot");
+    expect(lstatSync(dependabotBridge).isSymbolicLink()).toBe(true);
+    expect(existsSync(dependabotBridge)).toBe(true);
     const dependabotSkill = readFileSync(
       path.join(root, ".claude", "skills", "merge-dependabot", "SKILL.md"),
       "utf8",

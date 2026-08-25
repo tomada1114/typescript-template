@@ -420,3 +420,22 @@ it("rejects input that is not a string", () => {
 
 `mise` には `actionlint 1.7.12` と `shellcheck 0.11.0` が既に入っています。
 Phase 2 の workflow 検証でそのまま使えます。
+
+---
+
+## 17. rules を AGENTS.md に統合し、skills を Codex CLI にもブリッジ（2026-08-24 追記）
+
+Phase 0〜9 の記述時点では path-scoped rules は Claude Code 専用の `.claude/rules/` に
+置いていましたが、Codex CLI からは不可視という欠点があったため
+`maintaining-agents-md` スキルの型に合わせて次のように移設しました
+（hooks は対象外 — Claude Code 専用のまま `.claude/hooks/` に残る。§18 参照）。
+
+- `.claude/rules/*.md` を廃止し、内容はルートの `AGENTS.md` に統合。`testing.md` の
+  本体だけは分量が大きいため `tests/AGENTS.md` に置き、ルートの `## Testing` 節から
+  参照する形にした。`CLAUDE.md`／`tests/CLAUDE.md` は `@AGENTS.md` を import するだけの
+  stub。
+- `.claude/skills/merge-dependabot` はそのまま Claude Code 専用スキルとして残し、
+  `.agents/skills/merge-dependabot` から相対 symlink で Codex CLI にもブリッジしている。
+  `scripts/bootstrap.mjs` の `copyFiles` はこの移設で初めてリポジトリに symlink が入り、
+  シンボリックリンクを再コピーする際に `EEXIST` で失敗する既存バグを踏んだため、
+  上書き前に `rmSync(destination, { force: true })` を挟むよう修正した。

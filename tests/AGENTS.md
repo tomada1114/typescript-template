@@ -1,7 +1,4 @@
----
-paths:
-  - "tests/**/*.ts"
----
+# Testing Rules
 
 ## Structure and Organization
 
@@ -19,7 +16,8 @@ paths:
   `src/internal/**` directly.
 - Cover the happy path and the error path for every public function.
 - If a function can throw or reject, assert the specific error class and its
-  stable `code` (`.claude/rules/source.md`), not the free-text message.
+  stable `code` (see "Error handling" in the root `AGENTS.md`), not the
+  free-text message.
 
 ## Edge Cases (always consider these)
 
@@ -138,7 +136,8 @@ paths:
   codecs, path/identifier transforms — not as a default for every function.
 - `fast-check` is not currently a dependency, and the placeholder API has no
   case that needs it. Adding it is a real dependency decision: follow the
-  review checklist in `.claude/rules/package-json.md` before introducing it.
+  review checklist under "Dependencies" in the root `AGENTS.md` before
+  introducing it.
 
 ## Test Independence and Reliability
 

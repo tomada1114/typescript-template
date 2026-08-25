@@ -62,8 +62,10 @@ const universalSourceRestrictions = isUniversalProfile()
 
 export default defineConfig([
   // Only generated trees are ignored; everything hand-written is linted,
-  // including repository automation and config files.
-  globalIgnores(["dist/", "coverage/", "docs/api/"]),
+  // including repository automation and config files. `.agents/skills/` holds
+  // symlinks into `.claude/skills/**`, already linted at their real path —
+  // following the link here would lint the same files twice.
+  globalIgnores(["dist/", "coverage/", "docs/api/", ".agents/skills/"]),
   {
     linterOptions: {
       // A disable directive that no longer suppresses anything is dead weight

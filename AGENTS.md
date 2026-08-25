@@ -80,10 +80,27 @@ src/
 - `exports` and `files` in `package.json` are allowlists. A path that is not
   listed is private, and deep imports into `dist/` are expected to fail.
 - `src/internal/` is private. Exporting one of its symbols from `index.ts`
-  publishes it, whatever the directory name suggests.
+  publishes it, whatever the directory name suggests, and nothing outside
+  `src/**` may import it directly.
 - Every public declaration carries a TSDoc release tag (`@public`). API
-  Extractor fails without one.
+  Extractor fails the build without one (`ae-missing-release-tag`); the
+  `etc/` directory must also already exist for `api-extractor run` to write
+  its report at all.
 - `scripts/*.mjs` is repository automation and never ships.
+
+<!-- profile:node-cli:start -->
+
+- Inject I/O, environment, and the clock as parameters instead of touching
+  globals directly (`src/cli.ts`'s `CliIo` is the model: `stdout`/`stderr`
+  callbacks and `version` are passed in, so `runCli` is a pure function
+  testable without spawning a process). `src/bin.ts` is the only place that
+  binds these to the real process.
+- Keep the CLI split in mind when adding commands: business logic and
+  argument parsing live in `src/cli.ts` (unit-tested); `src/bin.ts` stays a
+  thin shim that binds `runCli` to the real process and argv, producing the
+  executable `dist/bin.js`.
+
+<!-- profile:node-cli:end -->
 
 ## Changing the public API
 
@@ -107,24 +124,80 @@ can distinguish an explicit "no release" decision from a forgotten Changeset.
 
 `scripts/**` and `.claude/hooks/**` must run on a plain Node before
 `pnpm install` has been run, so they are authored as `.mjs` rather than
-TypeScript, and they import nothing from `node_modules`.
+TypeScript. They may only import `node:*` builtins, the shared helpers under
+`scripts/lib/`, and helpers local to their own tree (`.claude/hooks/lib/` for
+the hooks) — never a dependency from `node_modules`; a hook that
+needs an installed tool resolves it at run time through
+`resolveDependencyBin` instead of importing it.
 
 - Import Node globals explicitly — `import process from "node:process"`,
   `import console from "node:console"` — rather than relying on ambient globals.
 - These files are type-checked (`allowJs` + `checkJs`), so declare boundary
-  types in JSDoc. Receive `JSON.parse` output as `unknown` and narrow it with
-  the helpers in `scripts/lib/json.mjs`.
+  types in JSDoc (`@param`, `@returns`, `@typedef`) with the same rigor as a
+  `.ts` signature. Receive `JSON.parse` output as `unknown` and narrow it
+  through `readKey`/`readString` in `scripts/lib/json.mjs`, not a direct
+  cast — `noPropertyAccessFromIndexSignature` and the typed-lint
+  `dot-notation` rule disagree about literal-key access on a `Record`, so
+  reads go through these helpers instead of either style.
 - A file that is both importable and runnable guards its CLI half with
   `isMain(import.meta.url)` from `scripts/lib/is-main.mjs`. `import.meta.main`
   is Node 24+ and the floor is 22.14.
 - An error raised by automation is read by an agent, so it says what failed, the
   path or export involved, expected versus actual, an error code, and the next
   safe command to run — and never a secret or an absolute home path.
-  `scripts/lib/node-tools.mjs` has worked examples.
+  `scripts/lib/node-tools.mjs` has worked examples:
+
+  ```
+  ERR_DEPENDENCY_MISSING: eslint is not installed.
+  Expected: node_modules/eslint/package.json
+  Next: run `pnpm install --frozen-lockfile`.
+  ```
+
+## Conventions: `src/**/*.ts`
+
+### Error handling
+
+- Package errors (`InvalidInputError`, `TimeoutError` in `src/errors.ts`)
+  subclass `Error`, set `this.name`, and carry a `readonly code` typed as a
+  string literal (`"ERR_INVALID_INPUT" as const`). `code` is part of the
+  published contract and is safe to branch on; `message` is for humans and
+  may be reworded in a patch release, so never match on it.
+- New error types follow the same shape: a stable `code`, domain-specific
+  readonly fields describing what was rejected (never the rejected value
+  itself when it could be sensitive), and a human `message`.
+- `InvalidInputError.field` is the dotted path of the rejected argument as
+  written in the public signature (`options.maxLength`), not an internal
+  variable name.
+- An `AbortSignal` that a function forwards an abort onto uses the same error
+  instance as the promise rejection, so a cooperating caller can inspect why
+  it was cancelled (see `src/timeout.ts`).
+
+### Naming and constants
+
+- Error `code` strings use an `ERR_` prefix in `SCREAMING_SNAKE_CASE`
+  (`ERR_INVALID_INPUT`, `ERR_TIMEOUT`). Script error codes are additionally
+  prefixed by the stage that raised them (`ERR_SMOKE_*`, `ERR_ATTW_*`,
+  `ERR_DEPENDENCY_*`) so stderr alone identifies which check failed.
+- Keep a constant next to the code that uses it; do not create a shared
+  `constants.ts` grab-bag that forces unrelated modules to import each other.
+
+### Type system judgment
+
+- Public option objects (`XOptions`) use readonly properties, mirroring
+  `NormalizeIdentifierOptions` and `WithTimeoutOptions`.
+- Prefer a discriminated union with a literal field (`code`, `kind`) over a
+  bag of optional flags when a value has mutually exclusive shapes, and
+  narrow it by branching on that field rather than checking several optional
+  properties together.
+- Keep exported generics narrow: accept the widest reasonable input, return
+  the narrowest true output (`withTimeout` preserves the operation's own
+  resolved type instead of widening it).
 
 ## Testing
 
-Details live in `.claude/rules/testing.md`. The parts that shape decisions:
+Details live in `tests/AGENTS.md` — a Codex session started at the repository
+root does not read it; one started inside `tests/` does. The parts that shape
+decisions from anywhere in the repo:
 
 - Test behavior and contracts through the public interface, never private
   modules directly. Cover the happy path _and_ the error path.
@@ -138,16 +211,80 @@ Details live in `.claude/rules/testing.md`. The parts that shape decisions:
 
 ## Dependencies
 
-Every dependency is a permanent supply-chain commitment. Before adding one,
-check that it is actively maintained, that its license is compatible, that its
-transitive surface is small, and that it runs no unreviewed install scripts.
-`pnpm-workspace.yaml` enforces the last point: an unapproved lifecycle script
-makes the install fail on purpose.
+Every dependency is a permanent supply-chain commitment. Before adding a
+runtime dependency, record in the PR that adds it:
 
-`minimumReleaseAge` holds every version back for seven days, so the newest
-release will not resolve yet. That is the cooldown working. A dependency change
-and its `pnpm-lock.yaml` update belong in the same commit, and the lockfile is
-generated — never hand-edited.
+- Why a small hand-written helper or a Node builtin cannot replace it.
+- Maintainer and release continuity — is it actively maintained, not abandoned.
+- License compatibility (MIT/BSD/Apache-class; a copyleft license needs a
+  deliberate, explicit reason for a published library).
+- Direct and transitive package count it pulls in — a large transitive
+  surface is a real cost even behind a small direct API.
+- Whether it runs an install script, ships a native binary, or does network
+  access — each needs its own justification and, for install scripts, an
+  `allowBuilds` entry (see below).
+- Unpacked size and its effect on this package's own published tarball.
+- Supported Node versions and module format (ESM/CJS) against this
+  package's own `engines`/`exports`.
+- Open security advisories and npm provenance.
+- Whether it belongs in `dependencies`, `devDependencies`,
+  `peerDependencies`, or `optionalDependencies`, and why.
+
+Runtime dependencies declare a SemVer range, never an exact pin — the
+library does not own reproducibility, `pnpm-lock.yaml` does. Dev
+dependencies are kept current by Dependabot PRs plus the lockfile, not by
+hand. A dependency change and its `pnpm-lock.yaml` update belong in the same
+commit, and the lockfile is generated — never hand-edited.
+
+### `minimumReleaseAge` (supply-chain cooldown)
+
+`pnpm-workspace.yaml` sets `minimumReleaseAge: 10080` (7 days): a version
+published less than 7 days ago will not resolve, for any install.
+
+- A `^`/`~` range on a dependency silently resolves to an older,
+  already-cooled version instead of the newest matching one — this is
+  expected, not a bug (for example `eslint` resolved to `10.7.0` while
+  `10.8.0` already existed on the registry).
+- An exact pin on a version younger than 7 days fails the install outright,
+  since there is no older version for a pin to fall back to.
+- Before adding or bumping a dependency, check how long its target version
+  has been published; do not assume `latest` will resolve.
+- For an urgent security fix younger than seven days, a human may approve an
+  exact `package@version` entry in `minimumReleaseAgeExclude`. The same PR must
+  cite the advisory, explain why waiting is riskier, include the generated
+  lockfile, and state when the exception will be removed. Never add a wildcard
+  or a package-only exclusion.
+
+### `pnpm-workspace.yaml` supply-chain policy
+
+- `strictDepBuilds: true` plus `allowBuilds`: an install-time lifecycle
+  script from a dependency not listed in `allowBuilds` fails the install on
+  purpose — that is the intended outcome, not a bug to route around. Only
+  `lefthook: true` is currently allowlisted, a reviewed exception because
+  lefthook's postinstall is how its Git-hook binary gets downloaded and
+  linked. Adding another entry carries the same review weight as adding a
+  new dependency.
+- `strictPeerDependencies: true`: an unmet or conflicting peer range is a
+  hard install failure, not a warning. This is what makes the TypeScript
+  version ceiling below an enforced constraint instead of an advisory one.
+- `minimumReleaseAgeStrict`, `minimumReleaseAgeIgnoreMissingTime`,
+  `trustPolicy`, `trustLockfile`, and `blockExoticSubdeps` each close a
+  specific bypass of the cooldown above (an already-lockfiled version,
+  missing publish-time metadata, downgraded provenance, and git/tarball
+  transitive dependencies, respectively). Do not relax any of them to
+  unblock a failing install — find out why the install is actually failing
+  first.
+
+### TypeScript version ceiling
+
+- `typescript` stays at `~6.0.3`. `typescript-eslint@8.65.0` caps peer
+  support below `6.1.0` and `typedoc@0.28.20` caps it at `6.0.x`; with
+  `strictPeerDependencies: true`, a 7.x bump fails the install rather than
+  merely warning.
+- Do not "upgrade typescript to latest" — the registry's `latest` (7.x as of
+  this writing) is incompatible with this toolchain until `typescript-eslint`
+  and `typedoc` raise their peer ranges. Raising this ceiling is a
+  coordinated multi-package upgrade, not a routine dependency bump.
 
 ## Security and human approval
 
@@ -159,22 +296,58 @@ generated — never hand-edited.
   variants are fine) or anything under `secrets/`.
 - Never write a credential into a tracked file — no registry auth token, no
   private key.
-- Never weaken a gate to make a run pass: no lowered coverage threshold, no
-  deleted security workflow, no removed `--frozen-lockfile`, no `@ts-ignore`,
-  no blanket `eslint-disable`, no skipped or deleted test. If a gate is wrong,
-  say so and let a human decide.
+- Never weaken a gate to make a run pass: no lowered coverage threshold (the
+  `lines`/`functions`/`statements`/`branches` floor in `vitest.config.ts`,
+  all at 80), no deleted security workflow, no removed `--frozen-lockfile`,
+  no removed ESLint rule or `pnpm-workspace.yaml` supply-chain setting, no
+  `@ts-ignore`, no blanket `eslint-disable`, no skipped or deleted test. If a
+  gate is wrong, say so and let a human decide.
+
+## Conventions: `docs/**/*.md`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`
+
+- Document non-obvious behavior, architecture decisions, and trade-offs. Do
+  not restate what the code or the type system already says — the same
+  principle TSDoc follows in `src/**` (see "Conventions: `src/**/*.ts`" above).
+- Code examples must be valid TypeScript that compiles against the _current_
+  public API (`src/index.ts`). A change to the public API updates the README
+  example in the same commit as the code — part of the same-PR checklist in
+  "Changing the public API" above.
+
+### Purpose per file
+
+- `README.md`: value proposition readable in 30 seconds, the install
+  command, a minimal working example, supported Node/runtime versions, and
+  where the full API documentation lives.
+- `CONTRIBUTING.md`: local setup, the main `pnpm` commands, how to run
+  tests, how to add a Changeset, and the PR process.
+- `CHANGELOG.md`: Keep a Changelog categories and SemVer. It is generated by
+  Changesets release tooling and is Prettier-ignored for that reason — don't
+  hand-edit entries, add a changeset with `pnpm changeset` instead.
+
+### Generated and copied trees
+
+- `docs/api/` is TypeDoc output (`pnpm docs:build`). It is generated and
+  must never be hand-edited — change the TSDoc comments in `src/**` and
+  regenerate instead.
+
+<!-- template-only:start -->
+
+- `docs/template-requirements/` is a verbatim copy of an external source of
+  truth. It is listed in `.prettierignore` on purpose: never reflow,
+  retranslate, or otherwise edit it from this repository.
+- `docs/template-implementation/` is working notes for this template's own
+  build-out. Treat `decisions.md` in there as verified fact, not something
+  to re-investigate or re-decide from a documentation change.
+  The `template-only` HTML-comment markers identify guidance that bootstrap
+  removes from generated repositories. A `profile:<name>` marker block is kept
+  only for its matching bootstrap profile; do not edit these marker forms.
+
+<!-- template-only:end -->
 
 ## Conventions
 
 - All committed code, comments, configuration, and public documentation are in
   English.
-
-<!-- template-only:start -->
-
-- `docs/template-requirements/` is a verbatim Japanese copy of an external
-  source and is neither translated nor reformatted.
-
-<!-- template-only:end -->
 
 - Do what was asked; nothing more. Prefer editing an existing file to creating a
   new one, and do not add documentation files that were not requested.
