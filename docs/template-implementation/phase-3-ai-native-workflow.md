@@ -111,15 +111,18 @@ Vitest / TypeScript 向けに翻訳して流用する（`pytest.raises` → `exp
   書き込み先を best-effort で抽出する
 - 静的解析は best-effort。「エージェントが素直に書く綴り」を捕まえるのが目的で、
   あらゆる shell 構文を網羅するものではない —— この限界をコメントに明記する
-- permission の `deny` は一部バージョンで advisory なので、**hook が強制の砦**である
-  ことをコメントに書く（bypassPermissions モードでも hook は動く）
+- **ここは後発の確定記録である decisions.md §18（2026-08-24 追記）を優先する。**
+- permission の `deny` は advisory ではなく、**bypassPermissions モードを
+  含む全モードで hard enforce される**。ただし Bash の引数パターンは fragile なので、`&&`
+  チェーンや wrapper などの静的解析で扱えないケースを補完するため **hook も必要**である
 
 ### 4. `.claude/settings.json`
 
 - `permissions.allow`: **ローカルの build / lint / test だけ**
   （`pnpm check:quick`, `pnpm check`, `pnpm test`, `pnpm lint`, `pnpm typecheck`,
   `pnpm build`, `pnpm fix`, `pnpm api:check`, `pnpm package:smoke` など）
-- `permissions.deny`: `.env` / `.env.*` / `secrets/**` の Read/Edit/Write
+- `permissions.deny`: `.env` / `.env.*` / `secrets/**` の Read/Edit（`Write` の path rule は
+  受理されても参照されず、起動時 warning になるため追加しない）
 - `hooks`: 上記3つを登録。`${CLAUDE_PROJECT_DIR}` を使い、`timeout` を設定
   （format 60s / stop-check 180s / guard 30s 目安）
 - 個人設定（model、output style、追加 permission）は `.claude/settings.local.json` に置き、
