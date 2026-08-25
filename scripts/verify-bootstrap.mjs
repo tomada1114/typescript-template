@@ -17,6 +17,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { isolatedGitEnv } from "./lib/git-env.mjs";
 import { isMain } from "./lib/is-main.mjs";
 import { parseJson, readKey } from "./lib/json.mjs";
 
@@ -33,7 +34,9 @@ function run(command, args, cwd) {
     encoding: "utf8",
     stdio: "inherit",
     timeout: 900_000,
-    env: { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" },
+    // Every command here runs against a throwaway workspace, so none of them
+    // may inherit a hook's GIT_DIR — see scripts/lib/git-env.mjs.
+    env: { ...isolatedGitEnv(), COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" },
   });
   if (result.status !== 0) {
     throw new Error(
@@ -49,7 +52,7 @@ function copyTemplate(destination) {
   const files = spawnSync(
     "git",
     ["-C", ROOT, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-    { encoding: "utf8", timeout: 30_000 },
+    { encoding: "utf8", timeout: 30_000, env: isolatedGitEnv() },
   );
   if (files.status !== 0) {
     throw new Error(`ERR_GIT_FILES: ${files.stderr.trim()}`);

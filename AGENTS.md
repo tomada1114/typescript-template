@@ -175,6 +175,14 @@ needs an installed tool resolves it at run time through
 - A file that is both importable and runnable guards its CLI half with
   `isMain(import.meta.url)` from `scripts/lib/is-main.mjs`. `import.meta.main`
   is Node 24+ and the floor is 22.14.
+- Git exports `GIT_DIR` to every hook it runs, and `git commit -- <path>` also
+  exports a temporary `GIT_INDEX_FILE`; `lefthook.yml` runs this suite from two
+  hooks. An inherited `GIT_DIR` outranks both a `cwd` and an explicit `-C`, so a
+  `git` that names the repository it means clears `GIT_*` first, with
+  `isolatedGitEnv` from `scripts/lib/git-env.mjs`. The exception is
+  `scripts/check-staged.mjs`, which is the pre-commit layer and must read the
+  index that hook was given; its tests clear the variables from their own
+  process with `vi.stubEnv` instead, and so do `tests/bootstrap.test.ts`'s.
 - An error raised by automation is read by an agent, so it says what failed, the
   path or export involved, expected versus actual, an error code, and the next
   safe command to run — and never a secret or an absolute home path.

@@ -14,7 +14,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import process from "node:process";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   BootstrapError,
@@ -28,6 +30,22 @@ import {
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const workspaces: string[] = [];
+
+// The suite itself runs from git hooks (`lefthook.yml` runs `test:related` on
+// pre-commit and `check:quick` on pre-push), and git hands a hook GIT_DIR and,
+// for a partial `git commit -- <path>`, GIT_INDEX_FILE. `scripts/check-staged.mjs`
+// is meant to honor those — it is the pre-commit layer. Here they must go, or
+// the fixture repositories below are built inside the checkout this suite is
+// running in. See scripts/lib/git-env.mjs.
+function clearGitEnvironment(): void {
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith("GIT_")) {
+      vi.stubEnv(name, undefined);
+    }
+  }
+}
+
+beforeEach(clearGitEnvironment);
 
 function copyTemplate(withGit = true): string {
   const workspace = mkdtempSync(path.join(tmpdir(), "typescript-template-test-"));
@@ -144,6 +162,7 @@ function options(
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const workspace of workspaces.splice(0)) {
     rmSync(workspace, { recursive: true, force: true });
   }

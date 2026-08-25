@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
+import { isolatedGitEnv } from "./lib/git-env.mjs";
 import { isMain } from "./lib/is-main.mjs";
 import { parseJson, readKey, readString } from "./lib/json.mjs";
 
@@ -287,6 +288,7 @@ function projectFiles(root) {
   const git = spawnSync("git", ["-C", root, "ls-files", "-z"], {
     encoding: "utf8",
     timeout: 30_000,
+    env: isolatedGitEnv(),
   });
   if (git.status === 0) {
     return git.stdout

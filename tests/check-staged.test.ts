@@ -2,8 +2,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import process from "node:process";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { checkStagedChange, main, stagedChanges } from "../scripts/check-staged.mjs";
 
@@ -11,6 +12,22 @@ import { checkStagedChange, main, stagedChanges } from "../scripts/check-staged.
 // "Enforcement layers": it sees a staged git diff, not a tool call, so these
 // tests drive it against a real throwaway repository rather than mocking git.
 const repos: string[] = [];
+
+// The suite itself runs from git hooks (`lefthook.yml` runs `test:related` on
+// pre-commit and `check:quick` on pre-push), and git hands a hook GIT_DIR and,
+// for a partial `git commit -- <path>`, GIT_INDEX_FILE. `scripts/check-staged.mjs`
+// is meant to honor those — it is the pre-commit layer. Here they must go, or
+// the fixture repositories below are built inside the checkout this suite is
+// running in. See scripts/lib/git-env.mjs.
+function clearGitEnvironment(): void {
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith("GIT_")) {
+      vi.stubEnv(name, undefined);
+    }
+  }
+}
+
+beforeEach(clearGitEnvironment);
 
 /** A fresh, empty git repository with a local identity, isolated from real user config. */
 function makeRepo(): string {
@@ -37,6 +54,7 @@ function commit(dir: string, message = "initial"): void {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   while (repos.length > 0) {
     const dir = repos.pop();
     if (dir !== undefined) {

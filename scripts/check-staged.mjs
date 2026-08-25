@@ -54,6 +54,11 @@ import { repoRoot } from "./lib/node-tools.mjs";
  * @returns {string} Standard output.
  */
 function git(args, cwd) {
+  // This one inherits GIT_*, unlike everything else that spawns git here — see
+  // scripts/lib/git-env.mjs. `git commit -- <path>` hands its pre-commit hook a
+  // *temporary* index through GIT_INDEX_FILE, and that index, not the default
+  // one, is what this layer was invoked to judge. Its own tests clear the
+  // variables instead, so a fixture repository is decided by `cwd`.
   const result = spawnSync("git", args, {
     cwd,
     encoding: "utf8",
