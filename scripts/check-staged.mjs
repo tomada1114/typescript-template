@@ -34,6 +34,7 @@ import process from "node:process";
 import { checkCredentials } from "./lib/guard/credentials.mjs";
 import { checkGateRemoval, isGateFile } from "./lib/guard/gates.mjs";
 import { checkRead } from "./lib/guard/paths.mjs";
+import { isolatedGitEnv } from "./lib/git-env.mjs";
 import { isMain } from "./lib/is-main.mjs";
 import { repoRoot } from "./lib/node-tools.mjs";
 
@@ -58,6 +59,10 @@ function git(args, cwd) {
     cwd,
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
+    // `cwd` names the repository, so an inherited GIT_DIR must not outrank it —
+    // see scripts/lib/git-env.mjs. Under pre-commit the two agree; under a test
+    // driving a fixture repository they do not.
+    env: isolatedGitEnv(),
   });
   // `status` is null when git never ran or was killed — a missing binary, or
   // output past maxBuffer. Reporting "exited null" with an empty stderr would
@@ -123,6 +128,7 @@ function readAtHead(path, cwd) {
     cwd,
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
+    env: isolatedGitEnv(),
   });
   return result.status === 0 ? result.stdout : "";
 }

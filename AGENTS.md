@@ -175,6 +175,12 @@ needs an installed tool resolves it at run time through
 - A file that is both importable and runnable guards its CLI half with
   `isMain(import.meta.url)` from `scripts/lib/is-main.mjs`. `import.meta.main`
   is Node 24+ and the floor is 22.14.
+- Every `git` spawned from `scripts/**`, `.claude/hooks/**` or `tests/**` names
+  the repository it means — a `cwd` or an explicit `-C` — and clears `GIT_*`
+  with `isolatedGitEnv` from `scripts/lib/git-env.mjs`. Git exports `GIT_DIR` to
+  every hook it runs and `lefthook.yml` runs this suite from two of them; an
+  inherited `GIT_DIR` outranks both spellings, so a fixture repository built
+  without that call stages its own files into the real checkout.
 - An error raised by automation is read by an agent, so it says what failed, the
   path or export involved, expected versus actual, an error code, and the next
   safe command to run — and never a secret or an absolute home path.

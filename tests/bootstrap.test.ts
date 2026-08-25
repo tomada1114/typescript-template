@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { isolatedGitEnv } from "../scripts/lib/git-env.mjs";
 import {
   BootstrapError,
   bootstrap,
@@ -35,7 +36,7 @@ function copyTemplate(withGit = true): string {
   const result = execFileSync(
     "git",
     ["-C", repoRoot, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-    { encoding: "utf8" },
+    { encoding: "utf8", env: isolatedGitEnv() },
   );
   for (const relative of result.split("\0").filter(Boolean)) {
     const source = path.join(repoRoot, relative);
@@ -65,8 +66,8 @@ function copyTemplate(withGit = true): string {
   );
 
   if (withGit) {
-    execFileSync("git", ["init", "-q"], { cwd: workspace });
-    execFileSync("git", ["add", "-A"], { cwd: workspace });
+    execFileSync("git", ["init", "-q"], { cwd: workspace, env: isolatedGitEnv() });
+    execFileSync("git", ["add", "-A"], { cwd: workspace, env: isolatedGitEnv() });
   }
   return workspace;
 }
@@ -366,7 +367,10 @@ describe("bootstrap profiles", () => {
   it("refuses an existing API report destination", () => {
     const root = copyTemplate();
     writeFileSync(path.join(root, "etc", "widgets.api.md"), "occupied");
-    execFileSync("git", ["add", "etc/widgets.api.md"], { cwd: root });
+    execFileSync("git", ["add", "etc/widgets.api.md"], {
+      cwd: root,
+      env: isolatedGitEnv(),
+    });
     expect(() => bootstrap(root, options("widgets", "node-library"))).toThrow(
       /ERR_RENAME_DESTINATION/,
     );

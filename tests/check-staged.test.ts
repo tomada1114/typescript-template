@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { checkStagedChange, main, stagedChanges } from "../scripts/check-staged.mjs";
+import { isolatedGitEnv } from "../scripts/lib/git-env.mjs";
 
 // scripts/check-staged.mjs is the pre-commit layer described in AGENTS.md's
 // "Enforcement layers": it sees a staged git diff, not a tool call, so these
@@ -16,9 +17,15 @@ const repos: string[] = [];
 function makeRepo(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "check-staged-test-"));
   repos.push(dir);
-  execFileSync("git", ["init", "-q"], { cwd: dir });
-  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
-  execFileSync("git", ["config", "user.name", "Test"], { cwd: dir });
+  execFileSync("git", ["init", "-q"], { cwd: dir, env: isolatedGitEnv() });
+  execFileSync("git", ["config", "user.email", "test@example.com"], {
+    cwd: dir,
+    env: isolatedGitEnv(),
+  });
+  execFileSync("git", ["config", "user.name", "Test"], {
+    cwd: dir,
+    env: isolatedGitEnv(),
+  });
   return dir;
 }
 
@@ -27,13 +34,16 @@ function stage(dir: string, relativePath: string, content: string): string {
   const absolute = path.join(dir, relativePath);
   mkdirSync(path.dirname(absolute), { recursive: true });
   writeFileSync(absolute, content, "utf8");
-  execFileSync("git", ["add", relativePath], { cwd: dir });
+  execFileSync("git", ["add", relativePath], { cwd: dir, env: isolatedGitEnv() });
   return relativePath;
 }
 
 /** Commit whatever is currently staged, so a later change has a HEAD to diff against. */
 function commit(dir: string, message = "initial"): void {
-  execFileSync("git", ["commit", "-q", "-m", message], { cwd: dir });
+  execFileSync("git", ["commit", "-q", "-m", message], {
+    cwd: dir,
+    env: isolatedGitEnv(),
+  });
 }
 
 afterEach(() => {
@@ -56,7 +66,7 @@ describe("stagedChanges", () => {
     const dir = makeRepo();
     stage(dir, "notes.md", "hello\n");
     commit(dir);
-    execFileSync("git", ["rm", "-q", "notes.md"], { cwd: dir });
+    execFileSync("git", ["rm", "-q", "notes.md"], { cwd: dir, env: isolatedGitEnv() });
     expect(stagedChanges(dir)).toEqual([{ status: "D", path: "notes.md" }]);
   });
 
@@ -103,7 +113,10 @@ describe("checkStagedChange", () => {
     const dir = makeRepo();
     stage(dir, "package.json", "{}\n");
     commit(dir);
-    execFileSync("git", ["rm", "-q", "package.json"], { cwd: dir });
+    execFileSync("git", ["rm", "-q", "package.json"], {
+      cwd: dir,
+      env: isolatedGitEnv(),
+    });
     const change = { status: "D", path: "package.json" };
     expect(checkStagedChange(change, dir)).toMatch(/quality or supply-chain gate/);
   });
