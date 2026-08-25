@@ -67,6 +67,7 @@ export const GATE_MARKERS = [
   { pattern: /strictDepBuilds/, name: "the lifecycle-script allowlist" },
   { pattern: /strictPeerDependencies/, name: "the peer dependency check" },
   { pattern: /^\s*permissions:/m, name: "a workflow's least-privilege permissions" },
+  { pattern: /^\s*"deny"\s*:\s*\[/m, name: "the agent permission deny list" },
   { pattern: /thresholds/, name: "the coverage thresholds" },
   { pattern: /publint/, name: "the publint gate" },
   { pattern: /check-attw|arethetypeswrong/, name: "the type-resolution gate" },

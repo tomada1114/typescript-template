@@ -86,6 +86,19 @@ describe("gates: isGateFile / checkGateRemoval", () => {
     );
   });
 
+  it("blocks dropping the settings permission deny list", () => {
+    const before = JSON.stringify(
+      { permissions: { deny: ["Read(.env)"], allow: [] } },
+      null,
+      2,
+    );
+    const after = JSON.stringify({ permissions: { allow: [] } }, null, 2);
+
+    expect(checkGateRemoval(".claude/settings.json", before, after)).toMatch(
+      /permission deny list/,
+    );
+  });
+
   it("blocks dropping --frozen-lockfile from a workflow", () => {
     expect(
       checkGateRemoval(
