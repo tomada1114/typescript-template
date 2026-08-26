@@ -60,8 +60,8 @@ easier.
 settings back into `package.json`, so an install carrying that flag rewrites
 `devEngines.runtime.onFail` to `"ignore"` on disk. Restore the manifest
 (`git restore package.json`) before anything reads it. CI does this in the
-minimum-Node leg, and `scripts/bootstrap.mjs` does the same around its
-lockfile regeneration.
+minimum-Node leg. Bootstrap does not install dependencies; run the documented
+install step after the rewrite.
 
 ## Architecture
 

@@ -1,54 +1,104 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
 import { Buffer } from "node:buffer";
 import console from "node:console";
 import {
-  chmodSync,
-  copyFileSync,
   existsSync,
   lstatSync,
-  mkdirSync,
-  mkdtempSync,
   readFileSync,
-  readlinkSync,
   readdirSync,
   renameSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { createInterface } from "node:readline/promises";
 
-import { isolatedGitEnv } from "./lib/git-env.mjs";
 import { isMain } from "./lib/is-main.mjs";
-import { classifyCopyPath, describeLinkTarget } from "./lib/symlinks.mjs";
 import { parseJson, readKey, readString } from "./lib/json.mjs";
 
 const TEMPLATE_PACKAGE = "my-package";
+const TEMPLATE_REPOSITORY = "your-name/my-package";
+const TEMPLATE_USAGE = "Usage: my-package";
+const TEMPLATE_AUTHOR = "Your Name";
+const TEMPLATE_EMAIL = "you@example.com";
+const TEMPLATE_DESCRIPTION = "A short description.";
+const TEMPLATE_REPORT = `etc/${TEMPLATE_PACKAGE}.api.md`;
+const DEFAULT_PROFILE = "node-library";
+const DEFAULT_LICENSE = "MIT";
+const DEFAULT_DESCRIPTION = "A TypeScript package.";
 const PROFILES = new Set(["node-library", "node-cli", "universal-library"]);
 const LICENSES = new Set(["MIT", "ISC"]);
 const PLACEHOLDERS = [
-  "my-package",
-  "your-name",
-  "Your Name",
-  "you@example.com",
-  "A short description.",
+  TEMPLATE_PACKAGE,
+  TEMPLATE_REPOSITORY,
+  TEMPLATE_AUTHOR,
+  TEMPLATE_EMAIL,
+  TEMPLATE_DESCRIPTION,
 ];
-const EXCLUDED_PARTS = new Set([
-  ".git",
-  "node_modules",
-  "dist",
-  "coverage",
-  ".cache",
-  ".eslintcache",
-  ".package",
-  ".smoke",
-  ".attw",
-  "temp",
+const SCRIPT_STRING_PLACEHOLDERS = new Set([
+  TEMPLATE_AUTHOR,
+  TEMPLATE_EMAIL,
+  TEMPLATE_DESCRIPTION,
 ]);
 const RESERVED_NAMES = new Set(["node_modules", "favicon.ico"]);
+
+// Keep this list explicit. Bootstrap is a one-time rewrite of known template
+// targets, not a repository-wide search-and-replace. Add a target here when a
+// new generated file intentionally contains one of the template placeholders.
+const PLACEHOLDER_TARGETS = [
+  { file: ".devcontainer/devcontainer.json", placeholder: TEMPLATE_PACKAGE },
+  { file: ".github/ISSUE_TEMPLATE/config.yml", placeholder: TEMPLATE_REPOSITORY },
+  { file: "CONTRIBUTING.md", placeholder: TEMPLATE_PACKAGE },
+  { file: "LICENSE", placeholder: TEMPLATE_AUTHOR },
+  { file: "README.md", placeholder: TEMPLATE_REPOSITORY },
+  { file: "README.md", placeholder: TEMPLATE_PACKAGE },
+  { file: "README.md", placeholder: TEMPLATE_AUTHOR },
+  { file: "README.md", placeholder: TEMPLATE_DESCRIPTION },
+  { file: "SECURITY.md", placeholder: TEMPLATE_REPOSITORY },
+  { file: "SECURITY.md", placeholder: TEMPLATE_PACKAGE },
+  { file: "docs/getting-started.md", placeholder: TEMPLATE_PACKAGE },
+  { file: "docs/reference.md", placeholder: TEMPLATE_PACKAGE },
+  { file: TEMPLATE_REPORT, placeholder: TEMPLATE_PACKAGE },
+  { file: "package.json", placeholder: TEMPLATE_REPOSITORY },
+  { file: "package.json", placeholder: TEMPLATE_PACKAGE },
+  { file: "package.json", placeholder: TEMPLATE_AUTHOR },
+  { file: "package.json", placeholder: TEMPLATE_EMAIL },
+  { file: "package.json", placeholder: TEMPLATE_DESCRIPTION },
+  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_REPOSITORY },
+  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_USAGE },
+  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_PACKAGE },
+  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_AUTHOR },
+  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_EMAIL },
+  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_DESCRIPTION },
+  { file: "src/cli.ts", placeholder: TEMPLATE_USAGE },
+  { file: "tests/docs.test.ts", placeholder: TEMPLATE_PACKAGE },
+  { file: "tests/package.test.ts", placeholder: TEMPLATE_PACKAGE },
+  { file: "typedoc.json", placeholder: TEMPLATE_REPOSITORY },
+];
+
+// These files carry bootstrap-only blocks. They are deliberately enumerated so
+// adding an unrelated tracked file cannot make bootstrap rewrite it.
+const MARKER_TARGETS = [
+  "AGENTS.md",
+  "README.md",
+  "tests/AGENTS.md",
+  ".github/workflows/ci.yml",
+];
+
+// The AI-layer assertion retains the profile/reference guard without walking
+// the repository. Extend this list when a new AI-layer file becomes part of
+// the template.
+const AI_LAYER_TARGETS = [
+  "AGENTS.md",
+  "CLAUDE.md",
+  "tests/AGENTS.md",
+  "tests/CLAUDE.md",
+  ".claude/settings.json",
+  ".claude/skills/merge-dependabot/SKILL.md",
+  ".claude/skills/merge-dependabot/references/failure-modes.md",
+  ".claude/skills/merge-dependabot/scripts/survey-prs.mjs",
+];
 
 // Bootstrap-only Markdown markers. `template-only` blocks are removed from
 // every generated repository; a `profile:<name>` block keeps its contents only
@@ -60,7 +110,6 @@ const TEMPLATE_ONLY_YAML_BLOCK =
   /^[ \t]*# template-only:start\s*$[\s\S]*?^[ \t]*# template-only:end\s*$\n?/gm;
 const PROFILE_BLOCK =
   /<!-- profile:([a-z0-9-]+):start -->([\s\S]*?)<!-- profile:\1:end -->/g;
-const AI_LAYER_FILES = new Set(["AGENTS.md", "CLAUDE.md"]);
 const REMOVED_TEMPLATE_PATHS = [
   "docs/template-requirements",
   "docs/template-implementation",
@@ -68,7 +117,12 @@ const REMOVED_TEMPLATE_PATHS = [
 const REMOVED_CLI_REFERENCES =
   /(?:src\/cli\.ts|src\/bin\.ts|tests\/cli\.test\.ts|cli\.ts|bin\.ts|runCli|CliIo|dist\/bin\.js)/;
 
-const USAGE = `Usage: node scripts/bootstrap.mjs <package-name> [options]
+const USAGE = `Usage: node scripts/bootstrap.mjs
+
+With no arguments, bootstrap prompts for the package metadata.
+
+Non-interactive fallback:
+  node scripts/bootstrap.mjs <package-name> [options]
 
 Required:
   --profile <node-library|node-cli|universal-library>
@@ -274,104 +328,63 @@ export function parseArguments(argv) {
     githubUser,
     license,
     ...(profile === "node-cli" ? { binName: binName ?? names.unscoped } : {}),
-    description: values.get("--description") ?? "A TypeScript package.",
+    description: values.get("--description") ?? DEFAULT_DESCRIPTION,
     dryRun,
   };
 }
 
 /**
- * Return repository files eligible for transformation.
+ * Collect bootstrap values from an interactive question function.
  *
- * @param {string} root
- * @returns {string[]}
+ * @param {(prompt: string) => Promise<string>} question
+ * @returns {Promise<ReturnType<typeof parseArguments>>}
  */
-function projectFiles(root) {
-  const git = spawnSync("git", ["-C", root, "ls-files", "-z"], {
-    encoding: "utf8",
-    timeout: 30_000,
-    env: isolatedGitEnv(),
-  });
-  if (git.status === 0) {
-    return git.stdout
-      .split("\0")
-      .filter(Boolean)
-      .map(normalizeRelativePath)
-      .filter((relative) => isCopyablePath(root, relative));
-  }
+export async function promptArguments(question) {
+  const packageName = (await question("Package name: ")).trim();
+  const profile =
+    (await question(`Profile [${DEFAULT_PROFILE}]: `)).trim() || DEFAULT_PROFILE;
+  const author = (await question("Author name: ")).trim();
+  const email = (await question("Author email: ")).trim();
+  const githubUser = (await question("GitHub user: ")).trim();
+  const license =
+    (await question(`License [${DEFAULT_LICENSE}]: `)).trim() || DEFAULT_LICENSE;
+  const description =
+    (await question(`Description [${DEFAULT_DESCRIPTION}]: `)).trim() ||
+    DEFAULT_DESCRIPTION;
+  const binName =
+    profile === "node-cli"
+      ? (await question("Command name (blank for package name): ")).trim()
+      : "";
 
-  /** @type {string[]} */
-  const files = [];
-  /** @param {string} directory */
-  const visit = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name);
-      const relative = normalizeRelativePath(path.relative(root, absolute));
-      const parts = relative.split("/");
-      if (
-        relative === "docs/api" ||
-        relative.startsWith("docs/api/") ||
-        parts.some((part) => EXCLUDED_PARTS.has(part)) ||
-        parts.some((part) => part === ".env" || part.startsWith(".env."))
-      ) {
-        continue;
-      }
-      if (entry.isDirectory()) {
-        visit(absolute);
-      } else {
-        files.push(relative);
-      }
-    }
-  };
-  visit(root);
-  return files.filter((relative) => isCopyablePath(root, relative)).sort();
+  const argv = [
+    packageName,
+    "--profile",
+    profile,
+    "--author",
+    author,
+    "--email",
+    email,
+    "--github-user",
+    githubUser,
+    "--license",
+    license,
+    "--description",
+    description,
+  ];
+  if (binName !== "") {
+    argv.push("--bin-name", binName);
+  }
+  return parseArguments(argv);
 }
 
 /**
- * Report whether a candidate path belongs in the copy set, refusing a symlink
- * that points nowhere rather than skipping it as absent.
+ * Escape a value that will be inserted inside a JavaScript string literal.
  *
- * @param {string} root
- * @param {string} relative
- * @returns {boolean}
+ * @param {string} value
+ * @returns {string}
  */
-function isCopyablePath(root, relative) {
-  const state = classifyCopyPath(path.join(root, relative));
-  if (state.kind === "dangling") {
-    throw new BootstrapError(
-      "ERR_BROKEN_SYMLINK",
-      `Link: ${relative}\n` +
-        "Expected: the symlink target to exist.\n" +
-        `Actual: missing target ${describeLinkTarget(state.target)}.\n` +
-        "Next: restore the target or remove the link, then rerun `node scripts/bootstrap.mjs` with the same arguments.",
-    );
-  }
-  return state.kind === "present";
-}
-
-/**
- * Copy files without following symlinks.
- *
- * @param {string} sourceRoot
- * @param {string} destinationRoot
- * @param {readonly string[]} files
- */
-function copyFiles(sourceRoot, destinationRoot, files) {
-  for (const relative of files) {
-    const source = path.join(sourceRoot, relative);
-    const destination = path.join(destinationRoot, relative);
-    mkdirSync(path.dirname(destination), { recursive: true });
-    const stat = lstatSync(source);
-    if (stat.isSymbolicLink()) {
-      // Unlike copyFileSync below, symlinkSync fails with EEXIST rather than
-      // overwriting — this branch can run more than once at the same
-      // destination (bootstrap copies root -> staged -> root again).
-      rmSync(destination, { force: true, recursive: true });
-      symlinkSync(readlinkSync(source), destination);
-      continue;
-    }
-    copyFileSync(source, destination);
-    chmodSync(destination, stat.mode);
-  }
+function escapeJavaScriptString(value) {
+  return JSON.stringify(value).slice(1, -1);
 }
 
 /**
@@ -380,16 +393,17 @@ function copyFiles(sourceRoot, destinationRoot, files) {
  * @param {string} file
  * @param {readonly [string, string][]} replacements
  * @param {string} profile
- * @returns {boolean}
+ * @param {boolean} write
+ * @returns {{changed: boolean, text: string}}
  */
-function replaceText(file, replacements, profile) {
+function replaceText(file, replacements, profile, write) {
   const buffer = readFileSync(file);
   if (buffer.includes(0)) {
-    return false;
+    return { changed: false, text: buffer.toString("utf8") };
   }
   const original = buffer.toString("utf8");
   if (Buffer.from(original, "utf8").compare(buffer) !== 0) {
-    return false;
+    return { changed: false, text: original };
   }
   const isMarkdown = file.endsWith(".md");
   const isInstructionFile = ["AGENTS.md", "CLAUDE.md"].includes(path.basename(file));
@@ -405,39 +419,32 @@ function replaceText(file, replacements, profile) {
     }
   }
   for (const [before, after] of replacements) {
-    updated = updated.replaceAll(before, after);
+    updated = updated.replaceAll(before, () => after);
   }
   if (updated === original) {
-    return false;
+    return { changed: false, text: original };
   }
-  writeFileSync(file, updated);
-  return true;
+  if (write) {
+    writeFileSync(file, updated);
+  }
+  return { changed: true, text: updated };
 }
 
 /**
- * Return the generated AI-native instruction files.
+ * Read an optional validation target without checking the path first.
  *
- * @remarks
- * `AI_LAYER_FILES` is matched by basename, not the full relative path, so a
- * subdirectory master such as `tests/AGENTS.md` is included alongside the
- * root pair. A symlink — `.agents/skills/**` bridges into `.claude/skills/**`
- * — is excluded: it is scanned at its real path already, and `readFileSync`
- * on a symlink to a directory throws.
- *
- * @param {string} root
- * @returns {string[]}
+ * @param {string} file
+ * @returns {Buffer | undefined}
  */
-function aiLayerFiles(root) {
-  return projectFiles(root).filter((relative) => {
-    if (lstatSync(path.join(root, relative)).isSymbolicLink()) {
-      return false;
+function readOptionalValidationFile(file) {
+  try {
+    return readFileSync(file);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return undefined;
     }
-    return (
-      AI_LAYER_FILES.has(path.basename(relative)) ||
-      relative.startsWith(".claude/") ||
-      relative.startsWith(".agents/")
-    );
-  });
+    throw error;
+  }
 }
 
 /**
@@ -446,17 +453,31 @@ function aiLayerFiles(root) {
  *
  * @param {string} root
  * @param {string} profile
+ * @param {Map<string, string | null>} [preview]
  */
-function assertGeneratedAiLayer(root, profile) {
+function assertGeneratedAiLayer(root, profile, preview) {
   /** @type {string[]} */
   const problems = [];
-  for (const relative of aiLayerFiles(root)) {
+  for (const relative of AI_LAYER_TARGETS) {
     const file = path.join(root, relative);
-    const buffer = readFileSync(file);
-    if (buffer.includes(0)) {
-      continue;
+    /** @type {string} */
+    let text;
+    if (preview?.has(relative)) {
+      const projected = preview.get(relative);
+      if (projected === null || projected === undefined) {
+        continue;
+      }
+      text = projected;
+    } else {
+      const buffer = readOptionalValidationFile(file);
+      if (buffer === undefined) {
+        continue;
+      }
+      if (buffer.includes(0)) {
+        continue;
+      }
+      text = buffer.toString("utf8");
     }
-    const text = buffer.toString("utf8");
     if (text.includes("docs/template-requirements")) {
       problems.push(`${relative}: docs/template-requirements`);
     }
@@ -536,33 +557,106 @@ PERFORMANCE OF THIS SOFTWARE.
 }
 
 /**
- * Apply profile and metadata changes inside a disposable copy.
+ * Apply the explicit text targets and bootstrap-only marker blocks.
+ *
+ * @param {string} root
+ * @param {Map<string, string>} replacements
+ * @param {string} profile
+ * @param {string} reportPath
+ * @param {boolean} write
+ * @param {Map<string, string | null>} [preview]
+ * @returns {string[]}
+ */
+function replaceTargets(root, replacements, profile, reportPath, write, preview) {
+  /** @type {Map<string, [string, string][]>} */
+  const byFile = new Map();
+  for (const { file, placeholder } of PLACEHOLDER_TARGETS) {
+    const relative = file === TEMPLATE_REPORT ? reportPath : file;
+    // package.json is rewritten structurally below so quotes and control
+    // characters in interactive metadata cannot make its JSON invalid.
+    if (relative === "package.json") {
+      continue;
+    }
+    const replacement = replacements.get(placeholder);
+    if (replacement === undefined) {
+      continue;
+    }
+    const safeReplacement =
+      relative === "scripts/bootstrap.mjs" &&
+      SCRIPT_STRING_PLACEHOLDERS.has(placeholder)
+        ? escapeJavaScriptString(replacement)
+        : replacement;
+    const fileReplacements = byFile.get(relative) ?? [];
+    fileReplacements.push([placeholder, safeReplacement]);
+    byFile.set(relative, fileReplacements);
+  }
+  for (const relative of MARKER_TARGETS) {
+    if (!byFile.has(relative)) {
+      byFile.set(relative, []);
+    }
+  }
+
+  /** @type {string[]} */
+  const changed = [];
+  for (const [relative, fileReplacements] of byFile) {
+    const file = path.join(root, relative);
+    if (!existsSync(file) || lstatSync(file).isSymbolicLink()) {
+      continue;
+    }
+    const result = replaceText(file, fileReplacements, profile, write);
+    if (preview !== undefined) {
+      preview.set(relative, result.text);
+    }
+    if (result.changed) {
+      changed.push(relative);
+    }
+  }
+  return changed;
+}
+
+/**
+ * Apply profile and metadata changes directly to the supplied repository.
  *
  * @param {string} root
  * @param {ReturnType<typeof parseArguments>} options
  * @param {number} year
+ * @param {Map<string, string | null>} [preview]
  * @returns {string[]}
  */
-function transform(root, options, year) {
+function transform(root, options, year, preview) {
   const names = deriveNames(options.packageName);
   const repository = `${options.githubUser}/${names.unscoped}`;
-  /** @type {[string, string][]} */
-  const replacements = [
-    [`your-name/my-package`, repository],
-    [`Usage: my-package`, `Usage: ${options.binName ?? names.unscoped}`],
-    ["my-package", options.packageName],
-    ["your-name", options.githubUser],
-    ["Your Name", options.author],
-    ["you@example.com", options.email],
-    ["A short description.", options.description],
-  ];
+  /** @type {Map<string, string>} */
+  const replacements = new Map([
+    [TEMPLATE_REPOSITORY, repository],
+    [TEMPLATE_USAGE, `Usage: ${options.binName ?? names.unscoped}`],
+    [TEMPLATE_PACKAGE, options.packageName],
+    [TEMPLATE_AUTHOR, options.author],
+    [TEMPLATE_EMAIL, options.email],
+    [TEMPLATE_DESCRIPTION, options.description],
+  ]);
   /** @type {string[]} */
   const changed = [];
+  const write = !options.dryRun;
+
+  const reportFrom = path.join(root, TEMPLATE_REPORT);
+  const reportTo = path.join(root, "etc", names.apiReport);
+  if (reportFrom !== reportTo && existsSync(reportTo)) {
+    throw new BootstrapError(
+      "ERR_RENAME_DESTINATION",
+      `API report destination already exists: etc/${names.apiReport}`,
+    );
+  }
 
   for (const relative of REMOVED_TEMPLATE_PATHS) {
     const target = path.join(root, relative);
     if (existsSync(target)) {
-      rmSync(target, { recursive: true });
+      if (write) {
+        rmSync(target, { recursive: true });
+      }
+      if (preview !== undefined) {
+        preview.set(relative, null);
+      }
       changed.push(`${relative}/ (removed)`);
     }
   }
@@ -571,30 +665,41 @@ function transform(root, options, year) {
   if (existsSync(changesetDirectory)) {
     for (const entry of readdirSync(changesetDirectory, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        rmSync(path.join(changesetDirectory, entry.name));
+        if (write) {
+          rmSync(path.join(changesetDirectory, entry.name));
+        }
         changed.push(`.changeset/${entry.name} (removed)`);
       }
     }
   }
 
-  const reportFrom = path.join(root, "etc", `${TEMPLATE_PACKAGE}.api.md`);
-  const reportTo = path.join(root, "etc", names.apiReport);
-  if (reportFrom !== reportTo && existsSync(reportTo)) {
-    throw new BootstrapError(
-      "ERR_RENAME_DESTINATION",
-      `API report destination already exists: etc/${names.apiReport}`,
-    );
-  }
   if (existsSync(reportFrom) && reportFrom !== reportTo) {
-    renameSync(reportFrom, reportTo);
-    changed.push(`etc/${TEMPLATE_PACKAGE}.api.md -> etc/${names.apiReport}`);
+    if (preview !== undefined) {
+      const report = replaceText(
+        reportFrom,
+        [[TEMPLATE_PACKAGE, options.packageName]],
+        options.profile,
+        false,
+      );
+      preview.set(TEMPLATE_REPORT, null);
+      preview.set(`etc/${names.apiReport}`, report.text);
+    }
+    if (write) {
+      renameSync(reportFrom, reportTo);
+    }
+    changed.push(`${TEMPLATE_REPORT} -> etc/${names.apiReport}`);
   }
 
   if (options.profile !== "node-cli") {
     for (const relative of ["src/cli.ts", "src/bin.ts", "tests/cli.test.ts"]) {
       const target = path.join(root, relative);
       if (existsSync(target)) {
-        rmSync(target);
+        if (write) {
+          rmSync(target);
+        }
+        if (preview !== undefined) {
+          preview.set(relative, null);
+        }
         changed.push(`${relative} (removed)`);
       }
     }
@@ -603,20 +708,26 @@ function transform(root, options, year) {
   for (const relative of ["tests/bootstrap.test.ts", "scripts/verify-bootstrap.mjs"]) {
     const target = path.join(root, relative);
     if (existsSync(target)) {
-      rmSync(target);
+      if (write) {
+        rmSync(target);
+      }
+      if (preview !== undefined) {
+        preview.set(relative, null);
+      }
       changed.push(`${relative} (removed)`);
     }
   }
 
-  for (const relative of projectFiles(root)) {
-    const absolute = path.join(root, relative);
-    if (lstatSync(absolute).isSymbolicLink()) {
-      continue;
-    }
-    if (replaceText(absolute, replacements, options.profile)) {
-      changed.push(relative);
-    }
-  }
+  changed.push(
+    ...replaceTargets(
+      root,
+      replacements,
+      options.profile,
+      `etc/${names.apiReport}`,
+      write,
+      preview,
+    ),
+  );
 
   const manifestPath = path.join(root, "package.json");
   const manifest = readObject(manifestPath);
@@ -630,9 +741,6 @@ function transform(root, options, year) {
   };
   manifest["bugs"] = { url: `https://github.com/${repository}/issues` };
   manifest["homepage"] = `https://github.com/${repository}#readme`;
-  // `packageManager` stays in the generated manifest. Corepack and Dependabot
-  // read it and both need an exact version; without it, Dependabot's pnpm
-  // updates fail against the `devEngines.packageManager` declaration.
   const scripts = readKey(manifest, "scripts");
   if (typeof scripts === "object" && scripts !== null && !Array.isArray(scripts)) {
     delete (/** @type {Record<string, unknown>} */ (scripts)["bootstrap:e2e"]);
@@ -649,7 +757,12 @@ function transform(root, options, year) {
   } else {
     manifest["engines"] = { node: ">=22.14" };
   }
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  if (write) {
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  }
+  if (preview !== undefined) {
+    preview.set("package.json", `${JSON.stringify(manifest, null, 2)}\n`);
+  }
   changed.push("package.json");
 
   const buildConfigPath = path.join(root, "tsconfig.build.json");
@@ -660,11 +773,21 @@ function transform(root, options, year) {
       '    "types": [],\n    "lib": ["ES2023", "DOM", "DOM.Iterable"]',
     );
   }
-  writeFileSync(buildConfigPath, buildConfig);
+  if (write) {
+    writeFileSync(buildConfigPath, buildConfig);
+  }
+  if (preview !== undefined) {
+    preview.set("tsconfig.build.json", buildConfig);
+  }
   changed.push("tsconfig.build.json");
 
   if (options.license === "ISC") {
-    writeFileSync(path.join(root, "LICENSE"), iscLicense(options.author, year));
+    if (write) {
+      writeFileSync(path.join(root, "LICENSE"), iscLicense(options.author, year));
+    }
+    if (preview !== undefined) {
+      preview.set("LICENSE", iscLicense(options.author, year));
+    }
     changed.push("LICENSE");
   } else {
     const licensePath = path.join(root, "LICENSE");
@@ -679,73 +802,19 @@ function transform(root, options, year) {
       );
     }
     const dated = license.replace(copyrightYear, `Copyright (c) ${String(year)} `);
-    writeFileSync(licensePath, dated);
+    if (write) {
+      writeFileSync(licensePath, dated);
+    }
+    if (preview !== undefined) {
+      preview.set(
+        "LICENSE",
+        dated.replaceAll(TEMPLATE_AUTHOR, () => options.author),
+      );
+    }
     changed.push("LICENSE");
   }
 
   return [...new Set(changed)].sort();
-}
-
-/**
- * Verify toolchain metadata and regenerate the lockfile in the disposable copy.
- *
- * @param {string} root
- */
-function regenerateLockfile(root) {
-  const manifestPath = path.join(root, "package.json");
-  const manifestText = readFileSync(manifestPath, "utf8");
-  const manifest = readObject(manifestPath);
-  const packageManager = readKey(readKey(manifest, "devEngines"), "packageManager");
-  // Exact, not a range: pnpm warns on every command when this string differs
-  // from the top-level `packageManager` field, and both must stay pinned to
-  // the version the lockfile resolved.
-  const declared = readString(packageManager, "version");
-  const topLevel = readString(manifest, "packageManager");
-  const lockfile = readFileSync(path.join(root, "pnpm-lock.yaml"), "utf8");
-  const resolved = /pnpm:\s*\n\s*specifier:\s*([^\s]+)\s*\n\s*version:\s*([^\s]+)/.exec(
-    lockfile,
-  );
-  if (
-    declared !== "11.18.0" ||
-    topLevel !== "pnpm@11.18.0" ||
-    resolved?.[1] !== "11.18.0" ||
-    resolved[2] !== "11.18.0"
-  ) {
-    throw new BootstrapError(
-      "ERR_PACKAGE_MANAGER_MISMATCH",
-      "packageManager, devEngines.packageManager and the lockfile pnpm resolution must all agree on pnpm 11.18.0.\n" +
-        `Expected: packageManager "pnpm@11.18.0", devEngines.packageManager.version "11.18.0"\n` +
-        `Actual: packageManager ${topLevel ?? "missing"}, devEngines.packageManager.version ${declared ?? "missing"}, lockfile ${resolved?.[2] ?? "missing"}\n` +
-        "Next: restore the pinned versions in package.json, then rerun bootstrap.",
-    );
-  }
-  const result = spawnSync(
-    "corepack",
-    ["pnpm@11.18.0", "--config.runtime-on-fail=ignore", "install", "--lockfile-only"],
-    {
-      cwd: root,
-      encoding: "utf8",
-      timeout: 300_000,
-      env: {
-        ...process.env,
-        COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
-        // The version to run is supplied in argv and was validated against
-        // the manifest and the lockfile immediately above, so Corepack has no
-        // reason to re-derive it from the project it is about to rewrite.
-        COREPACK_ENABLE_PROJECT_SPEC: "0",
-      },
-    },
-  );
-  // Corepack and pnpm may materialize their effective project settings in the
-  // manifest. Bootstrap owns package.json and this step owns only the lockfile,
-  // so restore the already-validated manifest byte-for-byte.
-  writeFileSync(manifestPath, manifestText);
-  if (result.status !== 0) {
-    throw new BootstrapError(
-      "ERR_LOCKFILE_GENERATION",
-      `pnpm install --lockfile-only failed.\n${result.stdout.trim()}\n${result.stderr.trim()}\nNext: verify pnpm 11.18.0 is available, then rerun bootstrap.`,
-    );
-  }
 }
 
 /**
@@ -771,20 +840,50 @@ function assertTemplate(root) {
 }
 
 /**
- * Find any placeholder remaining in generated UTF-8 files.
+ * Find any placeholder remaining in the explicit generated targets.
  *
  * @param {string} root
+ * @param {string} [packageName]
+ * @param {Map<string, string | null>} [preview]
  * @returns {string[]}
  */
-export function findPlaceholders(root) {
+export function findPlaceholders(root, packageName, preview) {
+  let reportPath = TEMPLATE_REPORT;
+  if (packageName !== undefined) {
+    reportPath = `etc/${deriveNames(packageName).apiReport}`;
+  } else {
+    const manifestPath = path.join(root, "package.json");
+    if (existsSync(manifestPath)) {
+      const manifest = readObject(manifestPath);
+      const currentName = readString(manifest, "name");
+      if (currentName !== undefined) {
+        reportPath = `etc/${deriveNames(currentName).apiReport}`;
+      }
+    }
+  }
+  const targets = new Set(PLACEHOLDER_TARGETS.map(({ file }) => file));
+  targets.add(reportPath);
+
   /** @type {string[]} */
   const found = [];
-  for (const relative of projectFiles(root)) {
+  for (const relative of targets) {
     const absolute = path.join(root, relative);
-    if (lstatSync(absolute).isSymbolicLink()) {
+    if (preview?.has(relative)) {
+      const text = preview.get(relative);
+      if (text === null || text === undefined) {
+        continue;
+      }
+      for (const placeholder of PLACEHOLDERS) {
+        if (text.includes(placeholder)) {
+          found.push(`${relative}: ${placeholder}`);
+        }
+      }
       continue;
     }
-    const buffer = readFileSync(absolute);
+    const buffer = readOptionalValidationFile(absolute);
+    if (buffer === undefined) {
+      continue;
+    }
     if (buffer.includes(0)) {
       continue;
     }
@@ -799,7 +898,7 @@ export function findPlaceholders(root) {
 }
 
 /**
- * Bootstrap the repository transactionally.
+ * Bootstrap the repository in place.
  *
  * @param {string} root
  * @param {ReturnType<typeof parseArguments>} options
@@ -813,63 +912,58 @@ export function bootstrap(
   context = { year: new Date().getUTCFullYear() },
 ) {
   assertTemplate(root);
-  const files = projectFiles(root);
   const year = context.year ?? new Date().getUTCFullYear();
-  const workspace = mkdtempSync(path.join(tmpdir(), "typescript-template-bootstrap-"));
-  const staged = path.join(workspace, "repository");
-  mkdirSync(staged);
-  try {
-    copyFiles(root, staged, files);
-    const changed = transform(staged, options, year);
-    if (!options.dryRun) {
-      regenerateLockfile(staged);
-    }
-    const placeholders = findPlaceholders(staged);
-    if (placeholders.length > 0) {
-      throw new BootstrapError(
-        "ERR_PLACEHOLDER_REMAINING",
-        `generated repository still contains placeholders:\n${placeholders.join("\n")}`,
-      );
-    }
-    assertGeneratedAiLayer(staged, options.profile);
-    if (options.dryRun) {
-      return changed;
-    }
+  /** @type {Map<string, string | null> | undefined} */
+  const preview = options.dryRun ? new Map() : undefined;
+  const changed = transform(root, options, year, preview);
 
-    const stagedFiles = projectFiles(staged);
-    const backup = path.join(workspace, "backup");
-    mkdirSync(backup);
-    copyFiles(root, backup, files);
-    try {
-      for (const relative of REMOVED_TEMPLATE_PATHS) {
-        rmSync(path.join(root, relative), { recursive: true, force: true });
-      }
-      for (const relative of files) {
-        if (!stagedFiles.includes(relative)) {
-          rmSync(path.join(root, relative), { force: true });
-        }
-      }
-      copyFiles(staged, root, stagedFiles);
-    } catch (error) {
-      for (const relative of new Set([...files, ...stagedFiles])) {
-        rmSync(path.join(root, relative), { force: true });
-      }
-      copyFiles(backup, root, files);
-      throw error;
-    }
-    return changed;
+  const placeholders = findPlaceholders(root, options.packageName, preview);
+  if (placeholders.length > 0) {
+    throw new BootstrapError(
+      "ERR_PLACEHOLDER_REMAINING",
+      `generated repository still contains placeholders:\n${placeholders.join("\n")}`,
+    );
+  }
+  assertGeneratedAiLayer(root, options.profile, preview);
+  return changed;
+}
+
+/**
+ * Open the real terminal prompt used by the command-line entry point.
+ *
+ * @returns {Promise<ReturnType<typeof parseArguments>>}
+ */
+async function interactiveArguments() {
+  if (!process.stdin.isTTY) {
+    const answers = readFileSync(0, "utf8").split(/\r?\n/);
+    let index = 0;
+    return promptArguments((prompt) => {
+      process.stdout.write(prompt);
+      return Promise.resolve(answers[index++] ?? "");
+    });
+  }
+
+  const readline = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    return await promptArguments((prompt) => readline.question(prompt));
   } finally {
-    rmSync(workspace, { recursive: true, force: true });
+    readline.close();
   }
 }
 
 /**
+ * Collect command-line or interactive input and run bootstrap.
+ *
  * @param {readonly string[]} argv
- * @returns {number}
+ * @returns {Promise<number>}
  */
-export function main(argv) {
+export async function main(argv) {
   try {
-    const options = parseArguments(argv);
+    const options =
+      argv.length === 0 ? await interactiveArguments() : parseArguments(argv);
     const changed = bootstrap(process.cwd(), options);
     console.log(
       options.dryRun
@@ -882,7 +976,7 @@ export function main(argv) {
     console.log(
       options.dryRun
         ? "No repository files were changed."
-        : "Next: run `corepack pnpm@11.18.0 install --frozen-lockfile`, then `pnpm check`.",
+        : "Next: run `pnpm install --frozen-lockfile`, then `pnpm check`.",
     );
     return 0;
   } catch (error) {
@@ -894,5 +988,5 @@ export function main(argv) {
 }
 
 if (isMain(import.meta.url)) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = await main(process.argv.slice(2));
 }
