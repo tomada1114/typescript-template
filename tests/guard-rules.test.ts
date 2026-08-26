@@ -47,6 +47,34 @@ describe("paths: checkRead / checkWrite", () => {
   it("allows an ordinary source edit", () => {
     expect(checkWrite("src/identifier.ts")).toBeNull();
   });
+
+  it.each([
+    [".git/hooks/pre-commit"],
+    [".git/config"],
+    // Claude Code sends an absolute file_path, so the plumbing is never the
+    // leading segment of a real call.
+    ["/Users/someone/project/.git/hooks/pre-push"],
+  ])("blocks writing the Git plumbing at %s", (target) => {
+    expect(checkWrite(target)).toMatch(/Git plumbing/);
+  });
+
+  it("leaves .github alone", () => {
+    // A near-miss on the same prefix: workflows are edited all the time.
+    expect(checkWrite(".github/workflows/ci.yml")).toBeNull();
+  });
+
+  it("blocks granting permissions through the local settings file", () => {
+    expect(checkWrite(".claude/settings.local.json")).toMatch(
+      /personal permission grants/,
+    );
+    expect(checkWrite(`${repoRoot}/.claude/settings.local.json`)).toMatch(
+      /personal permission grants/,
+    );
+  });
+
+  it("allows editing the shared settings file", () => {
+    expect(checkWrite(".claude/settings.json")).toBeNull();
+  });
 });
 
 describe("credentials: checkCredentials", () => {
@@ -144,6 +172,96 @@ describe("gates: isGateFile / checkGateRemoval", () => {
     ).toMatch(/staged-content pre-commit check/);
   });
 
+  it("blocks dropping the dotenv exclusion from .gitignore", () => {
+    // The read/write rules in paths.mjs keep the agent out of a .env file;
+    // this line is what keeps one out of a commit.
+    const before = "# Environment variables\n.env\n.env.*\n!.env.example\n";
+    const after = "# Environment variables\n!.env.example\n";
+    expect(checkGateRemoval(".gitignore", before, after)).toMatch(/exclusion of \.env/);
+  });
+
+  it("blocks dropping the verbatim-copy exemption from .prettierignore", () => {
+    expect(
+      checkGateRemoval(
+        ".prettierignore",
+        "docs/template-requirements/\n",
+        "# reformat everything\n",
+      ),
+    ).toMatch(/verbatim-copy formatting exemption/);
+  });
+
+  it("blocks dropping the cooldown block from dependabot.yml", () => {
+    const before =
+      '    schedule:\n      interval: "weekly"\n    cooldown:\n      default-days: 7\n';
+    const after = '    schedule:\n      interval: "weekly"\n';
+    expect(checkGateRemoval(".github/dependabot.yml", before, after)).toMatch(
+      /Dependabot update cooldown/,
+    );
+  });
+
+  it("leaves prose about the cooldown alone", () => {
+    // The marker is anchored on the YAML key, so rewording pnpm-workspace.yaml's
+    // comment explaining minimumReleaseAge is not "the cooldown was removed".
+    const before =
+      "# Supply-chain cooldown: refuse new versions.\nminimumReleaseAge: 10080\n";
+    const after = "# Refuse versions published recently.\nminimumReleaseAge: 10080\n";
+    expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toBeNull();
+  });
+
+  it("blocks dropping the dependency-review severity gate", () => {
+    expect(
+      checkGateRemoval(
+        ".github/workflows/dependency-review.yml",
+        "        with:\n          fail-on-severity: moderate\n",
+        "        with:\n",
+      ),
+    ).toMatch(/dependency-review severity gate/);
+  });
+
+  it("blocks weakening the node_modules freshness check", () => {
+    // Marker plus value, the same pair the coverage floor uses: keeping the
+    // setting named while downgrading it to a warning removes the gate.
+    const before = "verifyDepsBeforeRun: error\n";
+    const after = "verifyDepsBeforeRun: warn\n";
+    expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toMatch(
+      /verifyDepsBeforeRun/,
+    );
+    expect(checkGateRemoval("pnpm-workspace.yaml", before, "")).toMatch(
+      /node_modules freshness check/,
+    );
+  });
+
+  it("blocks a quoted downgrade of the node_modules freshness check", () => {
+    // YAML parses `warn`, `"warn"` and `'warn'` identically, so a pattern that
+    // cannot see past a leading quote reads a real downgrade as no assignment.
+    const before = "verifyDepsBeforeRun: error\n";
+    for (const after of [
+      'verifyDepsBeforeRun: "warn"\n',
+      "verifyDepsBeforeRun: 'warn'\n",
+    ]) {
+      expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toMatch(
+        /verifyDepsBeforeRun/,
+      );
+    }
+  });
+
+  it("leaves prose about the freshness check in another gate file alone", () => {
+    // The value check belongs to the one file pnpm reads it from. Without that
+    // restriction, a comment quoting the setting anywhere else — eslint.config.mjs
+    // here — is a hard block on an edit that changes no setting at all.
+    const before = "// nothing about pnpm yet\n";
+    // Both spellings a comment can take: indented behind `//`, and — inside a
+    // block comment or a template literal — flush against the line start,
+    // where only the file restriction stops the check from reading it as an
+    // assignment.
+    for (const after of [
+      "// pnpm sets verifyDepsBeforeRun: warn nowhere; this repo pins it to error.\n",
+      "/*\nverifyDepsBeforeRun: warn\nis what this repo refuses.\n*/\n",
+    ]) {
+      expect(checkGateRemoval("eslint.config.mjs", before, after)).toBeNull();
+    }
+  });
+
   it("leaves prose that merely mentions a gate alone", () => {
     // Gate rules apply to gate files, not to every file that says the word.
     expect(
@@ -161,6 +279,13 @@ describe("gates: isGateFile / checkGateRemoval", () => {
     expect(isGateFile("package.json")).toBe(true);
     expect(isGateFile("README.md")).toBe(false);
   });
+
+  it.each([[".gitignore"], [".prettierignore"], ["typedoc.json"]])(
+    "treats %s as a gate file",
+    (target) => {
+      expect(isGateFile(target)).toBe(true);
+    },
+  );
 
   it("protects the guard engine's own implementation from deletion", () => {
     expect(isGateFile(".claude/hooks/guard.mjs")).toBe(true);

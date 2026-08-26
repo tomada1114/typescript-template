@@ -101,6 +101,33 @@ export const ALLOWED_PATHS = [
 ];
 
 /**
+ * Paths the tarball must contain.
+ *
+ * @remarks
+ * `ALLOWED_PATHS` says what may ship; without this list nothing says what has
+ * to. A tarball that lost its LICENSE or README would otherwise pass every
+ * check while being unpublishable in practice.
+ *
+ * The patterns are the very entries of {@link ALLOWED_PATHS}, referenced rather
+ * than re-spelled, so "allowed" and "required" cannot drift apart.
+ */
+export const REQUIRED_PATHS = [
+  { label: "the package manifest", sample: "package.json" },
+  { label: "a readme", sample: "README" },
+  { label: "a license", sample: "LICENSE" },
+].map(({ label, sample }) => {
+  const rule = ALLOWED_PATHS.find((candidate) => candidate.pattern.test(sample));
+  if (rule === undefined) {
+    throw new Error(
+      `ERR_PACKAGE_POLICY_INCONSISTENT: no ALLOWED_PATHS pattern matches ${sample}.\n` +
+        "Expected: every required file to also be on the allowlist.\n" +
+        "Next: fix ALLOWED_PATHS in scripts/check-package.mjs so the two lists agree.",
+    );
+  }
+  return { label, sample, pattern: rule.pattern };
+});
+
+/**
  * Paths that are dangerous rather than merely unexpected.
  *
  * @remarks
@@ -477,9 +504,127 @@ export function findAbsoluteMapSources(entries) {
   return found;
 }
 
+/**
+ * Find published maps whose sources a consumer cannot reach.
+ *
+ * @remarks
+ * `src/` is on {@link FORBIDDEN_PATHS}, so a map that only names `../src/*.ts`
+ * points at nothing once installed — the debugger shows an empty frame instead
+ * of the code. A map is self-contained only when it embeds `sourcesContent` for
+ * every source, or when every source it names is itself in the tarball.
+ *
+ * References that are absolute are left to {@link findAbsoluteMapSources}: they
+ * are the same file being wrong for a different, more serious reason, and
+ * reporting them twice would bury it.
+ *
+ * @param {readonly TarEntry[]} entries - Entries from {@link readTarEntries}.
+ * @returns {PackageProblem[]} One problem per unreachable source.
+ */
+export function findDanglingMapSources(entries) {
+  const present = new Set(
+    entries.filter((entry) => entry.type === "file").map((entry) => entry.path),
+  );
+  /** @type {PackageProblem[]} */
+  const problems = [];
+
+  for (const entry of entries) {
+    if (!entry.path.endsWith(".map") || entry.data === undefined) {
+      continue;
+    }
+    /** @type {unknown} */
+    let map;
+    try {
+      // An unparsable map is already reported as a leak by
+      // findAbsoluteMapSources; nothing further can be said about it here.
+      map = parseJson(entry.data.toString("utf8"));
+    } catch {
+      continue;
+    }
+
+    const sources = readKey(map, "sources");
+    if (!Array.isArray(sources)) {
+      continue;
+    }
+    const contents = readKey(map, "sourcesContent");
+    const sourceRoot = readKey(map, "sourceRoot");
+    const root = typeof sourceRoot === "string" ? sourceRoot : "";
+    const mapDirectory = path.posix.dirname(entry.path);
+
+    for (const [index, source] of sources.entries()) {
+      if (typeof source !== "string" || ABSOLUTE_SOURCE.test(source)) {
+        continue;
+      }
+      const embedded = Array.isArray(contents)
+        ? /** @type {readonly unknown[]} */ (contents)[index]
+        : undefined;
+      if (typeof embedded === "string") {
+        continue;
+      }
+      if (ABSOLUTE_SOURCE.test(root)) {
+        continue;
+      }
+      const resolved = path.posix.normalize(
+        path.posix.join(mapDirectory, root, source),
+      );
+      if (present.has(resolved)) {
+        continue;
+      }
+      problems.push({
+        code: "ERR_PACKAGE_MAP_DANGLING_SOURCE",
+        path: entry.path,
+        message:
+          `${entry.path} points at ${resolved}, which the tarball does not contain, ` +
+          "and carries no embedded copy of it.\n" +
+          "Expected: `sourcesContent` for every source, or a source that is itself published.\n" +
+          `Actual: sources[${String(index)}] is ${source} with no sourcesContent entry.\n` +
+          "Next: set `inlineSources` in tsconfig.build.json (TypeScript honours it " +
+          "for .js.map only, so turn `declarationMap` off), then rebuild and pack again.",
+      });
+    }
+  }
+
+  return problems;
+}
+
 // -----------------------------------------------------------------------------
 // Inspection
 // -----------------------------------------------------------------------------
+
+/**
+ * Find the files every published tarball must carry.
+ *
+ * @remarks
+ * npm includes these regardless of `files`, so an absent one means it is absent
+ * from the repository root — a package published without its license or readme.
+ * The check is kept out of {@link inspectPackageEntries} because it is only
+ * meaningful for a complete tarball, never for a fragment of one.
+ *
+ * @param {readonly TarEntry[]} entries - Entries from {@link readTarEntries}.
+ * @returns {PackageProblem[]} One problem per missing requirement.
+ */
+export function findMissingRequiredPaths(entries) {
+  const files = entries.filter((entry) => entry.type === "file");
+  /** @type {PackageProblem[]} */
+  const problems = [];
+
+  for (const rule of REQUIRED_PATHS) {
+    if (files.some((entry) => rule.pattern.test(entry.path))) {
+      continue;
+    }
+    problems.push({
+      code: "ERR_PACKAGE_REQUIRED_MISSING",
+      path: rule.sample,
+      message:
+        `The tarball contains no file matching ${rule.label} (${String(rule.pattern)}).\n` +
+        `Expected: ${rule.label}, for example ${rule.sample}.\n` +
+        "Actual: no entry in the tarball matches.\n" +
+        `Next: check that ${rule.sample} exists at the repository root; npm includes ` +
+        'it regardless of "files".',
+    });
+  }
+
+  return problems;
+}
 
 /**
  * Format a byte count without a locale-dependent separator.
@@ -639,7 +784,11 @@ export function inspectPackageEntries(entries, options = {}) {
  */
 export function inspectTarball(tarballPath, manifest) {
   const entries = readTarEntries(readFileSync(tarballPath));
-  const problems = inspectPackageEntries(entries, { manifest });
+  const problems = [
+    ...inspectPackageEntries(entries, { manifest }),
+    ...findMissingRequiredPaths(entries),
+    ...findDanglingMapSources(entries),
+  ];
 
   for (const leak of findAbsoluteMapSources(entries)) {
     problems.push({
@@ -663,7 +812,8 @@ export function inspectTarball(tarballPath, manifest) {
 const USAGE = `Usage: node scripts/check-package.mjs (--pack-dir <dir> | --tarball <file>)
 
 Inspects a packed tarball against the allowlist, the forbidden-path list, the
-size ceilings in PACKAGE_LIMITS, and the entry points package.json declares.
+size ceilings in PACKAGE_LIMITS, the files REQUIRED_PATHS demands, the entry
+points package.json declares, and the reachability of every source map source.
 
 Exit codes:
   0  the tarball is publishable

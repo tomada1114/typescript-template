@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { InvalidInputError, normalizeIdentifier } from "../src/index.js";
+import * as api from "../src/index.js";
+import { InvalidInputError, normalizeIdentifier, TimeoutError } from "../src/index.js";
 
 describe("normalizeIdentifier", () => {
   it("lowercases and joins words with the default separator", () => {
@@ -162,5 +163,77 @@ describe("InvalidInputError", () => {
     const error = new InvalidInputError("input", "input must not be empty");
     expect(error).toBeInstanceOf(Error);
     expect(typeof error.stack).toBe("string");
+  });
+});
+
+// --- the error-code convention -----------------------------------------------
+//
+// "Naming and constants" in AGENTS.md fixes the shape of every published error:
+// a `name` a reader recognises in a stack trace, and an `ERR_`-prefixed `code`
+// a caller is invited to branch on. Reading the classes off the module's own
+// exports is what makes that a rule instead of two assertions about two
+// classes — a third error type that forgets either half fails here without
+// anyone having remembered to write a test for it.
+
+type ErrorClass = new (...args: never[]) => Error;
+
+function isErrorClass(value: unknown): value is ErrorClass {
+  return (
+    typeof value === "function" && Object.prototype.isPrototypeOf.call(Error, value)
+  );
+}
+
+const exportedErrorNames = Object.entries(api)
+  .filter(([, value]) => isErrorClass(value))
+  .map(([name]) => name)
+  .sort();
+
+/**
+ * One representative instance per exported error class.
+ *
+ * Constructor signatures differ by design — each error carries the fields that
+ * describe what it rejected — so the instances are written out rather than
+ * built reflectively. The first test below compares this list against the
+ * exports, so a class cannot be added and left uncovered.
+ */
+const representativeErrors: Record<string, Error> = {
+  InvalidInputError: new InvalidInputError(
+    "options.maxLength",
+    "maxLength must be a positive integer",
+  ),
+  TimeoutError: new TimeoutError(25),
+};
+
+/** The code shape AGENTS.md fixes: `ERR_` plus SCREAMING_SNAKE_CASE. */
+const ERROR_CODE = /^ERR_[A-Z0-9_]+$/;
+
+function codeOf(error: Error): unknown {
+  return (error as { code?: unknown }).code;
+}
+
+describe("the published error contract", () => {
+  it("has a representative instance for every exported error class", () => {
+    expect(exportedErrorNames).not.toEqual([]);
+    expect(Object.keys(representativeErrors).sort()).toEqual(exportedErrorNames);
+  });
+
+  it.each(Object.entries(representativeErrors))(
+    "%s sets its name and a stable ERR_ code",
+    (name, error) => {
+      expect(error).toBeInstanceOf(Error);
+      // The default is the string "Error", which tells a reader nothing about
+      // which failure they are looking at.
+      expect(error.name).toBe(name);
+      expect(codeOf(error)).toBeTypeOf("string");
+      expect(codeOf(error)).toMatch(ERROR_CODE);
+    },
+  );
+
+  it("gives each error class a code of its own", () => {
+    // A shared code makes the discriminator undiscriminating: two failures a
+    // caller must handle differently would be indistinguishable.
+    const codes = Object.values(representativeErrors).map((error) => codeOf(error));
+
+    expect(new Set(codes).size).toBe(codes.length);
   });
 });

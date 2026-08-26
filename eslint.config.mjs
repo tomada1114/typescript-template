@@ -1,9 +1,30 @@
 import { readFileSync } from "node:fs";
 
 import js from "@eslint/js";
+import vitest from "@vitest/eslint-plugin";
 import { defineConfig, globalIgnores } from "eslint/config";
 import eslintConfigPrettier from "eslint-config-prettier";
 import tseslint from "typescript-eslint";
+
+/**
+ * The `export *` ban, shared by the whole `src/` tree and by the extra
+ * index-only rules below.
+ *
+ * @remarks
+ * `no-restricted-syntax` options replace rather than merge across config
+ * objects, so the narrower `src/index.ts` block has to restate this entry or
+ * it would silently switch `export *` back on for the one file where it does
+ * the most damage.
+ */
+const NO_EXPORT_STAR = {
+  selector: "ExportAllDeclaration",
+  message:
+    "`export *` publishes symbols implicitly. Re-export each public symbol by name from src/index.ts.",
+};
+
+/** What `src/internal/**` is, in the words of the rule that made it private. */
+const INTERNAL_IS_PRIVATE =
+  'src/internal/ is private: see "Architecture" in AGENTS.md. Tests reach it through the public surface in src/index.ts ("What to Test" in tests/AGENTS.md), and repository automation must not depend on package internals at all.';
 
 /**
  * Read one property off a value of unknown shape.
@@ -65,7 +86,15 @@ export default defineConfig([
   // including repository automation and config files. `.agents/skills/` holds
   // symlinks into `.claude/skills/**`, already linted at their real path —
   // following the link here would lint the same files twice.
-  globalIgnores(["dist/", "coverage/", "docs/api/", ".agents/skills/"]),
+  // `.claude/worktrees/` holds full working copies created by agent sessions,
+  // linted in their own checkout.
+  globalIgnores([
+    "dist/",
+    "coverage/",
+    "docs/api/",
+    ".agents/skills/",
+    ".claude/worktrees/",
+  ]),
   {
     linterOptions: {
       // A disable directive that no longer suppresses anything is dead weight
@@ -124,12 +153,45 @@ export default defineConfig([
           },
         },
       ],
+      "no-restricted-syntax": ["error", NO_EXPORT_STAR],
+
+      // A `switch` over a union is the one place where adding a member to that
+      // union silently changes behavior instead of failing to compile. With
+      // `considerDefaultExhaustiveForUnions`, a `default` branch is accepted as
+      // the deliberate answer, so this asks for a decision rather than for a
+      // case per member.
+      "@typescript-eslint/switch-exhaustiveness-check": [
+        "error",
+        { considerDefaultExhaustiveForUnions: true },
+      ],
+    },
+  },
+  {
+    name: "public-api/internal-stays-private",
+    files: ["src/index.ts"],
+    rules: {
+      // src/index.ts is the whole published contract, so a re-export here is
+      // the one edit that can publish a private symbol by accident. The
+      // directory name is not the boundary — this line is.
+      //
+      // Anchored on the path segment, not on the bare word: an unanchored
+      // /internal/ also matches a specifier that merely starts with those
+      // letters, so a legitimate `./internal-format.js` re-export would be
+      // rejected for a private directory it is not in. src/index.ts sits
+      // beside the directory, so `./internal/` is the only spelling that can
+      // reach it.
       "no-restricted-syntax": [
         "error",
+        NO_EXPORT_STAR,
         {
-          selector: "ExportAllDeclaration",
+          selector: "ExportNamedDeclaration[source.value=/^\\.\\/internal\\//]",
           message:
-            "`export *` publishes symbols implicitly. Re-export each public symbol by name from src/index.ts.",
+            "exporting an internal symbol publishes it — move it to a public module first",
+        },
+        {
+          selector: "ExportAllDeclaration[source.value=/^\\.\\/internal\\//]",
+          message:
+            "exporting an internal symbol publishes it — move it to a public module first",
         },
       ],
     },
@@ -159,11 +221,79 @@ export default defineConfig([
     },
   },
   {
+    // tests/AGENTS.md states these rules in prose; this is what enforces the
+    // ones a linter can see. The recommended set is taken as published and the
+    // escalations below are the entries this repository will not run on
+    // "warn", starting with the two that quietly shrink the suite.
+    ...vitest.configs.recommended,
+    name: "tests/vitest-rules",
+    files: ["tests/**/*.ts"],
+    rules: {
+      ...vitest.configs.recommended.rules,
+
+      // "No it.skip/it.todo left on main" and "a focused test never lands".
+      "vitest/no-focused-tests": "error",
+      "vitest/no-disabled-tests": "error",
+
+      // An assertion outside a test reports nothing when it fails, and a test
+      // with no assertion passes whatever the code does. `expectTypeOf` is
+      // listed because tests/types.test.ts asserts entirely at compile time —
+      // those tests have no runtime `expect` and are not meant to.
+      "vitest/no-standalone-expect": "error",
+      "vitest/expect-expect": [
+        "error",
+        { assertFunctionNames: ["expect", "expectTypeOf"] },
+      ],
+      "vitest/valid-expect": "error",
+
+      // One spelling, so a search for a test finds every one of them.
+      "vitest/consistent-test-it": ["error", { fn: "it" }],
+
+      // `vitest/require-top-level-describe` is deliberately left off. Several
+      // suites here own a fixture for the whole file — a temp git repository,
+      // a packed tarball — and set it up in a file-level `beforeAll`, which
+      // this rule forbids. Satisfying it would mean wrapping five whole files
+      // in an extra describe for no gain in what the tests assert.
+      //
+      // `vitest/no-conditional-expect` comes from the recommended set and is
+      // turned off for the same kind of reason: tests/AGENTS.md prescribes
+      // asserting on a caught error inside `catch`, and the workflow and
+      // bootstrap suites branch on what the repository actually contains
+      // before asserting against it.
+      "vitest/no-conditional-expect": "off",
+    },
+  },
+  {
     name: "tests/relaxations",
     files: ["tests/**/*.ts"],
     rules: {
       // Tests deliberately construct invalid input to prove it is rejected.
       "@typescript-eslint/no-confusing-void-expression": "off",
+    },
+  },
+  {
+    name: "boundaries/internal-is-not-importable",
+    files: ["tests/**/*.ts", "scripts/**/*.mjs"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              // Both trees: `src/internal` is the module, `dist/internal` is
+              // the same module after a build, and neither is importable from
+              // outside `src/**`.
+              group: [
+                "**/src/internal",
+                "**/src/internal/**",
+                "**/dist/internal",
+                "**/dist/internal/**",
+              ],
+              message: INTERNAL_IS_PRIVATE,
+            },
+          ],
+        },
+      ],
     },
   },
   // Must stay last: turns off stylistic rules that would fight Prettier.

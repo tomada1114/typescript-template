@@ -12,6 +12,9 @@ etc/*.api.md
 # Symlinks into .claude/skills/**, already formatted at their real path.
 .agents/skills/
 
+# Full working copies created by agent sessions; formatted in their own checkout.
+.claude/worktrees/
+
 # Verbatim copies of the upstream requirement documents; reflowing them would
 # make diffs against the source unreadable.
 docs/template-requirements/

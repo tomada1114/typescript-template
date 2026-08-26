@@ -12,6 +12,15 @@ updates:
       default-days: 7
     commit-message:
       prefix: "deps:"
+    open-pull-requests-limit: 10
+    # A TypeScript major is not installable here: typescript-eslint and typedoc
+    # cap their peer range below it, and `strictPeerDependencies: true` turns
+    # that into a failed install rather than a warning. See "TypeScript version
+    # ceiling" in AGENTS.md. Remove this entry once both of those packages
+    # publish a peer range that admits the next major.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       # Routine updates arrive as one reviewable PR. Majors are deliberately
       # left out of every group so each gets its own PR and is reviewed against
@@ -28,6 +37,7 @@ updates:
       default-days: 7
     commit-message:
       prefix: "ci:"
+    open-pull-requests-limit: 10
     groups:
       # Dependabot rewrites the pinned SHA and the trailing release-tag comment
       # together, which is how the pins in .github/workflows stay current.

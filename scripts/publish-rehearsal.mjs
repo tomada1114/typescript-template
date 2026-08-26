@@ -46,15 +46,10 @@ export function main(argv) {
   try {
     const publish = runNode(
       npmCliPath(),
-      [
-        "publish",
-        tarball,
-        "--dry-run",
-        "--access",
-        "public",
-        "--ignore-scripts",
-        "--json",
-      ],
+      // No `--access`: the packed manifest's `publishConfig` carries it, and
+      // stating it here too would let the rehearsal pass under a contract the
+      // real publish does not use.
+      ["publish", tarball, "--dry-run", "--ignore-scripts", "--json"],
       {
         cwd: workspace,
         env: {

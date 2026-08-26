@@ -219,6 +219,87 @@ function runCommands(source: string): RunCommand[] {
   return commands;
 }
 
+/**
+ * The `run.shell` a `defaults:` block declares, or `undefined` when it declares
+ * none — including when there is no `defaults:` block at all.
+ *
+ * @param scope - The line list `defaults` was found in: `lines` for the
+ * workflow-level block, a job's own body for a job-level one.
+ */
+function defaultsRunShell(
+  scope: Line[],
+  defaults: Line | undefined,
+): string | undefined {
+  if (defaults === undefined) {
+    return undefined;
+  }
+  return blockOf(scope, scope.indexOf(defaults))
+    .filter((line) => line.text.startsWith("shell:"))
+    .map((line) => inlineValue(line))[0];
+}
+
+/**
+ * The `shell:` the step covering `lineNumber` declares for itself, if any.
+ *
+ * @remarks
+ * A step's own `shell:` overrides both `defaults:` blocks, so it is the last
+ * word on how a `run:` body is executed. Only the step's own keys count: the
+ * depth check keeps a `shell` nested inside a `with:` — an action input that
+ * happens to share the name — from reading as the step's shell.
+ */
+function stepShellAtLine(job: Job, lineNumber: number): string | undefined {
+  const step = stepsOf(job).find((lines) =>
+    lines.some((line) => line.number === lineNumber),
+  );
+  const header = step?.[0];
+  if (step === undefined || header === undefined) {
+    return undefined;
+  }
+  const inline = /^- shell:\s*(.*)$/.exec(header.text)?.[1];
+  return (
+    inline ??
+    step
+      .filter(
+        (line) => line.indent === header.indent + 2 && line.text.startsWith("shell:"),
+      )
+      .map((line) => inlineValue(line))[0]
+  );
+}
+
+/**
+ * Whether a shell string makes a `run:` body fail closed on its own.
+ *
+ * @remarks
+ * Both halves are required: `pipefail` alone still lets an unset variable
+ * expand to the empty string, which is what `-u` is there to stop. The `-u`
+ * test is a regex rather than a substring search because the flag is
+ * routinely written inside a cluster (`bash -euo pipefail {0}`), where the
+ * literal text `-u` never appears.
+ */
+function isFailClosedShell(shell: string | undefined): boolean {
+  return (
+    shell !== undefined &&
+    shell.includes("pipefail") &&
+    /(?:^|\s)-[A-Za-z]*u/.test(shell)
+  );
+}
+
+/** The job whose structural lines cover `lineNumber`, if any. */
+function jobAtLine(jobs: Job[], lineNumber: number): Job | undefined {
+  return jobs.find(
+    (job) =>
+      job.header.number === lineNumber ||
+      job.body.some((line) => line.number === lineNumber),
+  );
+}
+
+/** The index of the first step in `steps` that uses an action starting with `prefix`. */
+function stepUsing(steps: Line[][], prefix: string): number {
+  return steps.findIndex((step) =>
+    usesOf(step).some(({ ref }) => ref.startsWith(prefix)),
+  );
+}
+
 // --- rules -------------------------------------------------------------------
 
 /** One workflow property that spec 02 §5.1 requires and this file does not have. */
@@ -352,15 +433,86 @@ function lintWorkflow(source: string): Problem[] {
     }
   }
 
+  // setup-node's default package-manager cache resolves the pnpm store path by
+  // invoking pnpm. A setup-node that runs first finds no pnpm on PATH, so it
+  // silently caches nothing — the failure mode is a slow job, never an error.
+  for (const job of jobs) {
+    const steps = stepsOf(job);
+    const pnpmIndex = stepUsing(steps, "pnpm/action-setup@");
+    const nodeIndex = stepUsing(steps, "actions/setup-node@");
+    if (pnpmIndex === -1 || nodeIndex === -1 || pnpmIndex < nodeIndex) {
+      continue;
+    }
+    report(
+      "ERR_WORKFLOW_SETUP_ORDER",
+      steps[nodeIndex]?.[0]?.number ?? job.header.number,
+      `Job "${job.name}" runs actions/setup-node before pnpm/action-setup, so the pnpm store cache never engages.`,
+    );
+  }
+
   // A pull request that is pushed to again must not keep the superseded run alive.
   const on = topLevel(lines, "on");
   const triggers = on === undefined ? [] : blockOf(lines, lines.indexOf(on));
+  const triggerIndent = triggers[0]?.indent;
   const onPullRequest = triggers.some((line) => line.text.startsWith("pull_request"));
-  if (onPullRequest && topLevel(lines, "concurrency") === undefined) {
+  const onPush = triggers.some(
+    (line) => line.indent === triggerIndent && line.text.startsWith("push:"),
+  );
+  const concurrency = topLevel(lines, "concurrency");
+  if (onPullRequest && concurrency === undefined) {
     report(
       "ERR_WORKFLOW_CONCURRENCY_MISSING",
       on?.number ?? 1,
       "A pull-request workflow needs `concurrency` so superseded runs are cancelled.",
+    );
+  }
+
+  // Cancelling is right for a superseded pull request and wrong for a push: the
+  // run being killed is the only CI or analysis record a merged commit gets.
+  if (onPullRequest && onPush && concurrency !== undefined) {
+    const cancel = blockOf(lines, lines.indexOf(concurrency)).find((line) =>
+      line.text.startsWith("cancel-in-progress:"),
+    );
+    if (cancel !== undefined && inlineValue(cancel) === "true") {
+      report(
+        "ERR_WORKFLOW_CONCURRENCY_CANCELS_PUSH",
+        cancel.number,
+        "This workflow also runs on push. Make cancel-in-progress conditional on the event being a pull request.",
+      );
+    }
+  }
+
+  // The runner's default shell is `bash -e`: an unset variable expands to the
+  // empty string and a failure inside a pipeline is invisible. A script long
+  // enough to need a second line is long enough for either to read as success.
+  const topLevelShell = defaultsRunShell(lines, topLevel(lines, "defaults"));
+  for (const { line, command } of runCommands(source)) {
+    const body = command
+      .split("\n")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry !== "" && !entry.startsWith("#"));
+    if (body.length <= 1 || body[0] === "set -euo pipefail") {
+      continue;
+    }
+
+    // Each level replaces the one above rather than adding to it: a job-level
+    // `defaults:` discards the workflow-level one, and a step's own `shell:`
+    // discards both. So the shell this body runs under is the innermost one
+    // that names a shell at all.
+    const job = jobAtLine(jobs, line);
+    const jobShell =
+      job === undefined
+        ? undefined
+        : defaultsRunShell(job.body, jobKey(job, "defaults"));
+    const stepShell = job === undefined ? undefined : stepShellAtLine(job, line);
+    if (isFailClosedShell(stepShell ?? jobShell ?? topLevelShell)) {
+      continue;
+    }
+
+    report(
+      "ERR_WORKFLOW_RUN_NOT_PIPEFAIL",
+      line,
+      'A multi-line run block must start with `set -euo pipefail`, or run under a defaults.run.shell that spells pipefail out — `shell: bash` is not enough, it leaves -u off. Expected: shell: "bash --noprofile --norc -eo pipefail -u {0}".',
     );
   }
 
@@ -398,7 +550,13 @@ function matrixNodeVersions(source: string): string[] {
   return versions;
 }
 
-/** The `version:` given to every pnpm/action-setup step. */
+/**
+ * Every `version:` a pnpm/action-setup step states.
+ *
+ * @remarks
+ * Expected to be empty: the action reads `packageManager` from package.json,
+ * and that field is the only place the pnpm version is written.
+ */
 function pnpmSetupVersions(source: string): string[] {
   const lines = scan(source);
   const versions: string[] = [];
@@ -417,25 +575,6 @@ function pnpmSetupVersions(source: string): string[] {
     }
   }
   return versions;
-}
-
-/**
- * Whether `version` satisfies `declared`.
- *
- * @remarks
- * Only the exact `x.y.z` form this repo declares. `devEngines.packageManager`
- * carries an exact version so that it matches the top-level `packageManager`
- * string byte for byte (docs/template-implementation/decisions.md §1), so a
- * range would be a deliberate change of that decision — it throws here rather
- * than being quietly approximated.
- */
-function satisfiesDeclared(version: string, declared: string): boolean {
-  if (!/^\d+\.\d+\.\d+$/.test(declared)) {
-    throw new Error(
-      `Unsupported version declaration: ${declared}. Extend satisfiesDeclared if this is intended.`,
-    );
-  }
-  return version === declared;
 }
 
 // --- fixtures ----------------------------------------------------------------
@@ -466,6 +605,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 `;
+
+/** The same workflow with its one `run:` turned into a block scalar. */
+const MULTI_LINE_RUN_WORKFLOW = CLEAN_WORKFLOW.replace(
+  "        run: pnpm install --frozen-lockfile\n",
+  [
+    "        run: |",
+    "          pnpm install --frozen-lockfile",
+    "          node ./scripts/after.mjs",
+    "",
+  ].join("\n"),
+);
 
 function codesOf(problems: Problem[]): string[] {
   return problems.map((problem) => problem.code);
@@ -658,6 +808,167 @@ describe("lintWorkflow", () => {
 
     expect(lintWorkflow(source)).toEqual([]);
   });
+
+  it("rejects setup-node running before pnpm/action-setup", () => {
+    const source = CLEAN_WORKFLOW.replace(
+      "      - name: Install dependencies\n",
+      [
+        "      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+        "        with:",
+        "          node-version-file: .node-version",
+        "",
+        "      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10",
+        "",
+        "      - name: Install dependencies",
+        "",
+      ].join("\n"),
+    );
+
+    expect(codesOf(lintWorkflow(source))).toEqual(["ERR_WORKFLOW_SETUP_ORDER"]);
+  });
+
+  it("accepts pnpm/action-setup running first", () => {
+    const source = CLEAN_WORKFLOW.replace(
+      "      - name: Install dependencies\n",
+      [
+        "      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10",
+        "",
+        "      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+        "        with:",
+        "          node-version-file: .node-version",
+        "",
+        "      - name: Install dependencies",
+        "",
+      ].join("\n"),
+    );
+
+    expect(lintWorkflow(source)).toEqual([]);
+  });
+
+  it("rejects a multi-line run block with nothing making it fail closed", () => {
+    const source = CLEAN_WORKFLOW.replace(
+      "        run: pnpm install --frozen-lockfile\n",
+      [
+        "        run: |",
+        "          pnpm install --frozen-lockfile",
+        "          node ./scripts/after.mjs",
+        "",
+      ].join("\n"),
+    );
+
+    expect(codesOf(lintWorkflow(source))).toEqual(["ERR_WORKFLOW_RUN_NOT_PIPEFAIL"]);
+  });
+
+  it("accepts a multi-line run block covered by a workflow-level shell default", () => {
+    const source = MULTI_LINE_RUN_WORKFLOW.replace(
+      "permissions: {}\n",
+      [
+        "permissions: {}",
+        "",
+        "defaults:",
+        "  run:",
+        '    shell: "bash --noprofile --norc -eo pipefail -u {0}"',
+        "",
+      ].join("\n"),
+    );
+
+    expect(lintWorkflow(source)).toEqual([]);
+  });
+
+  it("does not let a job that names its own shell inherit that default", () => {
+    // A job-level `defaults:` replaces the workflow-level one; `shell: bash`
+    // there means this job really does run without -u.
+    const source = MULTI_LINE_RUN_WORKFLOW.replace(
+      "permissions: {}\n",
+      [
+        "permissions: {}",
+        "",
+        "defaults:",
+        "  run:",
+        '    shell: "bash --noprofile --norc -eo pipefail -u {0}"',
+        "",
+      ].join("\n"),
+    ).replace(
+      "    steps:\n",
+      ["    defaults:", "      run:", "        shell: bash", "    steps:", ""].join(
+        "\n",
+      ),
+    );
+
+    expect(codesOf(lintWorkflow(source))).toEqual(["ERR_WORKFLOW_RUN_NOT_PIPEFAIL"]);
+  });
+
+  it("does not let a step that names its own shell inherit a fail-closed default", () => {
+    // A step's `shell:` is the last word, so `shell: bash` on the step is what
+    // this body really runs under however careful the job's defaults are.
+    const source = MULTI_LINE_RUN_WORKFLOW.replace(
+      "    steps:\n",
+      [
+        "    defaults:",
+        "      run:",
+        '        shell: "bash --noprofile --norc -eo pipefail -u {0}"',
+        "    steps:",
+        "",
+      ].join("\n"),
+    ).replace("        run: |\n", "        shell: bash\n        run: |\n");
+
+    expect(codesOf(lintWorkflow(source))).toEqual(["ERR_WORKFLOW_RUN_NOT_PIPEFAIL"]);
+  });
+
+  it("accepts a step whose own shell is fail closed, with no set line", () => {
+    const source = MULTI_LINE_RUN_WORKFLOW.replace(
+      "        run: |\n",
+      '        shell: "bash --noprofile --norc -eo pipefail -u {0}"\n        run: |\n',
+    );
+
+    expect(lintWorkflow(source)).toEqual([]);
+  });
+
+  it("rejects a shell default that spells pipefail out but leaves -u off", () => {
+    // `bash -eo pipefail {0}` is the trap the error message names: pipefail is
+    // there, so a substring check passes it, while an unset variable still
+    // expands to the empty string.
+    const source = MULTI_LINE_RUN_WORKFLOW.replace(
+      "permissions: {}\n",
+      [
+        "permissions: {}",
+        "",
+        "defaults:",
+        "  run:",
+        '    shell: "bash -eo pipefail {0}"',
+        "",
+      ].join("\n"),
+    );
+
+    expect(codesOf(lintWorkflow(source))).toEqual(["ERR_WORKFLOW_RUN_NOT_PIPEFAIL"]);
+  });
+
+  it("rejects cancelling unconditionally on a workflow that also runs on push", () => {
+    const source = CLEAN_WORKFLOW.replace(
+      "  pull_request:",
+      "  push:\n    branches: [main]\n  pull_request:",
+    );
+
+    expect(codesOf(lintWorkflow(source))).toEqual([
+      "ERR_WORKFLOW_CONCURRENCY_CANCELS_PUSH",
+    ]);
+  });
+
+  it("accepts a cancellation conditional on the event being a pull request", () => {
+    const source = CLEAN_WORKFLOW.replace(
+      "  pull_request:",
+      "  push:\n    branches: [main]\n  pull_request:",
+    ).replace(
+      "cancel-in-progress: true",
+      "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+    );
+
+    expect(lintWorkflow(source)).toEqual([]);
+  });
+
+  it("still allows a pull-request-only workflow to cancel unconditionally", () => {
+    expect(lintWorkflow(CLEAN_WORKFLOW)).toEqual([]);
+  });
 });
 
 // --- the rules, against the workflows this repository ships -------------------
@@ -806,15 +1117,30 @@ describe("the release workflow preserves the reviewed artifact", () => {
   it("builds and packs once, then reuses the fixed tarball path", () => {
     expect(source.match(/\bpnpm pack\b/g)).toHaveLength(1);
     expect(source).toContain("pnpm run package:verify -- --tarball dist/package.tgz");
-    expect(source).toContain(
-      "npm publish dist/package.tgz --access public --provenance",
-    );
+    expect(source).toContain("npm publish dist/package.tgz");
     expect(source).toContain(
       'npm pack "${PACKAGE}@${VERSION}" --pack-destination dist',
     );
     expect(source).toContain("path: dist/package.tgz");
     expect(source).not.toContain("pnpm check");
     expect(source).toContain("pnpm run check:source");
+  });
+
+  it("takes the publish contract from package.json rather than from flags", () => {
+    // publishConfig carries access, provenance and the registry (asserted in
+    // tests/package.test.ts). A flag here would be a second copy that only
+    // this call site obeys — the rehearsal and a manual publish would keep
+    // whatever the manifest says, and the two could drift apart unnoticed.
+    const publishes = runCommands(source).filter(({ command }) =>
+      /\bnpm publish\b/.test(command),
+    );
+
+    expect(publishes).toHaveLength(1);
+    expect(
+      publishes.filter(({ command }) =>
+        /--(?:access|provenance|registry)\b/.test(command),
+      ),
+    ).toEqual([]);
   });
 
   it("does not hide a rebuild or repack behind the release scripts", () => {
@@ -831,6 +1157,117 @@ describe("the release workflow preserves the reviewed artifact", () => {
   });
 });
 
+// --- the pull-request vocabulary shared by the bots and the changelog --------
+
+const dependabotConfig = readFileSync(
+  path.join(repoRoot, ".github", "dependabot.yml"),
+  "utf8",
+);
+const releaseConfig = readFileSync(
+  path.join(repoRoot, ".github", "release.yml"),
+  "utf8",
+);
+
+/** The entries of a `key: |` block scalar, trimmed, in file order. */
+function blockScalarEntries(source: string, key: string): string[] {
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => line.trim() === `${key}: |`);
+  const header = lines[start];
+  if (start === -1 || header === undefined) {
+    return [];
+  }
+
+  const indent = header.length - header.trimStart().length;
+  const entries: string[] = [];
+  for (let next = start + 1; next < lines.length; next += 1) {
+    const line = lines[next];
+    if (line === undefined) {
+      break;
+    }
+    if (line.trim() === "") {
+      continue;
+    }
+    if (line.length - line.trimStart().length <= indent) {
+      break;
+    }
+    entries.push(line.trim());
+  }
+  return entries;
+}
+
+/** The Conventional Commit types every `commit-message.prefix` in dependabot.yml asks for. */
+function dependabotCommitTypes(source: string): string[] {
+  return [...source.matchAll(/^\s*prefix:\s*"?([^"\s]+?):?"?\s*$/gm)].flatMap(
+    (match) => match[1] ?? [],
+  );
+}
+
+describe("the PR title vocabulary covers everything that can open a PR", () => {
+  const allowedTypes = blockScalarEntries(
+    workflowSource("check-pr-title.yml"),
+    "types",
+  );
+
+  it("declares the allowed types instead of inheriting the action's default", () => {
+    // The action's built-in default is not visible in this repository and does
+    // not contain `deps`, so every Dependabot PR failed a check whose rule
+    // nobody could read. What is enforced has to be written down here.
+    expect(allowedTypes).toContain("feat");
+    expect(allowedTypes).toContain("fix");
+    expect(allowedTypes).toContain("chore");
+  });
+
+  it("accepts every prefix Dependabot commits with", () => {
+    const prefixes = dependabotCommitTypes(dependabotConfig);
+
+    expect(prefixes).not.toEqual([]);
+    expect(prefixes.filter((prefix) => !allowedTypes.includes(prefix))).toEqual([]);
+  });
+
+  it("gives every label pr-label.yml can apply a changelog category", () => {
+    // pr-label.yml derives a label from the title type; .github/release.yml
+    // sorts the generated release notes by that label. A label with no category
+    // silently drops its PRs out of the notes.
+    const labels = [
+      ...workflowSource("pr-label.yml").matchAll(/\blabel=([a-z][a-z-]*)/g),
+    ].flatMap((match) => match[1] ?? []);
+    const categorized = [...releaseConfig.matchAll(/labels:\s*\[([^\]]+)\]/g)].flatMap(
+      (match) => (match[1] ?? "").split(",").map((entry) => entry.trim()),
+    );
+
+    expect(labels).not.toEqual([]);
+    expect(labels.filter((label) => !categorized.includes(label))).toEqual([]);
+  });
+});
+
+describe("the Dependabot cooldown agrees with the pnpm install cooldown", () => {
+  it("states the same window in days and in minutes", () => {
+    // pnpm refuses to install a version younger than `minimumReleaseAge`, so a
+    // Dependabot PR proposing one is a PR that cannot go green. A comment in
+    // dependabot.yml claims the two match; this is what checks it.
+    const days = [
+      ...dependabotConfig.matchAll(/^\s*default-days:\s*(\d+)\s*$/gm),
+    ].flatMap((match) => match[1] ?? []);
+    const minutes = /^minimumReleaseAge:\s*(\d+)\s*$/m.exec(
+      readFileSync(path.join(repoRoot, "pnpm-workspace.yaml"), "utf8"),
+    )?.[1];
+
+    expect(days).not.toEqual([]);
+    expect(minutes).toBeTypeOf("string");
+    for (const value of days) {
+      expect(Number(value) * 1440).toBe(Number(minutes));
+    }
+  });
+
+  it("gives every update ecosystem a cooldown", () => {
+    const ecosystems = dependabotConfig.match(/^\s*- package-ecosystem:/gm) ?? [];
+    const cooldowns = dependabotConfig.match(/^\s*cooldown:/gm) ?? [];
+
+    expect(ecosystems).not.toEqual([]);
+    expect(cooldowns).toHaveLength(ecosystems.length);
+  });
+});
+
 describe("workflow regression checks for repository automation", () => {
   it("runs bootstrap E2E and Changeset intent checks in CI", () => {
     const source = workflowSource("ci.yml");
@@ -842,6 +1279,14 @@ describe("workflow regression checks for repository automation", () => {
     expect(source).toContain("pnpm run changeset:check");
     expect(source).toContain("git branch --force main origin/main");
     expect(source).toContain("github.head_ref != 'changeset-release/main'");
+  });
+
+  it("keeps the dependency-review severity gate", () => {
+    // Without `fail-on-severity` the action reports advisories and passes, so
+    // the workflow's presence in .github/workflows/ would prove nothing.
+    expect(workflowSource("dependency-review.yml")).toMatch(
+      /^\s*fail-on-severity:\s*\S+/m,
+    );
   });
 
   it("fails closed after finite security-audit retries", () => {
@@ -923,29 +1368,48 @@ describe("the development runtime contract fails closed", () => {
   });
 });
 
-describe("the pnpm version in CI agrees with devEngines", () => {
+describe("package.json is the only place the pnpm version is written", () => {
   const declared = manifest.devEngines?.packageManager?.version;
 
   it("is declared in package.json", () => {
     expect(declared).toBeTypeOf("string");
   });
 
-  it.each(workflowNames)("%s sets up a pnpm the declaration allows", (name) => {
-    if (declared === undefined) {
-      throw new Error("package.json declares no devEngines.packageManager.version");
-    }
-
-    for (const version of pnpmSetupVersions(workflowSource(name))) {
-      expect(satisfiesDeclared(version, declared)).toBe(true);
-    }
+  // pnpm/action-setup reads the exact `packageManager` field, so a `version:`
+  // input is a second copy of a number that has one home. This used to be
+  // asserted the other way round — every copy had to agree with the manifest —
+  // which kept nine copies correct instead of removing them. The inversion is
+  // deliberate: the version cannot drift if no workflow states it.
+  it.each(workflowNames)("%s states no pnpm version of its own", (name) => {
+    expect(pnpmSetupVersions(workflowSource(name))).toEqual([]);
   });
 
-  it("uses one pnpm version everywhere", () => {
-    const versions = new Set(
-      workflowNames.flatMap((name) => pnpmSetupVersions(workflowSource(name))),
+  it("would notice a version that came back", () => {
+    // A rule that asserts an empty list has to be shown capable of a non-empty
+    // one, or it goes on passing after the scanner stops finding anything.
+    const stated = CLEAN_WORKFLOW.replace(
+      "      - name: Install dependencies\n",
+      [
+        "      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10",
+        "        with:",
+        "          version: 11.18.0",
+        "",
+        "      - name: Install dependencies",
+        "",
+      ].join("\n"),
     );
 
-    expect([...versions]).toHaveLength(1);
+    expect(pnpmSetupVersions(stated)).toEqual(["11.18.0"]);
+  });
+
+  it("does not pin pnpm in the devcontainer either", () => {
+    const devcontainer = readFileSync(
+      path.join(repoRoot, ".devcontainer", "devcontainer.json"),
+      "utf8",
+    );
+
+    expect(devcontainer).toContain("corepack enable");
+    expect(devcontainer).not.toMatch(/pnpm@\d/);
   });
 
   it("declares the same pnpm string in packageManager and devEngines", () => {

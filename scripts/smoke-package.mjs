@@ -24,6 +24,8 @@ import process from "node:process";
 
 import {
   findAbsoluteMapSources,
+  findDanglingMapSources,
+  findMissingRequiredPaths,
   inspectPackageEntries,
   readTarEntries,
 } from "./check-package.mjs";
@@ -131,7 +133,13 @@ function isUniversalProfile() {
 }
 
 /**
- * Public subpaths a consumer is allowed to import.
+ * Public subpaths a consumer is allowed to import as a module.
+ *
+ * @remarks
+ * A `.json` subpath — `"./package.json"` is the conventional one — is data, not
+ * a module: importing it needs an import attribute and it exposes no named
+ * exports, so it is excluded here and exercised by {@link checkRequireInterop}
+ * instead.
  *
  * @param {unknown} manifest - The packed `package.json`.
  * @returns {string[]} Specifier suffixes, `""` for the package root.
@@ -147,7 +155,9 @@ function publicSubpaths(manifest) {
     return [""];
   }
   return keys
-    .filter((key) => key.startsWith(".") && !key.includes("*"))
+    .filter(
+      (key) => key.startsWith(".") && !key.includes("*") && !key.endsWith(".json"),
+    )
     .map((key) => (key === "." ? "" : key.slice(1)))
     .sort();
 }
@@ -165,8 +175,12 @@ function publicSubpaths(manifest) {
  * @returns {void}
  */
 function checkTarballContents(entries, manifest, label) {
-  step("inspecting tarball paths, forbidden paths and size limits");
-  const problems = inspectPackageEntries(entries, { manifest });
+  step("inspecting tarball paths, forbidden paths, size limits and required files");
+  const problems = [
+    ...inspectPackageEntries(entries, { manifest }),
+    ...findMissingRequiredPaths(entries),
+    ...findDanglingMapSources(entries),
+  ];
   if (problems.length > 0) {
     fail("ERR_SMOKE_TARBALL_CONTENTS", {
       what: `The tarball failed ${String(problems.length)} content check(s).`,
@@ -222,6 +236,9 @@ function installConsumer(workspace, tarball) {
       // A published package must be usable without running install scripts, and
       // this keeps the smoke test from executing anything the tarball ships.
       "--ignore-scripts",
+      // The strict layout is the point: npm's default hoisting would let an
+      // undeclared transitive dependency resolve and hide a phantom dependency.
+      "--install-strategy=nested",
     ],
     {
       cwd: consumer,
@@ -318,6 +335,63 @@ console.log("  root API behaved as documented");
       expected: "every public subpath imports, and the root API behaves as documented",
       actual: `exit ${String(result.status)}\n${excerpt(result.stderr || result.stdout)}`,
       next: "Check `exports` in package.json and the re-exports in src/index.ts.",
+    });
+  }
+  process.stdout.write(result.stdout);
+}
+
+/**
+ * A CommonJS consumer resolves the package and its manifest.
+ *
+ * @remarks
+ * Every Node this package supports (`engines.node` is `>=22.14`, and
+ * `require(esm)` is unflagged from 22.12) can `require()` an ESM entry point.
+ * Without a condition that matches `require`, resolution fails first with
+ * `ERR_PACKAGE_PATH_NOT_EXPORTED` — an error that says nothing about the real
+ * situation, which is that the module is ESM. This is the regression test for
+ * the `default` condition in `exports`, and for the `./package.json` subpath
+ * that tooling routinely reads.
+ *
+ * Both requires are unconditional. Reading the subpath out of the packed
+ * manifest first would make the check describe whatever the manifest happens
+ * to say rather than what a consumer is promised: dropping `./package.json`
+ * from `exports` would silently skip the assertion instead of failing it,
+ * which is the one outcome this check exists to prevent.
+ *
+ * @param {string} consumer - Consumer directory.
+ * @param {string} packageName - Installed package name.
+ * @returns {void}
+ */
+function checkRequireInterop(consumer, packageName) {
+  step("requiring the package from a CommonJS consumer");
+  const result = runInConsumer(
+    consumer,
+    "check-require.cjs",
+    `const assert = require("node:assert/strict");
+
+const api = require(${JSON.stringify(packageName)});
+assert.equal(
+  typeof api.normalizeIdentifier,
+  "function",
+  "require() returned no normalizeIdentifier; check the exports conditions",
+);
+assert.equal(api.normalizeIdentifier("Hello World"), "hello-world");
+console.log("  require() resolved the package root and called its API");
+
+const manifest = require(${JSON.stringify(`${packageName}/package.json`)});
+assert.equal(manifest.name, ${JSON.stringify(packageName)});
+console.log("  require() resolved the ./package.json subpath");
+`,
+  );
+
+  if (result.status !== 0) {
+    fail("ERR_SMOKE_REQUIRE_FAILED", {
+      what: "A CommonJS consumer could not require the published package.",
+      subject: packageName,
+      expected:
+        "require() resolves through a matching exports condition on a runtime with require(esm)",
+      actual: `exit ${String(result.status)}\n${excerpt(result.stderr || result.stdout)}`,
+      next: 'Keep a "default" condition on the "." export and a "./package.json" subpath in package.json.',
     });
   }
   process.stdout.write(result.stdout);
@@ -794,6 +868,7 @@ function main(argv) {
     );
 
     checkRuntimeImports(consumer, packageName, publicSubpaths(installedManifest));
+    checkRequireInterop(consumer, packageName);
     checkTypeScriptConsumers(consumer, packageName);
     checkCli(consumer, packageName, installedManifest, entries);
     checkDeepImportBlocked(consumer, packageName);

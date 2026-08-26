@@ -39,6 +39,14 @@
     "extractorMessageReporting": {
       "default": {
         "logLevel": "error"
+      },
+
+      // Stated explicitly rather than left to the `default` above: API
+      // Extractor ships "ae-undocumented" as "none", and a `default` does not
+      // raise a message the tool has already opted out of. Without this line
+      // an undocumented public symbol passes the gate silently.
+      "ae-undocumented": {
+        "logLevel": "error"
       }
     },
     "tsdocMessageReporting": {

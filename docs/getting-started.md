@@ -1,6 +1,6 @@
 # Getting started
 
-Install the ESM-only package with pnpm:
+Install the package with pnpm:
 
 ```sh
 pnpm add my-package
@@ -16,5 +16,7 @@ const response = await withTimeout(
 );
 ```
 
-Node profiles require Node.js 22.14 or newer. Import only from `my-package`;
+Node profiles require Node.js 22.14 or newer. The package ships ESM only, and
+because `require(esm)` is unflagged across that range a CommonJS consumer can
+`require("my-package")` without a build step. Import only from `my-package`;
 paths not listed in `package.json#exports` are private.

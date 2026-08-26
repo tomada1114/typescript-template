@@ -39,6 +39,7 @@ jobs:
             fix) label=bug ;;
             docs) label=documentation ;;
             ci) label=ci ;;
+            deps) label=dependencies ;;
             *) echo "No label mapping for type: $type"; exit 0 ;;
           esac
           # A default repository has no "ci" label and `--add-label` fails on a

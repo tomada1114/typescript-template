@@ -28,8 +28,15 @@ export const CONFIG_GATE_FILES = [
   /^package\.json$/,
   /^tsconfig(?:\.[^/]+)?\.json$/,
   /^api-extractor\.json$/,
+  /^typedoc\.json$/,
   /^lefthook\.yml$/,
   /^\.claude\/settings\.json$/,
+  // Ignore files are gates too: .gitignore's `.env` lines are what keeps a
+  // real dotenv out of a commit in the first place, and .prettierignore's
+  // docs/template-requirements/ entry is the only thing enforcing AGENTS.md's
+  // "never reflow the verbatim upstream copies" rule.
+  /^\.gitignore$/,
+  /^\.prettierignore$/,
 ];
 
 /**
@@ -66,6 +73,17 @@ export const GATE_MARKERS = [
   { pattern: /minimumReleaseAge/, name: "the dependency cooldown" },
   { pattern: /strictDepBuilds/, name: "the lifecycle-script allowlist" },
   { pattern: /strictPeerDependencies/, name: "the peer dependency check" },
+  { pattern: /verifyDepsBeforeRun/, name: "the node_modules freshness check" },
+  // Line-anchored on the YAML key, not on the bare word: "cooldown" also
+  // appears in pnpm-workspace.yaml's prose explaining minimumReleaseAge, and
+  // rewording a comment is not removing Dependabot's cooldown block.
+  { pattern: /^\s*cooldown:/m, name: "the Dependabot update cooldown" },
+  { pattern: /fail-on-severity/, name: "the dependency-review severity gate" },
+  // Quoted, so it tracks package.json's `publishConfig.provenance` rather
+  // than a `--provenance` flag on a publish command. Marker scanning is
+  // presence-based: this is inert until that field exists, and protective
+  // from the moment it does.
+  { pattern: /"provenance"/, name: "the npm provenance contract" },
   { pattern: /^\s*permissions:/m, name: "a workflow's least-privilege permissions" },
   // Deliberately not line-anchored, unlike the YAML marker above, and it
   // requires the array to hold at least one entry: a settings.json rewritten
@@ -83,6 +101,15 @@ export const GATE_MARKERS = [
   // completely if the job that runs it is dropped from lefthook.yml or the
   // script from package.json.
   { pattern: /check[-:]staged/, name: "the staged-content pre-commit check" },
+  // .gitignore's dotenv exclusion, one marker per line: dropping either one
+  // is what makes a real `.env` committable, whatever the read/write rules in
+  // paths.mjs say about the agent touching it.
+  { pattern: /^\.env$/m, name: "the .gitignore exclusion of .env" },
+  { pattern: /^\.env\.\*$/m, name: "the .gitignore exclusion of .env.*" },
+  {
+    pattern: /docs\/template-requirements/,
+    name: "the verbatim-copy formatting exemption",
+  },
 ];
 
 /** The coverage floor that spec 02 §3.3 fixes; the guard refuses to see it lowered. */
@@ -91,6 +118,36 @@ export const COVERAGE_FLOOR = 80;
 /** Coverage threshold assignments, as written in vitest.config.ts. */
 export const COVERAGE_THRESHOLD =
   /\b(lines|functions|statements|branches)\s*:\s*(\d+)/g;
+
+/**
+ * The only `verifyDepsBeforeRun` setting that stops a gate from running
+ * against a stale node_modules; every other value merely reports it.
+ */
+export const VERIFY_DEPS_REQUIRED = "error";
+
+/**
+ * The one file whose `verifyDepsBeforeRun` value the check below applies to.
+ *
+ * @remarks
+ * pnpm reads the setting from `pnpm-workspace.yaml` and nowhere else, so
+ * scanning every gate file's after-text only turns prose — a comment in
+ * `eslint.config.mjs` explaining why the setting exists, for instance — into a
+ * hard block on an edit that changes no setting at all.
+ */
+export const VERIFY_DEPS_FILE = /^pnpm-workspace\.yaml$/;
+
+/**
+ * `verifyDepsBeforeRun` assignments, as written in pnpm-workspace.yaml.
+ *
+ * @remarks
+ * Line-anchored on the YAML key, for the same reason the Dependabot cooldown
+ * marker is: a mention inside a comment is not an assignment. The optional
+ * quotes matter because YAML parses `warn`, `"warn"` and `'warn'` identically,
+ * so an unquoted-only pattern reads a quoted downgrade as no assignment at
+ * all.
+ */
+export const VERIFY_DEPS_SETTING =
+  /^\s*verifyDepsBeforeRun\s*:\s*["']?([A-Za-z-]+)["']?/gm;
 
 /**
  * Resolve a path to repo-relative POSIX form for matching against the
@@ -155,6 +212,15 @@ export function checkGateRemoval(filePath, before, after) {
     const value = Number(match[2]);
     if (value < COVERAGE_FLOOR) {
       return `This edit sets the ${String(match[1])} coverage threshold to ${String(value)}, below the ${String(COVERAGE_FLOOR)}% floor. Add tests instead of lowering the floor.`;
+    }
+  }
+  // Same shape as the coverage floor above: the marker only proves the setting
+  // is still named somewhere, so the value it is set to is checked separately.
+  if (VERIFY_DEPS_FILE.test(relative)) {
+    for (const match of after.matchAll(VERIFY_DEPS_SETTING)) {
+      if (match[1] !== VERIFY_DEPS_REQUIRED) {
+        return `This edit sets verifyDepsBeforeRun to ${String(match[1])} in ${relative}. Anything other than "${VERIFY_DEPS_REQUIRED}" lets a gate run against a node_modules that no longer matches the lockfile — run \`pnpm install\` instead.`;
+      }
     }
   }
   return null;

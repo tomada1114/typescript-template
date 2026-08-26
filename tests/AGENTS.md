@@ -99,11 +99,16 @@
   `mkdtempSync(path.join(tmpdir(), "prefix-"))`, and remove it in
   `afterEach`/`afterAll` with `rmSync(dir, { recursive: true, force: true })`
   (translates `tmp_path`). Never write to a real project directory.
-- Environment variable tests use `vi.stubEnv("NAME", "value")` and restore
-  with `vi.unstubAllEnvs()` in `afterEach` (translates `monkeypatch`),
-  instead of mutating `process.env` directly.
-- Anything that opens a resource (timer, listener, temp dir, child process)
-  is cleaned up in `afterEach`/`afterAll`, even when the test itself failed.
+- Environment variable tests use `vi.stubEnv("NAME", "value")` and global
+  replacements use `vi.stubGlobal(...)` (translates `monkeypatch`), instead of
+  mutating `process.env` or `globalThis` directly. `vitest.config.ts` sets
+  `unstubEnvs` and `unstubGlobals`, so the runner undoes both after every
+  test — an `afterEach` whose only body is `vi.unstubAllEnvs()` or
+  `vi.unstubAllGlobals()` is redundant, and writing one hides which cleanup
+  the test actually needs.
+- Anything the runner does _not_ know about (timer, listener, temp dir, child
+  process) is still cleaned up explicitly in `afterEach`/`afterAll`, even when
+  the test itself failed.
 
 ## Mocking Strategy
 
@@ -115,6 +120,12 @@
 - Assert on behavior and captured arguments, not call counts — unless the
   count itself is the contract being tested (for example, "the deadline
   timer is cleared exactly once").
+- `vitest.config.ts` sets `restoreMocks` and `clearMocks`, so every
+  `vi.fn()`/`vi.spyOn()` is reset and every spied original restored between
+  tests. Do not hand-write an `afterEach` that only calls
+  `vi.restoreAllMocks()`/`vi.clearAllMocks()`; a test that needs a _different_
+  lifetime (a mock reset mid-test, a fake kept across an `it.each` block) says
+  so explicitly, which is then a real signal rather than boilerplate.
 
 ## Async and Timers
 

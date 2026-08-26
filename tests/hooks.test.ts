@@ -137,6 +137,26 @@ describe("guard: calls that must be blocked", () => {
       /secrets\//,
     ],
     [
+      "writing a git hook",
+      writePayload(".git/hooks/pre-commit", "#!/bin/sh\nexit 0\n"),
+      /Git plumbing/,
+    ],
+    [
+      "rewriting the git config",
+      writePayload(".git/config", "[core]\n\thooksPath = /dev/null\n"),
+      /Git plumbing/,
+    ],
+    [
+      "redirecting into a git hook",
+      bashPayload("echo 'exit 0' > .git/hooks/pre-push"),
+      /Git plumbing/,
+    ],
+    [
+      "granting itself permissions in the local settings file",
+      writePayload(".claude/settings.local.json", '{ "permissions": {} }'),
+      /personal permission grants/,
+    ],
+    [
       "skipping the commit hooks",
       bashPayload('git commit --no-verify -m "x"'),
       /--no-verify/,
@@ -411,5 +431,60 @@ describe("stop-check hook", () => {
     };
 
     expect(CHECKS.map(checkCommand)).toEqual(expand("check:quick"));
+  });
+});
+
+/** Top-level keys of a value that came out of `JSON.parse`. */
+function topLevelKeys(value: unknown): string[] {
+  return typeof value === "object" && value !== null ? Object.keys(value) : [];
+}
+
+/** Read a property that must be an array of strings. */
+function readStringArray(value: unknown, key: string): string[] {
+  const read = readKey(value, key);
+  return Array.isArray(read) ? read.filter((item) => typeof item === "string") : [];
+}
+
+describe("shared settings", () => {
+  const settings: unknown = JSON.parse(
+    readFileSync(path.join(repoRoot, ".claude", "settings.json"), "utf8"),
+  );
+  const manifest: unknown = JSON.parse(
+    readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+  );
+
+  it("holds nothing but the shared configuration", () => {
+    // Every repository generated from this template inherits this file, so a
+    // personal preference here is a preference imposed on all of them.
+    // CLAUDE.md: model, output style, marketplaces, plugins and extra
+    // permissions belong in the gitignored .claude/settings.local.json.
+    expect(
+      topLevelKeys(settings).sort(),
+      "personal preferences belong in .claude/settings.local.json (see CLAUDE.md)",
+    ).toEqual(["$schema", "hooks", "permissions"]);
+  });
+
+  it("allows every package script in both spellings", () => {
+    // A new script must come with an allowlist decision: either it is safe to
+    // run unattended and gets both entries, or it is listed here with why.
+    const exceptions = new Map([
+      ["test:watch", "a watcher never exits, so an agent must not start one"],
+      ["changeset", "interactive TUI; only the --empty form is pre-approved"],
+    ]);
+    const allow = new Set(readStringArray(readKey(settings, "permissions"), "allow"));
+    const scripts = topLevelKeys(readKey(manifest, "scripts"));
+
+    expect(
+      scripts.filter(
+        (name) =>
+          !exceptions.has(name) &&
+          !(allow.has(`Bash(pnpm ${name})`) && allow.has(`Bash(pnpm run ${name})`)),
+      ),
+      "add `Bash(pnpm <name>)` and `Bash(pnpm run <name>)` to .claude/settings.json, or an exception with a reason",
+    ).toEqual([]);
+    // A script that was renamed or dropped must not leave a stale excuse here.
+    expect([...exceptions.keys()].filter((name) => !scripts.includes(name))).toEqual(
+      [],
+    );
   });
 });
