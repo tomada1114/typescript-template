@@ -3,7 +3,7 @@
 // These checks need a live tool call, not just a diff — they refuse a way of
 // running a command (`--no-verify`, a bare `git push --force`, a workflow
 // dispatch), which leaves no trace for a git-hook to see after the fact.
-// This is why they live only in the Claude Code guard hook, and are not also
+// This is why they live only in the shared PreToolUse guard hook, and are not also
 // wired into scripts/check-staged.mjs.
 import { checkRead, checkWrite } from "./paths.mjs";
 import { checkCredentials } from "./credentials.mjs";

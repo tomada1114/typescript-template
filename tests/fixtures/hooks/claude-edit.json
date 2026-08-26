@@ -1,0 +1,14 @@
+{
+  "session_id": "fixture-claude",
+  "transcript_path": "/tmp/claude-fixture.jsonl",
+  "cwd": "/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_use_id": "tool-claude-edit",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/workspace/src/app.ts",
+    "old_string": "const timeout = 5;",
+    "new_string": "const timeout = 30;"
+  }
+}

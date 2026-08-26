@@ -48,7 +48,7 @@ pre-commit:
     # .env*/secrets/** file about to be committed. No glob: this is the layer
     # that must see every staged file, whatever its extension — see
     # scripts/check-staged.mjs's header for what it does and does not cover,
-    # and how it differs from the Claude Code guard hook.
+    # and how it differs from the shared agent guard hook.
     - name: check:staged
       run: pnpm run check:staged
 

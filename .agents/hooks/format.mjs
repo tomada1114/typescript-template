@@ -1,10 +1,10 @@
-// PostToolUse hook: lint and format the single file that was just edited.
+// PostToolUse hook: lint and format files that were just edited.
 //
 // Reads the hook payload from stdin and runs ESLint's autofix and then Prettier
-// on that one file, so an agent never has to remember to re-run a formatter and
-// never pays for a whole-tree pass after a one-line change.
+// on only those files, so an agent never has to remember to re-run a formatter
+// and never pays for a whole-tree pass after a one-line change.
 //
-// Exit code 2 feeds the remaining, unfixable violations back to Claude as
+// Exit code 2 feeds the remaining, unfixable violations back to the agent as
 // context. It does not block anything: the edit has already happened, and the
 // point is to tell the agent what is still wrong.
 import console from "node:console";
@@ -13,13 +13,10 @@ import path from "node:path";
 import process from "node:process";
 
 import { isMain } from "../../scripts/lib/is-main.mjs";
-import { readKey, readString } from "../../scripts/lib/json.mjs";
-import {
-  repoRoot,
-  resolveDependencyBin,
-  runNode,
-} from "../../scripts/lib/node-tools.mjs";
-import { readPayload } from "./lib/payload.mjs";
+import { resolveDependencyBin, runNode } from "../../scripts/lib/node-tools.mjs";
+import { loadEvent, projectRoot } from "./hook_payload.mjs";
+
+const repoRoot = projectRoot(import.meta.url);
 
 /** Extensions ESLint is configured to parse. */
 const LINTABLE = new Set([".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]);
@@ -119,12 +116,18 @@ function applyPlan(plan) {
  * @returns {Promise<number>} The process exit code: 2 surfaces problems, 0 is quiet.
  */
 export async function main() {
-  const payload = await readPayload();
-  const plan = planFor(readString(readKey(payload, "tool_input"), "file_path") ?? "");
-  if (plan === null) {
+  const event = await loadEvent();
+  if (event.name !== "PostToolUse" || event.tool !== "edit") {
     return 0;
   }
-  return applyPlan(plan);
+  let failed = false;
+  for (const file of event.files) {
+    const plan = planFor(file);
+    if (plan !== null && applyPlan(plan) !== 0) {
+      failed = true;
+    }
+  }
+  return failed ? 2 : 0;
 }
 
 if (isMain(import.meta.url)) {

@@ -1,0 +1,8 @@
+{
+  "session_id": "fixture-claude",
+  "transcript_path": "/tmp/claude-fixture.jsonl",
+  "cwd": "/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false
+}

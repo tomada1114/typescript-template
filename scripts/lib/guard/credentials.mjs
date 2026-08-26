@@ -1,6 +1,6 @@
 // Secret-shaped content: text that must never land in a tracked file.
 //
-// Shared by the Claude Code guard hook (text about to be written, or a raw
+// Shared by the agent guard hook (text about to be written, or a raw
 // shell command) and the pre-commit staged-content check (a staged file's
 // content).
 

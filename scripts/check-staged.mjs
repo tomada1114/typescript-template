@@ -3,7 +3,7 @@
 // git index alone — no tool call, no running agent.
 //
 // This is the third of the four layers described in AGENTS.md's
-// "Enforcement layers": the Claude Code guard hook (.claude/hooks/guard.mjs)
+// "Enforcement layers": the shared agent guard hook (.agents/hooks/guard.mjs)
 // only ever sees what happens inside a Claude Code session; this script sees
 // what actually reaches `git commit`, from any author — a human, Codex, or
 // any other tool. It shares its rule engine with that hook

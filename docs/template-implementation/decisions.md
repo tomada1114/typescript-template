@@ -230,10 +230,10 @@ pnpm 11 の script 実行環境では **`npm_execpath` が `undefined`** です�
 ## 6. `.mjs` を型検査する（`allowJs` + `checkJs`）
 
 DoD C が「source/tests/scripts/config を型検査する」を要求します。`scripts/*.mjs` と
-`.claude/hooks/*.mjs` は install 前の素の Node で動く必要があるため `.ts` にできません。
+`.agents/hooks/*.mjs` は install 前の素の Node で動く必要があるため `.ts` にできません。
 そこで `tsconfig.json` に `allowJs: true` / `checkJs: true` を入れ、JSDoc で型を付けます。
 
-- `tsconfig.json` の `include`: `["src", "tests", "scripts", ".claude/hooks", "*.ts", "*.mts", "*.mjs"]`
+- `tsconfig.json` の `include`: `["src", "tests", "scripts", ".agents/hooks", "*.ts", "*.mts", "*.mjs"]`
 - `tsconfig.build.json` は逆に `allowJs: false` / `checkJs: false`（公開成果物は TS 出力のみ）
 
 `JSON.parse` は `any` を返すので、`/** @type {unknown} */` で受けて narrowing してください
@@ -280,7 +280,7 @@ import process from "node:process";
 - `ban-ts-comment`: `ts-ignore` / `ts-nocheck` 禁止、`ts-expect-error` は10文字以上の説明付きのみ。
 - `src/**` に `no-restricted-exports`（default export 禁止）と
   `no-restricted-syntax: ExportAllDeclaration`（`export *` 禁止）。
-- `no-console` は既定 error。`src/cli.ts` / `src/bin.ts` と `scripts/**`, `.claude/hooks/**` でのみ off。
+- `no-console` は既定 error。`src/cli.ts` / `src/bin.ts` と `scripts/**`, `.agents/hooks/**` でのみ off。
 
 ---
 
@@ -428,7 +428,7 @@ Phase 2 の workflow 検証でそのまま使えます。
 Phase 0〜9 の記述時点では path-scoped rules は Claude Code 専用の `.claude/rules/` に
 置いていましたが、Codex CLI からは不可視という欠点があったため
 `maintaining-agents-md` スキルの型に合わせて次のように移設しました
-（hooks は対象外 — Claude Code 専用のまま `.claude/hooks/` に残る。§18 参照）。
+(Hooks were out of scope at the time; section 20 later shared them from `.agents/hooks/`).
 
 - `.claude/rules/*.md` を廃止し、内容はルートの `AGENTS.md` に統合。`testing.md` の
   本体だけは分量が大きいため `tests/AGENTS.md` に置き、ルートの `## Testing` 節から
@@ -444,7 +444,8 @@ Phase 0〜9 の記述時点では path-scoped rules は Claude Code 専用の `.
 
 ## 18. `permissions.deny` を宣言的に整備し、gate ファイル判定の絶対パスバグを修正（2026-08-24 追記）
 
-`.claude/hooks/guard.mjs` のヘッダーコメントには「permission `deny` ルールは一部の
+現在の `.agents/hooks/guard.mjs` の前身にあたる guard のヘッダーコメントには
+「permission `deny` ルールは一部の
 Claude Code バージョンでは advisory」という誤記が残っていましたが、これは古い認識
 （anthropics/claude-code#6699 由来）で、**現行 Claude Code では bypassPermissions を
 含む全モードで `deny` はハード enforce される**。ただし公式ドキュメントは「引数を
@@ -475,15 +476,15 @@ pre-commit 層(`scripts/check-staged.mjs`)を新設する話は別途行う。§
 
 ## 19. ルールエンジンを `scripts/lib/guard/` に抽出し、pre-commit 層を新設（2026-08-24 追記）
 
-§18 の時点で `.claude/hooks/guard.mjs` は 775 行の単一ファイルで、Claude Code
-セッションの中でしか効かなかった。人間が直接コミットした場合や別ツールが
+§18 の時点で現在の `.agents/hooks/guard.mjs` の前身は 775 行の単一ファイルで、
+Claude Code セッションの中でしか効かなかった。人間が直接コミットした場合や別ツールが
 コミットした場合には一切効かないため、誰がコミットしても効く層を別途設けることにした。
 
 Enforcement を4層に整理した(詳細は `AGENTS.md` の「Enforcement layers」節):
 
 1. `.claude/settings.json` の `permissions.deny` — §18 で追加済み。宣言的に書ける
    パス/コマンドの拒否。
-2. `.claude/hooks/guard.mjs`(PreToolUse)— (1) が表現できない意味判断を担う。
+2. `.agents/hooks/guard.mjs` (PreToolUse) — pending tool call の意味判断を両 agent で担う。
 3. `lefthook` pre-commit / pre-push — 誰が(人間・Codex・その他ツール)コミットしても
    効く唯一の層。新設の `scripts/check-staged.mjs` が staged diff から
    認証情報混入・gate マーカー削除・gate ファイルの staged deletion・
@@ -495,9 +496,27 @@ Enforcement を4層に整理した(詳細は `AGENTS.md` の「Enforcement layer
 規則の実装(パス/認証情報/gate マーカー判定、shell の字句解析)は `guard.mjs` から
 `scripts/lib/guard/`(`paths.mjs` / `credentials.mjs` / `gates.mjs` / `shell.mjs` /
 `commands.mjs`)に一本化した。移動した約683行は `export` を付けた以外バイト単位で
-同一で、振る舞いの変更はない。`.claude/hooks/guard.mjs` と `scripts/check-staged.mjs`
-の両方がそこから import することで、規則が二重管理にならない。将来 Codex 側の hook を
-書くときも、この層をそのまま import する薄いアダプタを足すだけで済む設計にした。
+同一で、振る舞いの変更はない。`.agents/hooks/guard.mjs` と `scripts/check-staged.mjs`
+の両方がそこから import することで、規則が二重管理にならない。
+
+---
+
+## 20. Share hooks between Claude Code and Codex CLI (added 2026-08-26)
+
+The three lifecycle hooks moved to `.agents/hooks/`, with identical commands
+wired from `.claude/settings.json` and `.codex/hooks.json`. `hook_payload.mjs`
+normalizes Claude's single `tool_input.file_path` and Codex's multi-file
+`apply_patch` command into one event. Before execution, the guard checks every
+path, added credential, and gate removal in a patch; after execution, the
+formatter handles every edited file that still exists; Stop requests the
+`check:quick` gate on both hosts.
+
+Claude's `permissions.deny` remains a hard block. Codex has no equivalent
+project-level declarative deny, so PreToolUse also carries those path and
+command rules there. Official Codex documentation notes that specialized tool
+paths may bypass hooks, so Lefthook, CI, and `AGENTS.md` remain necessary.
+Codex project hooks require both project trust and review of the exact command
+definition hash; use `/hooks` on first checkout and after command changes.
 
 抽出は §18 のバグとは別の自己参照バグを顕在化させた。旧 `GATE_FILES` は
 `CONFIG_GATE_FILES`(マーカー走査 + 削除保護の対象になる設定ファイル)と

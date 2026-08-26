@@ -11,7 +11,7 @@ import {
 import { repoRoot } from "../scripts/lib/node-tools.mjs";
 
 // Pure-function coverage for the shared rule engine under scripts/lib/guard/,
-// used by both .claude/hooks/guard.mjs and scripts/check-staged.mjs. Nothing
+// used by both .agents/hooks/guard.mjs and scripts/check-staged.mjs. Nothing
 // here spawns a process — tests/hooks.test.ts and tests/check-staged.test.ts
 // cover the two callers' own contracts (payload shape, exit codes).
 //
@@ -288,7 +288,7 @@ describe("gates: isGateFile / checkGateRemoval", () => {
   );
 
   it("protects the guard engine's own implementation from deletion", () => {
-    expect(isGateFile(".claude/hooks/guard.mjs")).toBe(true);
+    expect(isGateFile(".agents/hooks/guard.mjs")).toBe(true);
     expect(isGateFile("scripts/lib/guard/gates.mjs")).toBe(true);
     expect(isGateFile("scripts/check-staged.mjs")).toBe(true);
   });
@@ -301,7 +301,7 @@ describe("gates: isGateFile / checkGateRemoval", () => {
     // extracting this engine out of the old single-file guard.mjs did.
     const before = "reportUnusedDisableDirectives\n--frozen-lockfile\n";
     const after = "// moved to scripts/lib/guard/gates.mjs\n";
-    expect(checkGateRemoval(".claude/hooks/guard.mjs", before, after)).toBeNull();
+    expect(checkGateRemoval(".agents/hooks/guard.mjs", before, after)).toBeNull();
     expect(checkGateRemoval("scripts/lib/guard/gates.mjs", before, after)).toBeNull();
   });
 

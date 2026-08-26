@@ -1,0 +1,12 @@
+{
+  "session_id": "fixture-claude",
+  "transcript_path": "/tmp/claude-fixture.jsonl",
+  "cwd": "/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_use_id": "tool-claude-bash",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "pnpm test"
+  }
+}

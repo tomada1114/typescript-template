@@ -6,17 +6,18 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { evaluate } from "../.claude/hooks/guard.mjs";
+import { evaluate } from "../.agents/hooks/guard.mjs";
+import { fromPayload, patchFiles } from "../.agents/hooks/hook_payload.mjs";
 import {
   CHECKS,
   checkCommand,
   hasRelevantChanges,
-} from "../.claude/hooks/stop-check.mjs";
+} from "../.agents/hooks/stop-check.mjs";
 import { readKey, readString } from "../scripts/lib/json.mjs";
 
-// Claude Code hooks are separate processes that read a JSON payload on stdin
-// and answer with an exit code, so the cases below drive the real executables
-// the way Claude Code does. The pure helpers are also imported directly, which
+// Agent hooks are separate processes that read a JSON payload on stdin and
+// answer with an exit code, so the cases below drive the real executables the
+// way both hosts do. The pure helpers are also imported directly, which
 // is what makes a failure point at the rule that broke instead of at "exit 2".
 //
 // Secret-shaped fixtures are assembled from fragments rather than written out.
@@ -25,22 +26,38 @@ import { readKey, readString } from "../scripts/lib/json.mjs";
 // an agent write this file at all.
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const hooksDir = path.join(repoRoot, ".claude", "hooks");
+const hooksDir = path.join(repoRoot, ".agents", "hooks");
+const hookFixturesDir = path.join(repoRoot, "tests", "fixtures", "hooks");
 
 interface HookResult {
   status: number;
+  stdout: string;
   stderr: string;
 }
 
-/** Run one hook the way Claude Code runs it: payload on stdin, answer as an exit code. */
+/** Run one hook the way either host does: payload on stdin, answer as an exit code. */
 function runHook(hook: string, payload: unknown, cwd: string = repoRoot): HookResult {
+  const eventName =
+    hook === "guard.mjs"
+      ? "PreToolUse"
+      : hook === "format.mjs"
+        ? "PostToolUse"
+        : "Stop";
+  const input =
+    typeof payload === "object" && payload !== null
+      ? { cwd, hook_event_name: eventName, ...payload }
+      : payload;
   const result = spawnSync(process.execPath, [path.join(hooksDir, hook)], {
     cwd,
-    input: typeof payload === "string" ? payload : JSON.stringify(payload),
+    input: typeof input === "string" ? input : JSON.stringify(input),
     encoding: "utf8",
     timeout: 60_000,
   });
-  return { status: result.status ?? 1, stderr: result.stderr };
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
 }
 
 /** A PreToolUse payload for an Edit or Write call. */
@@ -57,6 +74,16 @@ function writePayload(filePath: string, content?: string): unknown {
 /** A PreToolUse payload for a Bash call. */
 function bashPayload(command: string): unknown {
   return { tool_name: "Bash", tool_input: { command } };
+}
+
+/** A Codex apply_patch payload that may name more than one file. */
+function patchPayload(command: string): unknown {
+  return { tool_name: "apply_patch", tool_input: { command } };
+}
+
+/** Read a checked-in host payload fixture. */
+function hookFixture(name: string): unknown {
+  return JSON.parse(readFileSync(path.join(hookFixturesDir, name), "utf8"));
 }
 
 describe("guard: calls that must be allowed", () => {
@@ -88,6 +115,12 @@ describe("guard: calls that must be allowed", () => {
     ["running the full gate", bashPayload("pnpm check")],
     ["packing a tarball", bashPayload("pnpm pack --pack-destination .smoke")],
     ["installing dependencies", bashPayload("pnpm install --frozen-lockfile")],
+    [
+      "a Codex patch that edits two source files",
+      patchPayload(
+        '*** Begin Patch\n*** Update File: src/index.ts\n@@\n-export { normalizeIdentifier } from "./identifier.js";\n+export { normalizeIdentifier } from "./identifier.js";\n*** Update File: tests/types.test.ts\n@@\n-import { describe } from "vitest";\n+import { describe } from "vitest";\n*** End Patch',
+      ),
+    ],
     [
       "reading a source file",
       { tool_name: "Read", tool_input: { file_path: "src/index.ts" } },
@@ -219,6 +252,20 @@ describe("guard: calls that must be blocked", () => {
       bashPayload("rm -f pnpm-lock.yaml"),
       /pnpm-lock\.yaml is generated/,
     ],
+    [
+      "editing a protected second file in a Codex patch",
+      patchPayload(
+        "*** Begin Patch\n*** Update File: src/index.ts\n@@\n-export { normalizeIdentifier } from \"./identifier.js\";\n+export { normalizeIdentifier } from \"./identifier.js\";\n*** Update File: pnpm-lock.yaml\n@@\n-lockfileVersion: '9.0'\n+lockfileVersion: '8.0'\n*** End Patch",
+      ),
+      /pnpm-lock\.yaml is generated/,
+    ],
+    [
+      "deleting a gate file in a Codex patch",
+      patchPayload(
+        "*** Begin Patch\n*** Delete File: .github/workflows/ci.yml\n*** End Patch",
+      ),
+      /quality or supply-chain gate/,
+    ],
   ];
 
   it.each(blocked)("blocks %s", (_label, payload, reason) => {
@@ -242,6 +289,17 @@ describe("guard: calls that must be blocked", () => {
         new_string: "// removed",
       },
     });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(/unused-disable check/);
+  });
+
+  it("blocks removing a gate marker through a Codex patch", () => {
+    const result = runHook(
+      "guard.mjs",
+      patchPayload(
+        '*** Begin Patch\n*** Update File: eslint.config.mjs\n@@\n-      reportUnusedDisableDirectives: "error",\n*** End Patch',
+      ),
+    );
     expect(result.status).toBe(2);
     expect(result.stderr).toMatch(/unused-disable check/);
   });
@@ -295,6 +353,17 @@ describe("guard: credentials", () => {
     expect(result.status).toBe(2);
   });
 
+  it("blocks adding a registry auth token through a Codex patch", () => {
+    const result = runHook(
+      "guard.mjs",
+      patchPayload(
+        `*** Begin Patch\n*** Add File: .npmrc\n+${authTokenLine}\n*** End Patch`,
+      ),
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(/auth token/);
+  });
+
   it("allows an npmrc that only configures a registry", () => {
     const result = runHook(
       "guard.mjs",
@@ -307,7 +376,7 @@ describe("guard: credentials", () => {
 // Pure-function coverage for the rule engine itself — checkCredentials,
 // checkGateRemoval, segments, shortClusterHas, writtenFiles, and friends —
 // lives in tests/guard-rules.test.ts. What stays here is the integration
-// contract: that .claude/hooks/guard.mjs, run as a real process against a
+// contract: that .agents/hooks/guard.mjs, run as a real process against a
 // real payload, produces the right exit code.
 describe("guard: dispatch", () => {
   it("evaluates an unknown tool as harmless", () => {
@@ -318,6 +387,31 @@ describe("guard: dispatch", () => {
 
   it("treats an unreadable payload as harmless", () => {
     expect(runHook("guard.mjs", "this is not json").status).toBe(0);
+  });
+
+  it.each([
+    "claude-edit.json",
+    "claude-bash.json",
+    "codex-apply-patch.json",
+    "codex-bash.json",
+  ])("allows the ordinary %s fixture", (fixture) => {
+    expect(runHook("guard.mjs", hookFixture(fixture)).status).toBe(0);
+  });
+
+  it.each(["claude-bash-noverify.json", "codex-apply-patch-env.json"])(
+    "blocks the protected %s fixture",
+    (fixture) => {
+      expect(runHook("guard.mjs", hookFixture(fixture)).status).toBe(2);
+    },
+  );
+
+  it("extracts every source and destination from a Codex patch", () => {
+    const event = fromPayload(hookFixture("codex-apply-patch.json"));
+    expect(event.patch).not.toBeNull();
+    expect(patchFiles(event.patch ?? "", event.cwd).map((file) => file.path)).toEqual([
+      path.normalize("/workspace/note.txt"),
+      path.normalize("/workspace/src/app.ts"),
+    ]);
   });
 });
 
@@ -375,6 +469,20 @@ describe("format hook", () => {
     expect(readFileSync(target, "utf8")).toBe("export const value = 1;\n");
   });
 
+  it("lints and formats every file named by a Codex patch", () => {
+    const first = path.join(scratchDir, "first.ts");
+    const second = path.join(scratchDir, "second.ts");
+    writeFileSync(first, "export const first   =    1\n", "utf8");
+    writeFileSync(second, "export const second   =    2\n", "utf8");
+
+    const payload = patchPayload(
+      `*** Begin Patch\n*** Update File: ${first}\n@@\n-export const first = 0;\n+export const first   =    1\n*** Update File: ${second}\n@@\n-export const second = 0;\n+export const second   =    2\n*** End Patch`,
+    );
+    expect(runHook("format.mjs", payload).status).toBe(0);
+    expect(readFileSync(first, "utf8")).toBe("export const first = 1;\n");
+    expect(readFileSync(second, "utf8")).toBe("export const second = 2;\n");
+  });
+
   it("leaves a sibling file in the same directory untouched", () => {
     const target = path.join(scratchDir, "edited.ts");
     const sibling = path.join(scratchDir, "untouched.ts");
@@ -397,6 +505,21 @@ describe("stop-check hook", () => {
   it("treats an unreadable payload as harmless", () => {
     expect(runHook("stop-check.mjs", "this is not json").status).toBe(0);
   });
+
+  it.each(["claude-stop.json", "codex-stop.json"])(
+    "recognizes the already-continued %s fixture without looping",
+    (fixture) => {
+      const event = fromPayload(hookFixture(fixture));
+      expect(event.name).toBe("Stop");
+      expect(event.stopHookActive).toBe(false);
+      const result = runHook("stop-check.mjs", {
+        hook_event_name: event.name,
+        stop_hook_active: true,
+      });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({});
+    },
+  );
 
   it.each([
     [" M src/index.ts", true],
@@ -452,6 +575,9 @@ describe("shared settings", () => {
   const manifest: unknown = JSON.parse(
     readFileSync(path.join(repoRoot, "package.json"), "utf8"),
   );
+  const codexHooks: unknown = JSON.parse(
+    readFileSync(path.join(repoRoot, ".codex", "hooks.json"), "utf8"),
+  );
 
   it("holds nothing but the shared configuration", () => {
     // Every repository generated from this template inherits this file, so a
@@ -462,6 +588,10 @@ describe("shared settings", () => {
       topLevelKeys(settings).sort(),
       "personal preferences belong in .claude/settings.local.json (see CLAUDE.md)",
     ).toEqual(["$schema", "hooks", "permissions"]);
+  });
+
+  it("projects the same lifecycle hooks into both host configurations", () => {
+    expect(readKey(codexHooks, "hooks")).toEqual(readKey(settings, "hooks"));
   });
 
   it("allows every package script in both spellings", () => {

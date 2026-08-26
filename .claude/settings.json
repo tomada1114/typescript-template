@@ -103,11 +103,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|Read|Bash",
+        "matcher": "^(Edit|Write|Read|Bash|apply_patch)$",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard.mjs\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/guard.mjs\"",
             "timeout": 30
           }
         ]
@@ -115,11 +115,11 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "^(Edit|Write|apply_patch)$",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/format.mjs\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/format.mjs\"",
             "timeout": 60
           }
         ]
@@ -130,7 +130,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-check.mjs\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/stop-check.mjs\"",
             "timeout": 180
           }
         ]

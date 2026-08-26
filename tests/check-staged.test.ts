@@ -128,7 +128,7 @@ describe("checkStagedChange", () => {
 
   it("allows a re-generated lockfile", () => {
     // The pre-commit layer deliberately does not check lockfile content —
-    // only the Claude Code guard hook, which sees the tool call that produced
+    // only the agent guard hook, which sees the tool call that produced
     // it, can tell a hand edit apart from `pnpm install`'s own output. See
     // AGENTS.md's "Enforcement layers".
     const dir = makeRepo();

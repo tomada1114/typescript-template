@@ -1,4 +1,4 @@
-// Stop hook: run the quick quality gate before Claude ends its turn.
+// Stop hook: run the quick quality gate before the agent ends its turn.
 //
 // Runs the same four tools as `pnpm check:quick`, with the same arguments, and
 // only when the working tree actually contains changed TypeScript, JavaScript or
@@ -10,21 +10,18 @@
 // script and CI from ever disagreeing about the same change.
 //
 // The wall-clock budget is the `timeout` on the Stop hook entry in
-// .claude/settings.json; a hook that times out is skipped, not blocking. If this
-// template grows into a project whose test suite outgrows that budget, raise the
-// timeout there rather than dropping a check from the list.
+// both host configuration files; a hook that times out cannot enforce the gate.
+// If this template grows into a project whose test suite outgrows that budget,
+// raise the timeout in both files rather than dropping a check from the list.
 import { spawnSync } from "node:child_process";
 import console from "node:console";
 import process from "node:process";
 
 import { isMain } from "../../scripts/lib/is-main.mjs";
-import { readKey } from "../../scripts/lib/json.mjs";
-import {
-  repoRoot,
-  resolveDependencyBin,
-  runNode,
-} from "../../scripts/lib/node-tools.mjs";
-import { readPayload } from "./lib/payload.mjs";
+import { resolveDependencyBin, runNode } from "../../scripts/lib/node-tools.mjs";
+import { loadEvent, projectRoot } from "./hook_payload.mjs";
+
+const repoRoot = projectRoot(import.meta.url);
 
 /**
  * One command from `pnpm check:quick`.
@@ -119,15 +116,13 @@ function gitStatus() {
  * @returns {Promise<number>} The process exit code: 2 blocks the stop, 0 allows it.
  */
 export async function main() {
-  const payload = await readPayload();
-  // Without a readable payload there is no `stop_hook_active` flag to trust, so
-  // running the gate here could block a turn it has already blocked once.
-  if (payload === null) {
+  const event = await loadEvent();
+  if (event.name !== "Stop") {
     return 0;
   }
 
   // A previous block already continued the turn once — never loop.
-  if (readKey(payload, "stop_hook_active") === true) {
+  if (event.stopHookActive) {
     return 0;
   }
 
@@ -149,5 +144,11 @@ export async function main() {
 }
 
 if (isMain(import.meta.url)) {
-  process.exitCode = await main();
+  const exitCode = await main();
+  if (exitCode === 0) {
+    // Codex Stop hooks require JSON on stdout for a successful exit; Claude
+    // Code accepts the same empty object, so one response serves both hosts.
+    console.log("{}");
+  }
+  process.exitCode = exitCode;
 }
