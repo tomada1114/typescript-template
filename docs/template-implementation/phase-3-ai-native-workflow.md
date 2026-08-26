@@ -121,8 +121,11 @@ Vitest / TypeScript 向けに翻訳して流用する（`pytest.raises` → `exp
 - `permissions.allow`: **ローカルの build / lint / test だけ**
   （`pnpm check:quick`, `pnpm check`, `pnpm test`, `pnpm lint`, `pnpm typecheck`,
   `pnpm build`, `pnpm fix`, `pnpm api:check`, `pnpm package:smoke` など）
-- `permissions.deny`: `.env` / `.env.*` / `secrets/**` の Read/Edit（`Write` の path rule は
-  受理されても参照されず、起動時 warning になるため追加しない）
+- `permissions.deny`: `/.env` / `/.env.*` / `/secrets/**` の Read/Edit（`Write` の path rule は
+  受理されても参照されず、起動時 warning になるため追加しない）。**先頭の `/` は必須**で、
+  これが settings ファイルの位置を基準に固定する。これを省いた bare path は
+  cwd 相対に解決されるため、サブディレクトリで起動したセッションではリポジトリ
+  ルートの `.env` を覆わない（#15）
 - `hooks`: 上記3つを登録。`${CLAUDE_PROJECT_DIR}` を使い、`timeout` を設定
   （format 60s / stop-check 180s / guard 30s 目安）
 - 個人設定（model、output style、追加 permission）は `.claude/settings.local.json` に置き、
