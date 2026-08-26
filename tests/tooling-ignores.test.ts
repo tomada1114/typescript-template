@@ -20,7 +20,7 @@ const bridge = ".agents/skills/merge-dependabot";
 
 const eslint = new ESLint({ cwd: repoRoot });
 
-async function ignoredByEslint(relative: string): Promise<boolean> {
+function ignoredByEslint(relative: string): Promise<boolean> {
   return eslint.isPathIgnored(path.join(repoRoot, relative));
 }
 
@@ -31,12 +31,44 @@ async function ignoredByPrettier(relative: string): Promise<boolean> {
   return info.ignored;
 }
 
-describe("the .agents/skills ignore entries", () => {
+describe("the .agents/skills ignore entry in eslint.config.mjs", () => {
+  // Every path here is `.mjs` on purpose. ESLint answers `isPathIgnored: true`
+  // for anything no flat-config entry matches, so a `.md` or `.py` probe comes
+  // back ignored whether or not the ignore list mentions it — see the last case
+  // in this block, which pins that behavior so the trap stays visible.
   it.each([
     ["a file directly under the directory", ".agents/skills/codex-only.mjs"],
     ["a file in a sibling skill directory", ".agents/skills/codex-only/run.mjs"],
-  ])("checks %s", async (_label, relative) => {
+  ])("lints %s", async (_label, relative) => {
     expect(await ignoredByEslint(relative)).toBe(false);
+  });
+
+  it.each([
+    ["a file inside the bridge", `${bridge}/scripts/survey.mjs`],
+    ["a nested file inside the bridge", `${bridge}/lib/nested/helper.mjs`],
+  ])("still ignores %s", async (_label, relative) => {
+    expect(await ignoredByEslint(relative)).toBe(true);
+  });
+
+  it("reports any path it has no configuration for as ignored", async () => {
+    // Why the cases above are restricted to `.mjs`: this file is outside the
+    // bridge and would answer `true` on an empty ignore list.
+    await expect(ignoredByEslint(".agents/skills/codex-only/NOTES.md")).resolves.toBe(
+      true,
+    );
+  });
+});
+
+describe("the .agents/skills entry in .prettierignore", () => {
+  // Prettier's `ignored` reflects the ignore file alone — whether it knows a
+  // parser for the extension is a separate field — so any path discriminates.
+  it.each([
+    ["a file directly under the directory", ".agents/skills/codex-only.mjs"],
+    [
+      "a Markdown file in a sibling skill directory",
+      ".agents/skills/codex-only/SKILL.md",
+    ],
+  ])("formats %s", async (_label, relative) => {
     expect(await ignoredByPrettier(relative)).toBe(false);
   });
 
@@ -45,7 +77,6 @@ describe("the .agents/skills ignore entries", () => {
     ["a file inside the bridge", `${bridge}/SKILL.md`],
     ["a nested file inside the bridge", `${bridge}/scripts/survey.py`],
   ])("still ignores %s", async (_label, relative) => {
-    expect(await ignoredByEslint(relative)).toBe(true);
     expect(await ignoredByPrettier(relative)).toBe(true);
   });
 });
