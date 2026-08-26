@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
 // GitHub Actions cannot be executed from here, so the properties spec 02 §5.1
 // requires of every workflow are asserted against the files instead. This is
 // the local evidence for DoD G; the maintainer checklist in
-// docs/maintainer-checklist.md covers what only a real pull request can show.
+// docs/template-implementation/phase-2-ci-and-supply-chain.md covers what only
+// a real pull request can show.
 //
 // The scanner below is deliberately not a YAML parser. A parser would be a new
 // dependency for a repository whose whole point is a small, reviewable

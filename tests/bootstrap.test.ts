@@ -434,9 +434,7 @@ describe("bootstrap profiles", () => {
     });
     expect(changed.length).toBeGreaterThan(0);
     expect(readFileSync(path.join(root, "package.json"), "utf8")).toBe(before);
-    expect(readFileSync(path.join(root, "README.md"), "utf8")).toContain(
-      "Use this template",
-    );
+    expect(existsSync(path.join(root, "docs", "template-implementation"))).toBe(true);
   });
 
   it("validates projected dry-run output without mutating the source", () => {

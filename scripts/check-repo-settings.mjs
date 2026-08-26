@@ -1,17 +1,24 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import console from "node:console";
+import { existsSync } from "node:fs";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import { isMain } from "./lib/is-main.mjs";
 import { parseJson, readKey, readString } from "./lib/json.mjs";
 
+const TEMPLATE_ONLY_STATUS_CHECKS = existsSync(
+  fileURLToPath(new URL("../docs/template-implementation", import.meta.url)),
+)
+  ? ["Bootstrap generated repositories"]
+  : [];
 const REQUIRED_STATUS_CHECKS = [
   "Static checks",
   "Test (Node 22.14.0)",
   "Test (Node 24)",
   "Package artifact",
-  "Bootstrap generated repositories",
+  ...TEMPLATE_ONLY_STATUS_CHECKS,
   "Package smoke (ubuntu-latest)",
   "Package smoke (macos-latest)",
   "Package smoke (windows-latest)",
