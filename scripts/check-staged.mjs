@@ -2,27 +2,25 @@
 // Pre-commit gate: refuse a commit whose staged content is unsafe, from the
 // git index alone — no tool call, no running agent.
 //
-// This is the third of the four layers described in AGENTS.md's
-// "Enforcement layers": the Claude Code guard hook (.claude/hooks/guard.mjs)
-// only ever sees what happens inside a Claude Code session; this script sees
-// what actually reaches `git commit`, from any author — a human, Codex, or
-// any other tool. It shares its rule engine with that hook
-// (scripts/lib/guard/) so the two never drift out of sync, but it does not
-// duplicate every rule the hook enforces:
+// This is one of the layers described in AGENTS.md's "Enforcement layers":
+// `.claude/settings.json`'s `permissions.deny` only ever sees a tool call
+// inside a Claude Code session; this script sees what actually reaches
+// `git commit`, from any author — a human, Codex, or any other tool. It does
+// not duplicate every rule that layer enforces:
 //
-//   - Lockfile hand-editing is guard.mjs-only. A regenerated lockfile
-//     (`pnpm install`) is an ordinary, expected commit, and a git diff
-//     cannot tell that apart from a hand edit — only a tool call that shows
-//     which command produced the change can.
+//   - Lockfile hand-editing is `permissions.deny`-only. A regenerated
+//     lockfile (`pnpm install`) is an ordinary, expected commit, and a git
+//     diff cannot tell that apart from a hand edit — only a layer that sees
+//     the tool call that produced the change can.
 //   - `git commit --no-verify`, a bare force-push, and publish/workflow
-//     dispatch are guard.mjs-only: none of them leave anything in a diff for
-//     this script to see. `--no-verify` in particular disables this script
-//     along with the rest of the hook chain, so no git hook can catch it —
-//     the guard hook, which runs before the commit is even attempted, is the
-//     only layer that can.
+//     dispatch are `permissions.deny`-only: none of them leave anything in a
+//     diff for this script to see. `--no-verify` in particular disables this
+//     script along with the rest of the git hook chain, so no git hook can
+//     catch it — a layer that runs before the commit is even attempted is the
+//     only one that can.
 //
-// What this script adds that the hook cannot: it also protects a commit made
-// by a tool the guard hook was never wired into.
+// What this script adds that `permissions.deny` cannot: it also protects a
+// commit made by a tool that declarative layer was never wired into.
 //
 // Exit codes:
 //   0  every staged change is safe to commit

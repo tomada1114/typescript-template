@@ -36,10 +36,12 @@ pnpm docs:build    # TypeDoc into docs/api/
 
 Run a single test file with `pnpm exec vitest run tests/<name>.test.ts`.
 
-`pnpm check:quick` is what the pre-push hook runs, and CI runs the same four
-package scripts as separate steps, so a green run here means those are green
-too. Nothing — not a hook, not a workflow — defines a check of its own; they all
-call these scripts.
+`pnpm check:quick` is the full local gate, and CI runs the same four package
+scripts as separate steps, so a green run here means those are green too.
+`lefthook`'s pre-commit hook runs a staged-file-scoped version of the same
+tools — format applied rather than merely checked, tests limited to the ones
+reachable from the staged files — before every commit. Nothing — not a hook,
+not a workflow — defines a check of its own; they all call these scripts.
 
 ### Verifying against the minimum supported Node
 
@@ -160,13 +162,11 @@ reporting one.
 
 ## Repository automation (`.mjs`)
 
-`scripts/**` and `.claude/hooks/**` must run on a plain Node before
-`pnpm install` has been run, so they are authored as `.mjs` rather than
-TypeScript. They may only import `node:*` builtins, the shared helpers under
-`scripts/lib/`, and helpers local to their own tree (`.claude/hooks/lib/` for
-the hooks) — never a dependency from `node_modules`; a hook that
-needs an installed tool resolves it at run time through
-`resolveDependencyBin` instead of importing it.
+`scripts/**` must run on a plain Node before `pnpm install` has been run, so
+it is authored as `.mjs` rather than TypeScript. It may only import `node:*`
+builtins and the shared helpers under `scripts/lib/` — never a dependency
+from `node_modules`; a script that needs an installed tool resolves it at run
+time through `resolveDependencyBin` instead of importing it.
 
 - Import Node globals explicitly — `import process from "node:process"`,
   `import console from "node:console"` — rather than relying on ambient globals.
@@ -181,8 +181,8 @@ needs an installed tool resolves it at run time through
   `isMain(import.meta.url)` from `scripts/lib/is-main.mjs`. `import.meta.main`
   is Node 24+ and the floor is 22.14.
 - Git exports `GIT_DIR` to every hook it runs, and `git commit -- <path>` also
-  exports a temporary `GIT_INDEX_FILE`; `lefthook.yml` runs this suite from two
-  hooks. An inherited `GIT_DIR` outranks both a `cwd` and an explicit `-C`, so a
+  exports a temporary `GIT_INDEX_FILE`; `lefthook.yml` runs this suite from its
+  pre-commit hook. An inherited `GIT_DIR` outranks both a `cwd` and an explicit `-C`, so a
   `git` that names the repository it means clears `GIT_*` first, with
   `isolatedGitEnv` from `scripts/lib/git-env.mjs`. The exception is
   `scripts/check-staged.mjs`, which is the pre-commit layer and must read the
@@ -341,9 +341,9 @@ published less than 7 days ago will not resolve, for any install.
 ## Security and human approval
 
 - **Commit, push, pull request, and publish always need a human.** They are
-  outside the permission allowlist, and the guard hook hard-blocks the
-  dangerous spellings: `--no-verify`, plain force-push, `npm`/`pnpm publish`,
-  and workflow dispatch.
+  outside the permission allowlist, and `.claude/settings.json`'s
+  `permissions.deny` hard-blocks the dangerous spellings: `--no-verify`, plain
+  force-push, `npm`/`pnpm publish`, and workflow dispatch.
 - Never read or write `.env*` (the `.example`, `.sample` and `.template`
   variants are fine) or anything under `secrets/`.
 - Never write a credential into a tracked file — no registry auth token, no
@@ -357,44 +357,41 @@ published less than 7 days ago will not resolve, for any install.
 
 ## Enforcement layers
 
-The rules above are enforced by four layers, from declarative to procedural.
+The rules above are enforced by three layers, from declarative to procedural.
 Each layer holds only what belongs there — the rule itself lives in exactly
 one place, never copied between layers:
 
-| Layer                                        | Fires on                  | Applies to             | Holds                                                                       |
-| -------------------------------------------- | ------------------------- | ---------------------- | --------------------------------------------------------------------------- |
-| `.claude/settings.json`'s `permissions.deny` | every tool call           | Claude Code only       | Rules a path or command pattern can state declaratively                     |
-| `.claude/hooks/guard.mjs` (PreToolUse)       | every tool call           | Claude Code only       | Rules that need to see the actual shell command or diff, not just a pattern |
-| `lefthook` pre-commit / pre-push             | `git commit` / `git push` | every author, any tool | Rules a staged diff or the full test suite can decide                       |
-| This file                                    | read at session start     | every agent            | Everything else — the reasons behind the rules above                        |
+| Layer                                        | Fires on              | Applies to             | Holds                                                             |
+| -------------------------------------------- | --------------------- | ---------------------- | ----------------------------------------------------------------- |
+| `.claude/settings.json`'s `permissions.deny` | every tool call       | Claude Code only       | Rules a path or command pattern can state declaratively           |
+| `lefthook` pre-commit                        | `git commit`          | every author, any tool | Rules a staged diff, formatting, or a related-test run can decide |
+| This file                                    | read at session start | every agent            | Everything else — the reasons behind the rules above              |
 
 `permissions.deny` rules are a hard block, including in `bypassPermissions`
 mode — they are not advisory. They are declarative pattern matches, though,
 and the official Claude Code docs warn that a Bash pattern constraining
 arguments is fragile: it cannot tell `git commit` from `git commit
 --no-verify`, does not see through an `&&` chain or an `eval`, and a wrapper
-like `sh -c '…'` defeats it entirely. `guard.mjs` exists for exactly the
-rules a pattern cannot express reliably — see its own header comment for the
-full reasoning.
+like `sh -c '…'` defeats it entirely. That gap is accepted rather than closed
+with a second, procedural Claude Code layer: an agent's own permission model
+plus a human's approval on commit/push/PR/publish already cover a session's
+realistic risk. The rules that must hold regardless of which tool or human is
+committing — a staged secret, a stripped gate, a `.env` file about to land in
+history — live in `lefthook`'s pre-commit hook instead, where every author
+goes through the same gate.
 
-The Claude-only layers (`permissions.deny`, `guard.mjs`) exist because a
-Claude Code session is the only place they can run — a permission system and
-a PreToolUse hook are both concepts specific to this host. The rule engine
-they share lives in `scripts/lib/guard/`, imported by `guard.mjs` and by
-`scripts/check-staged.mjs` (the pre-commit layer) alike, so a rule is never
-maintained twice. `scripts/check-staged.mjs`'s own header explains exactly
-which rules it shares with the hook and which it cannot enforce from a diff
-alone. Hooks are Claude Code only for now; a Codex CLI adapter, when it
-exists, is expected to import the same `scripts/lib/guard/` modules rather
-than reimplement their rules.
+`scripts/lib/guard/` is the rule engine `scripts/check-staged.mjs` (the
+pre-commit layer) uses for the checks a staged diff's content, not just its
+path, must decide: a credential pattern, a gate marker stripped from a config
+file, a coverage threshold lowered below the floor. Its own header explains
+exactly what it does and does not cover.
 
 The lockfile rule is split on purpose, and is the clearest example of why a
 rule sometimes belongs in only one layer: hand-editing `pnpm-lock.yaml` is
-refused by `permissions.deny` and by `guard.mjs`, but **not** by
-`check-staged.mjs`. A regenerated lockfile (`pnpm install`) is an ordinary,
-expected commit, and a git diff cannot tell that apart from a hand edit —
-only a layer that sees the actual tool call knows which command produced the
-change.
+refused by `permissions.deny`, but **not** by `check-staged.mjs`. A
+regenerated lockfile (`pnpm install`) is an ordinary, expected commit, and a
+git diff cannot tell that apart from a hand edit — only a layer that sees the
+actual tool call that produced the change can.
 
 ## Conventions: `docs/**/*.md`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`
 

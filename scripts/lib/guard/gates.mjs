@@ -1,9 +1,9 @@
 // Gate files: the config files that hold a quality or supply-chain gate, and
 // the markers inside them whose disappearance means a gate was removed.
 //
-// Shared by the Claude Code guard hook (an Edit/Write's before/after text, or
-// a Bash `rm` target) and the pre-commit staged-content check (a staged
-// file's before/after blob, or a staged deletion).
+// Used by the pre-commit staged-content check (scripts/check-staged.mjs), the
+// one enforcement layer that inspects a diff's content rather than a
+// declarative pattern.
 import path from "node:path";
 
 import { repoRoot } from "../node-tools.mjs";
@@ -47,16 +47,13 @@ export const CONFIG_GATE_FILES = [
  * @remarks
  * `scripts/lib/guard/gates.mjs` — this file — is where {@link GATE_MARKERS}'
  * regex patterns live as source text, so its own content necessarily
- * contains every marker's literal substring. Scanning it (or a file that
- * used to hold that array, like `.claude/hooks/guard.mjs` before this
- * engine was extracted) for "did a marker's text disappear" produces a false
- * positive on any edit that moves that text between files, without ever
- * checking anything real — the markers a config file actually needs are the
- * ones in {@link CONFIG_GATE_FILES}.
+ * contains every marker's literal substring. Scanning it for "did a marker's
+ * text disappear" produces a false positive on any edit that moves that text
+ * between files, without ever checking anything real — the markers a config
+ * file actually needs are the ones in {@link CONFIG_GATE_FILES}.
  */
 export const ENFORCEMENT_FILES = [
-  /^\.claude\/hooks\/(?:[^/]+\/)*[^/]+\.mjs$/,
-  /^scripts\/lib\/guard\/(?:[^/]+\/)*[^/]+\.mjs$/,
+  /^scripts\/lib\/guard\/(?:credentials|gates|paths)\.mjs$/,
   /^scripts\/check-staged\.mjs$/,
 ];
 

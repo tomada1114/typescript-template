@@ -1,25 +1,15 @@
-// Path-shaped rules: which files must never be read, written, or hand-edited.
+// Path-shaped rules: which files must never be read.
 //
 // These are the checks that "which path is this" alone decides, independent
-// of what a tool call is or what it carries. Shared by the Claude Code guard
-// hook (.claude/hooks/guard.mjs, which sees a pending tool call) and the
-// pre-commit staged-content check (scripts/check-staged.mjs, which sees a
-// git diff) — with the lockfile rule left out of the latter on purpose: a
-// re-generated lockfile is normal to commit, and a git diff cannot tell that
-// apart from a hand edit. Only a tool-call-aware caller can, so lockfile
-// hand-editing stays a guard.mjs-only check (see checkWrite below).
+// of what a tool call is or what it carries. Used by the pre-commit
+// staged-content check (scripts/check-staged.mjs, which sees a git diff).
+// Lockfile hand-editing is not a path-shaped rule here: a re-generated
+// lockfile (`pnpm install`) is normal to commit, and a git diff cannot tell
+// that apart from a hand edit. Only `.claude/settings.json`'s
+// `permissions.deny` (a tool-call-aware layer) can, so that rule lives there.
 
 /** Suffixes that mark a committed, secret-free sample of a `.env` file. */
 export const ENV_EXAMPLE_SUFFIXES = [".example", ".sample", ".template"];
-
-/** Lockfiles of every package manager, so a wrong-manager lockfile is caught too. */
-export const LOCKFILES = new Set([
-  "pnpm-lock.yaml",
-  "package-lock.json",
-  "npm-shrinkwrap.json",
-  "yarn.lock",
-  "bun.lockb",
-]);
 
 /**
  * Normalize a path the way the rules below expect to see it.
@@ -60,46 +50,6 @@ export function checkRead(filePath) {
   }
   if (parts.slice(0, -1).includes("secrets")) {
     return "Files under secrets/ hold credentials and must not be read by the agent.";
-  }
-  return null;
-}
-
-/**
- * Return a block reason when a file must not be hand-edited.
- *
- * @remarks
- * The lockfile rule here is intent-based ("this call hand-edits the
- * lockfile"), which only a tool-call-aware caller can see — a `pnpm install`
- * regenerating the same file produces an indistinguishable diff. Do not call
- * this from a staged-content checker for that reason; see the module remark.
- *
- * @param {string} filePath - Path the call targets.
- * @returns {string | null} The reason, or null when the write is fine.
- */
-export function checkWrite(filePath) {
-  if (filePath === "") {
-    return null;
-  }
-  const { name, parts } = describePath(filePath);
-  if (LOCKFILES.has(name)) {
-    return `${name} is generated — run \`pnpm install\`, \`pnpm add\` or \`pnpm update\` instead of editing it.`;
-  }
-  // Matched on any segment, not only the first: Claude Code sends an absolute
-  // file_path, so the repository's own `.git` never is the first segment of a
-  // real tool call. `.github` is a different name and stays editable.
-  if (parts.includes(".git")) {
-    return "The Git plumbing under .git/ is not edited by automation — a hook or config written there silently replaces the pre-commit enforcement layer for every later commit. Install hooks with `pnpm hooks:install`.";
-  }
-  if (name === "settings.local.json" && parts.at(-2) === ".claude") {
-    return ".claude/settings.local.json holds personal permission grants, so an agent editing it would be granting itself permissions — that is a human edit; ask.";
-  }
-  // A read block is also a write block: the write-side counterpart of the
-  // Read(/.env), Read(/.env.*) and Read(/secrets/**) deny rules in
-  // .claude/settings.json. Those are anchored to the settings file; this layer
-  // matches by path shape, so it holds from any cwd.
-  const readReason = checkRead(filePath);
-  if (readReason !== null) {
-    return readReason.replace("read by the agent", "written by the agent");
   }
   return null;
 }

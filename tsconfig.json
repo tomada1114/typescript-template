@@ -26,20 +26,11 @@
     "libReplacement": false,
     "noEmit": true,
 
-    // Repository automation (bootstrap, package checks, AI hooks) must run on
-    // plain Node before `pnpm install`, so it is authored as `.mjs`. Checking
-    // those files here is what makes "typecheck covers scripts" true.
+    // Repository automation (bootstrap, package checks, agent skills) must run
+    // on plain Node before `pnpm install`, so it is authored as `.mjs`.
+    // Checking those files here is what makes "typecheck covers scripts" true.
     "allowJs": true,
     "checkJs": true
   },
-  "include": [
-    "src",
-    "tests",
-    "scripts",
-    ".claude/hooks",
-    ".claude/skills",
-    "*.ts",
-    "*.mts",
-    "*.mjs"
-  ]
+  "include": ["src", "tests", "scripts", ".claude/skills", "*.ts", "*.mts", "*.mjs"]
 }

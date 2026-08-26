@@ -235,10 +235,7 @@ describe("bootstrap profiles", () => {
       path.join(root, "tests", "fixtures", "binary.dat"),
     );
     const stableAiFiles = aiLayerFiles(root)
-      .filter(
-        (file) =>
-          file.startsWith(".claude/hooks/") || file.startsWith(".claude/skills/"),
-      )
+      .filter((file) => file.startsWith(".claude/skills/"))
       .map((file) => [file, readFileSync(path.join(root, file), "utf8")] as const);
     bootstrap(
       root,
@@ -298,11 +295,6 @@ describe("bootstrap profiles", () => {
     for (const [file, contents] of stableAiFiles) {
       expect(readFileSync(path.join(root, file), "utf8")).toBe(contents);
     }
-    expect(existsSync(path.join(root, ".claude", "hooks", "guard.mjs"))).toBe(true);
-    expect(existsSync(path.join(root, ".claude", "hooks", "format.mjs"))).toBe(true);
-    expect(existsSync(path.join(root, ".claude", "hooks", "stop-check.mjs"))).toBe(
-      true,
-    );
     const dependabotBridge = path.join(root, ".agents", "skills", "merge-dependabot");
     expect(lstatSync(dependabotBridge).isSymbolicLink()).toBe(true);
     expect(existsSync(dependabotBridge)).toBe(true);

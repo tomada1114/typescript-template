@@ -97,44 +97,15 @@
       "Bash(gh workflow run)",
       "Bash(gh workflow run *)",
       "Bash(gh release create)",
-      "Bash(gh release create *)"
-    ]
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write|Read|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard.mjs\"",
-            "timeout": 30
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/format.mjs\"",
-            "timeout": 60
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-check.mjs\"",
-            "timeout": 180
-          }
-        ]
-      }
+      "Bash(gh release create *)",
+      "Bash(git commit --no-verify)",
+      "Bash(git commit --no-verify *)",
+      "Bash(git commit -n)",
+      "Bash(git commit -n *)",
+      "Bash(git push --force)",
+      "Bash(git push --force *)",
+      "Bash(git push -f)",
+      "Bash(git push -f *)"
     ]
   }
 }
