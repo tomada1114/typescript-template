@@ -126,13 +126,15 @@ Labels carry the triage decision, so it is made once and read back rather than
 re-derived every time the backlog is looked at. An issue is filed with a type
 label and left untiered; triage adds the priority.
 
-| Label             | Means                                                                                              |
-| ----------------- | -------------------------------------------------------------------------------------------------- |
-| `priority: P0`    | Ship now — other open issues are blocked on it, or damage is being taken (red main, vulnerability) |
-| `priority: P1`    | Do next — leverage: CI, schema, shared types, config, the ground later issues stand on             |
-| `priority: P2`    | Normal — a real, self-contained change; nothing waits on it                                        |
-| `priority: P3`    | Defer — nice-to-have, docs polish, cosmetics                                                       |
-| `blocked: design` | The approach is not settled; needs a human decision before anyone implements it                    |
+| Label                 | Means                                                                                              |
+| --------------------- | -------------------------------------------------------------------------------------------------- |
+| `priority: P0`        | Ship now — other open issues are blocked on it, or damage is being taken (red main, vulnerability) |
+| `priority: P1`        | Do next — leverage: CI, schema, shared types, config, the ground later issues stand on             |
+| `priority: P2`        | Normal — a real, self-contained change; nothing waits on it                                        |
+| `priority: P3`        | Defer — nice-to-have, docs polish, cosmetics                                                       |
+| `blocked: design`     | The approach is not settled; needs a human decision before anyone implements it                    |
+| `blocked: dependency` | Waits on a specific open issue named by a `Depends on: #N` line in the body                        |
+| `on hold`             | Not implementable as filed — a container issue, or parked pending something outside the tracker    |
 
 Priority here means impact on the rest of the backlog, not how interesting the
 work is. Tier and design-readiness are independent: an issue carrying
@@ -146,6 +148,9 @@ later: what is wrong today, with a `path:line`, and what observable result
 closes it — named as a test or a command, not as a feeling of doneness. An
 ordering constraint between issues is written as `Depends on: #12`, which is
 the spelling automation parses; prose like "after the guard work lands" is not.
+An issue carrying that line also carries `blocked: dependency`; the label is
+not removed automatically when the blocker closes, so whoever lands the
+blocking issue clears it by hand from the issues that named it.
 
 The type labels are `bug`, `enhancement`, `documentation`, `chore`, and
 `security`. Only the first three are GitHub defaults, so `chore` and `security`
