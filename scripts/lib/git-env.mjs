@@ -1,8 +1,8 @@
 // Build an environment for a `git` process that must decide its own repository.
 //
 // Git exports `GIT_DIR` (and friends) to every hook it runs, and `lefthook.yml`
-// runs this project's own test suite from two of them — `test:related` on
-// pre-commit, `check:quick` on pre-push. A `git` spawned with only a `cwd`
+// runs this project's own test suite from one of them — `test:related` on
+// pre-commit. A `git` spawned with only a `cwd`
 // inherits those variables, and an inherited `GIT_DIR` outranks both the cwd and
 // an explicit `-C`: git then treats the current directory as the work tree while
 // writing to the *outer* repository's index, config, and object store. A

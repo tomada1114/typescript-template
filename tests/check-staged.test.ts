@@ -13,9 +13,9 @@ import { checkStagedChange, main, stagedChanges } from "../scripts/check-staged.
 // tests drive it against a real throwaway repository rather than mocking git.
 const repos: string[] = [];
 
-// The suite itself runs from git hooks (`lefthook.yml` runs `test:related` on
-// pre-commit and `check:quick` on pre-push), and git hands a hook GIT_DIR and,
-// for a partial `git commit -- <path>`, GIT_INDEX_FILE. `scripts/check-staged.mjs`
+// The suite itself runs from a git hook (`lefthook.yml` runs `test:related` on
+// pre-commit), and git hands a hook GIT_DIR and, for a partial
+// `git commit -- <path>`, GIT_INDEX_FILE. `scripts/check-staged.mjs`
 // is meant to honor those — it is the pre-commit layer. Here they must go, or
 // the fixture repositories below are built inside the checkout this suite is
 // running in. See scripts/lib/git-env.mjs.
@@ -127,10 +127,11 @@ describe("checkStagedChange", () => {
   });
 
   it("allows a re-generated lockfile", () => {
-    // The pre-commit layer deliberately does not check lockfile content —
-    // only the Claude Code guard hook, which sees the tool call that produced
-    // it, can tell a hand edit apart from `pnpm install`'s own output. See
-    // AGENTS.md's "Enforcement layers".
+    // The pre-commit layer deliberately does not check lockfile content: a
+    // regenerated lockfile is an ordinary, expected commit, and a git diff
+    // cannot tell it apart from a hand edit. Only a layer that sees the tool
+    // call that produced the change can — `permissions.deny`'s
+    // `Edit(/pnpm-lock.yaml)`. See AGENTS.md's "Enforcement layers".
     const dir = makeRepo();
     stage(dir, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
     commit(dir);

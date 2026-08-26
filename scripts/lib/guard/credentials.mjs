@@ -1,15 +1,14 @@
 // Secret-shaped content: text that must never land in a tracked file.
 //
-// Shared by the Claude Code guard hook (text about to be written, or a raw
-// shell command) and the pre-commit staged-content check (a staged file's
-// content).
+// Read by the pre-commit staged-content check (`scripts/check-staged.mjs`),
+// which scans a staged file's content before it can reach a commit.
 
 /**
  * Secret shapes that must never be written into a tracked file.
  *
  * @remarks
  * Each pattern is written so that its own source text does not match it, which
- * is what lets this file be edited by an agent that the guard is protecting.
+ * is what lets this file be staged without the check refusing its own rules.
  *
  * @type {{ pattern: RegExp, name: string }[]}
  */

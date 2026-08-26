@@ -32,9 +32,9 @@ import {
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const workspaces: string[] = [];
 
-// The suite itself runs from git hooks (`lefthook.yml` runs `test:related` on
-// pre-commit and `check:quick` on pre-push), and git hands a hook GIT_DIR and,
-// for a partial `git commit -- <path>`, GIT_INDEX_FILE. `scripts/check-staged.mjs`
+// The suite itself runs from a git hook (`lefthook.yml` runs `test:related` on
+// pre-commit), and git hands a hook GIT_DIR and, for a partial
+// `git commit -- <path>`, GIT_INDEX_FILE. `scripts/check-staged.mjs`
 // is meant to honor those — it is the pre-commit layer. Here they must go, or
 // the fixture repositories below are built inside the checkout this suite is
 // running in. See scripts/lib/git-env.mjs.

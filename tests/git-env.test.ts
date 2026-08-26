@@ -10,9 +10,9 @@ import { isolatedGitEnv } from "../scripts/lib/git-env.mjs";
 
 // The regression these cover is not a wrong return value: it is a fixture
 // repository writing into the repository that spawned it. `lefthook.yml` runs
-// this suite from pre-commit and pre-push, and git hands every hook a GIT_DIR,
-// so both directions are exercised here against two throwaway repositories
-// rather than against the checkout the suite is running in.
+// this suite from pre-commit, and git hands every hook a GIT_DIR, so both
+// directions are exercised here against two throwaway repositories rather than
+// against the checkout the suite is running in.
 const directories: string[] = [];
 
 /** A fresh, empty git repository, isolated from the surrounding one. */
