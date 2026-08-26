@@ -49,7 +49,6 @@ describe("shared settings", () => {
     // run unattended and gets both entries, or it is listed here with why.
     const exceptions = new Map([
       ["test:watch", "a watcher never exits, so an agent must not start one"],
-      ["changeset", "interactive TUI; only the --empty form is pre-approved"],
     ]);
     const allow = new Set(readStringArray(readKey(settings, "permissions"), "allow"));
     const scripts = topLevelKeys(readKey(manifest, "scripts"));

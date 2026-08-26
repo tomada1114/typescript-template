@@ -19,7 +19,6 @@ const REQUIRED_STATUS_CHECKS = [
   "Test (Node 24)",
   "Package artifact",
   ...TEMPLATE_ONLY_STATUS_CHECKS,
-  "Changeset intent",
   "Package smoke (ubuntu-latest)",
   "Package smoke (macos-latest)",
   "Package smoke (windows-latest)",

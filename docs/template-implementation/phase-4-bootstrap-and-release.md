@@ -49,7 +49,7 @@ JSON/YAML の構造を壊さないことと profile 差分の適用を追加要�
 ## 推奨サブステップ
 
 1. **community 文書**（LICENSE / CoC / CONTRIBUTING / SECURITY / CHANGELOG / README / templates）
-2. **Changesets**（`.changeset/config.json` + README）
+2. **release intent**（PR に SemVer impact を記録）
 3. **release workflow**（OIDC / tag 照合 / 単一 tarball / attestation）
 4. **bootstrap**（`scripts/bootstrap.mjs` + `tests/bootstrap.test.ts` + fixtures）
 5. **生成 E2E**（3 profile + `zukai`）
@@ -67,14 +67,14 @@ Issue template・PR template の構造 / SECURITY.md の private report 方針�
 
 ### TypeScript/npm 向けに書き換えて移植
 
-| ファイル                                                         | 要件                                                                                                                                                                                                                                                                                           |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `README.md`                                                      | 30秒で価値・install・最小例・互換性・API 入口が分かる（仕様 01 §8）。**最小例は実行可能**であること。badge / link は実在先を指す                                                                                                                                                               |
-| `CONTRIBUTING.md`                                                | setup（`corepack` + `pnpm install --frozen-lockfile` + `pnpm hooks:install`）、主要コマンド、テスト、Changeset、PR 手順、**0.x 期間の breaking change policy**（仕様 03 §3.2）、**release partial failure の再実行手順**（仕様 03 §3.5）、最小 Node 検証時の `--config.runtime-on-fail=ignore` |
-| `CHANGELOG.md`                                                   | Keep a Changelog + SemVer。Changesets が追記する形に合わせる                                                                                                                                                                                                                                   |
-| `.github/ISSUE_TEMPLATE/{bug_report,feature_request,config}.yml` | `config.yml` は blank issue を無効化し、security 報告を GitHub Security Advisories へ誘導                                                                                                                                                                                                      |
-| `.github/PULL_REQUEST_TEMPLATE.md`                               | チェックリストは `pnpm check` / Changeset / API report / docs 更新                                                                                                                                                                                                                             |
-| `docs/getting-started.md`, `docs/reference.md`                   | public API と同期。`docs/api/` は TypeDoc 生成なので tracked にしない                                                                                                                                                                                                                          |
+| ファイル                                                         | 要件                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md`                                                      | 30秒で価値・install・最小例・互換性・API 入口が分かる（仕様 01 §8）。**最小例は実行可能**であること。badge / link は実在先を指す                                                                                                                                                                         |
+| `CONTRIBUTING.md`                                                | setup（`corepack` + `pnpm install --frozen-lockfile` + `pnpm hooks:install`）、主要コマンド、テスト、release-impact note、PR 手順、**0.x 期間の breaking change policy**（仕様 03 §3.2）、**release partial failure の再実行手順**（仕様 03 §3.5）、最小 Node 検証時の `--config.runtime-on-fail=ignore` |
+| `CHANGELOG.md`                                                   | Keep a Changelog + SemVer。release pull request が追記する形に合わせる                                                                                                                                                                                                                                   |
+| `.github/ISSUE_TEMPLATE/{bug_report,feature_request,config}.yml` | `config.yml` は blank issue を無効化し、security 報告を GitHub Security Advisories へ誘導                                                                                                                                                                                                                |
+| `.github/PULL_REQUEST_TEMPLATE.md`                               | チェックリストは `pnpm check` / release-impact note / API report / docs 更新                                                                                                                                                                                                                             |
+| `docs/getting-started.md`, `docs/reference.md`                   | public API と同期。`docs/api/` は TypeDoc 生成なので tracked にしない                                                                                                                                                                                                                                    |
 
 **LICENSE の SPDX と `package.json.license` を一致させる**こと。
 
@@ -84,16 +84,12 @@ Issue template・PR template の構造 / SECURITY.md の private report 方針�
 
 ---
 
-## 2. Changesets（仕様 03 §3.2、DoD H）
+## 2. release intent（仕様 03 §3.2、DoD H）
 
-- `.changeset/config.json` + `.changeset/README.md`
-- `changelog`、`commit: false`、`access: "public"`、`baseBranch: "main"` を明示
-- **publish credential を Changesets action に渡さない**。Changesets は
-  version/changelog PR の作成にのみ使う
-- consumer-visible な変更は通常の Changeset、docs / test / CI / tooling
-  だけの変更は `pnpm changeset --empty` で release intent を明示する
-- PR CI の `changeset status --since=main` で記録漏れを fail させる
-  （Changesets 自身の version PR は消費済みなので対象外）
+リリース意図は専用ファイルではなく、pull request に記録します。consumer-visible
+な変更では SemVer impact と利用者向けの概要を示し、docs / test / CI / tooling
+だけの変更ではリリース不要であることを明記します。公開資格情報は tag-based
+release workflow に限定し、pull request の処理には渡しません。
 
 ---
 
@@ -280,7 +276,7 @@ rm -rf "$WORK"
 - Dependabot alerts / security updates
 - private vulnerability reporting
 - CodeQL
-- GitHub Actions に Changesets version PR の作成を許可
+- GitHub Actions の tag-based release workflow を必要最小限の権限で許可
 - GitHub Environment `release` と required reviewer
 - npm trusted publisher（repository と workflow filename を登録、`repository.url` を完全一致）
 - npm account 2FA
@@ -337,7 +333,7 @@ git status --short
 | A   | 正常系・異常系・再実行・git なしをテスト                              | `tests/bootstrap.test.ts`                |
 | A   | 新規生成物に placeholder が残らない                                   | placeholder 全件検査                     |
 | A   | template 自身と生成物の両方で CI が通る                               | 生成 E2E + Phase 2 の CI                 |
-| H   | Changeset で SemVer intent を review                                  | `.changeset/` + CONTRIBUTING             |
+| H   | PR で SemVer intent を review                                         | PR template + CONTRIBUTING               |
 | H   | tag と package version を publish 前に照合                            | `release.yml` + 構造テスト               |
 | H   | tarball を一度だけ生成し、同一 tarball を npm と Release に使う       | `release.yml`                            |
 | H   | trusted publishing + OIDC / 長寿命 token なし / protected environment | `release.yml` + checklist                |
@@ -346,7 +342,7 @@ git status --short
 | J   | README の最小例が実行可能                                             | README + CI で compile/実行              |
 | J   | CONTRIBUTING の setup がクリーン環境で再現可能                        | `rm -rf node_modules` からの検証         |
 | J   | SECURITY / LICENSE / CoC / Issue・PR templates                        | 各ファイル                               |
-| J   | CHANGELOG と GitHub Release が同期                                    | Changesets + `.github/release.yml`       |
+| J   | CHANGELOG と GitHub Release が同期                                    | release process + `.github/release.yml`  |
 | J   | package metadata と badge/link が実在先を指す                         | bootstrap の同期 + テスト                |
 | J   | docs/example が public API と同期                                     | TypeDoc + docs テスト                    |
 | J   | Scorecard の指摘を確認し、未対応は理由を記録                          | `docs/maintainer-checklist.md`           |

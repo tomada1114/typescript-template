@@ -76,8 +76,6 @@
     "check:source": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run api:check && pnpm run docs:build",
     "check": "pnpm run check:source && node scripts/clean.mjs .package && pnpm pack --pack-destination .package && pnpm run package:verify -- --pack-dir .package && node scripts/clean.mjs .package",
     "fix": "eslint . --fix && prettier --write .",
-    "changeset": "changeset",
-    "changeset:check": "changeset status --since=main",
     "hooks:install": "lefthook install",
     "bootstrap:e2e": "node scripts/verify-bootstrap.mjs",
     "publish:rehearsal": "pnpm run build && node scripts/clean.mjs .rehearsal && pnpm pack --pack-destination .rehearsal && node scripts/publish-rehearsal.mjs --pack-dir .rehearsal && node scripts/clean.mjs .rehearsal",
@@ -85,7 +83,6 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
-    "@changesets/cli": "^2.31.1",
     "@eslint/js": "^10.0.1",
     "@microsoft/api-extractor": "^7.58.12",
     "@types/node": "^26.2.0",

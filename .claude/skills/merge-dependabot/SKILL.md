@@ -185,8 +185,8 @@ generated release notes stay consistent. Fill
 `- #<number> <title>`, and put the local verification commands in Test Plan.
 
 A dependency bump that consumers can observe (a changed peer range, a raised
-`engines.node`, a new runtime dependency) needs a Changeset. A devDependency
-bump does not.
+`engines.node`, a new runtime dependency) needs a release-impact note. A
+devDependency bump does not.
 
 ## Step 5: Land and clean up
 

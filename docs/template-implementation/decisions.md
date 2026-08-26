@@ -373,7 +373,7 @@ export interface WithTimeoutOptions { … }
 - `proseWrap` は既定（`preserve`）。`always` にすると Markdown が再流し込みされ、
   `docs/template-requirements/` の差分が読めなくなる。
 - `.prettierignore` に `docs/template-requirements/`（外部正本の逐語コピー）、
-  `pnpm-lock.yaml`、`CHANGELOG.md`（Changesets 生成）、`etc/*.api.md`（API Extractor 生成）。
+  `pnpm-lock.yaml`、`CHANGELOG.md`（release pull request が更新）、`etc/*.api.md`（API Extractor 生成）。
 - `tsconfig.json` は JSONC（コメント入り）だが Prettier は正しく整形する（実測）。
 - Phase 0 では `pnpm run format` を一度かけて `format:check` を green にしてある。
 
