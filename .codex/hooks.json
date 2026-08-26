@@ -3,11 +3,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^(Edit|Write|Read|Bash|apply_patch)$",
+        "matcher": "^(Edit|MultiEdit|NotebookEdit|Write|Read|Bash|apply_patch)$",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/guard.mjs\"",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/.agents/hooks/guard.mjs\" || exit 2",
             "timeout": 30
           }
         ]
@@ -15,11 +15,11 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "^(Edit|Write|apply_patch)$",
+        "matcher": "^(Edit|MultiEdit|NotebookEdit|Write|apply_patch)$",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/format.mjs\"",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/.agents/hooks/format.mjs\"",
             "timeout": 60
           }
         ]
@@ -30,7 +30,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/hooks/stop-check.mjs\"",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/.agents/hooks/stop-check.mjs\"",
+            "timeout": 180
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/.agents/hooks/stop-check.mjs\"",
             "timeout": 180
           }
         ]

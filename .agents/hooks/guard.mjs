@@ -17,7 +17,13 @@
 // instead of a pending tool call and so cannot enforce everything this hook
 // does — see that script's own header for the split).
 //
-// Exit code 2 blocks the tool call and shows the reason to the agent.
+// Exit code 2 blocks the tool call and shows the reason to the agent. Both
+// hosts treat every *other* non-zero exit as a non-blocking error, so a guard
+// that cannot start at all — a bad path, a missing Node, a syntax error — would
+// let the call through. That is why both host configurations run this hook as
+// `node … || exit 2`: the failure to decide is itself a block. The Stop hook is
+// deliberately not wired that way, because a stop this hook can never allow is
+// a turn that can never end.
 import console from "node:console";
 import { readFileSync } from "node:fs";
 import path from "node:path";

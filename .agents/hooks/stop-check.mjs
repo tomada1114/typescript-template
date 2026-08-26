@@ -1,4 +1,10 @@
-// Stop hook: run the quick quality gate before the agent ends its turn.
+// Stop and SubagentStop hook: run the quick quality gate before the agent ends
+// its turn.
+//
+// Both hosts fire `SubagentStop` when a delegated agent finishes, and a
+// subagent edits the same working tree the main agent does. Wiring only `Stop`
+// left work that a subagent finished and handed back ungated until the main
+// agent happened to stop afterwards, so the same gate answers both events.
 //
 // Runs the same four tools as `pnpm check:quick`, with the same arguments, and
 // only when the working tree actually contains changed TypeScript, JavaScript or
@@ -9,8 +15,8 @@
 // what `check:quick` expands to. That test is what keeps this hook, the package
 // script and CI from ever disagreeing about the same change.
 //
-// The wall-clock budget is the `timeout` on the Stop hook entry in
-// both host configuration files; a hook that times out cannot enforce the gate.
+// The wall-clock budget is the `timeout` on the Stop and SubagentStop entries
+// in both host configuration files; a hook that times out cannot enforce the gate.
 // If this template grows into a project whose test suite outgrows that budget,
 // raise the timeout in both files rather than dropping a check from the list.
 import { spawnSync } from "node:child_process";
@@ -53,6 +59,9 @@ export const CHECKS = [
 export function checkCommand(check) {
   return [check.bin ?? check.package, ...check.args].join(" ");
 }
+
+/** The events this hook answers; anything else exits without running a check. */
+export const STOP_EVENTS = new Set(["Stop", "SubagentStop"]);
 
 /** Extensions whose change means the gate has something to say. */
 const WATCHED_EXTENSIONS = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"];
@@ -117,7 +126,7 @@ function gitStatus() {
  */
 export async function main() {
   const event = await loadEvent();
-  if (event.name !== "Stop") {
+  if (event.name === null || !STOP_EVENTS.has(event.name)) {
     return 0;
   }
 

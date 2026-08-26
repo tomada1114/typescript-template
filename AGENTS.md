@@ -376,6 +376,11 @@ inspection remains best-effort, and Codex documents that specialized tool paths
 may opt out of hooks; `lefthook`, CI, and this file remain the enforcement layers
 when a lifecycle hook cannot observe a call.
 
+A path rule in `permissions.deny` is consulted only when it is written as
+`Read(...)` or `Edit(...)`. `Edit(...)` covers every built-in tool that changes
+a file; a rule written for `Write(...)` or `NotebookEdit(...)` is accepted,
+never consulted, and warned about at startup.
+
 The shared hook scripts live in `.agents/hooks/` and are wired from both
 `.claude/settings.json` and `.codex/hooks.json`; start Claude Code at the
 repository root because a subdirectory launch does not load root project hooks.
@@ -384,6 +389,17 @@ use `/hooks` after first checkout and after a hook command changes. The rule
 engine lives in `scripts/lib/guard/`, imported by `guard.mjs` and
 `scripts/check-staged.mjs` alike, so the policy is not duplicated.
 
+Both hosts treat exit code 2 as the only blocking exit and every other non-zero
+exit as a non-blocking error, so a guard that dies before it can decide — a bad
+path, a missing Node, a syntax error — would let the call through. Both
+configurations therefore run the PreToolUse guard as `node … || exit 2`: a
+failure to decide is itself a block. The stop gate is deliberately **not** wired
+that way, because a stop hook that can never exit 0 is a turn that can never
+end. It is wired to `SubagentStop` as well as `Stop`, since a subagent edits the
+same working tree the main agent does, and its matcher list covers every
+file-editing tool `hook_payload.mjs` recognizes — a tool missing from a matcher
+makes that support unreachable rather than merely unused.
+
 The lockfile rule is split on purpose, and is the clearest example of why a
 rule sometimes belongs in only one layer: hand-editing `pnpm-lock.yaml` is
 refused by `permissions.deny` and by `guard.mjs`, but **not** by
@@ -391,6 +407,14 @@ refused by `permissions.deny` and by `guard.mjs`, but **not** by
 expected commit, and a git diff cannot tell that apart from a hand edit —
 only a layer that sees the actual tool call knows which command produced the
 change.
+
+The dotenv rule is split for the opposite reason: a deny rule cannot carry an
+allowlist exception, and `.env.example`, `.env.sample` and `.env.template` are
+exactly such an exception. `permissions.deny` therefore states only the spelling
+it can state exactly — `/.env` — and `guard.mjs` owns the rest of the `.env.*`
+family, where the exception lives. Widening that deny list back to `/.env.*`
+re-blocks the very files "Security and human approval" tells you to read
+instead.
 
 ## Conventions: `docs/**/*.md`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`
 

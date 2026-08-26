@@ -10,6 +10,7 @@ import { evaluate } from "../.agents/hooks/guard.mjs";
 import { fromPayload, patchFiles } from "../.agents/hooks/hook_payload.mjs";
 import {
   CHECKS,
+  STOP_EVENTS,
   checkCommand,
   hasRelevantChanges,
 } from "../.agents/hooks/stop-check.mjs";
@@ -506,11 +507,15 @@ describe("stop-check hook", () => {
     expect(runHook("stop-check.mjs", "this is not json").status).toBe(0);
   });
 
-  it.each(["claude-stop.json", "codex-stop.json"])(
+  it.each([
+    ["claude-stop.json", "Stop"],
+    ["codex-stop.json", "Stop"],
+    ["claude-subagent-stop.json", "SubagentStop"],
+  ])(
     "recognizes the already-continued %s fixture without looping",
-    (fixture) => {
+    (fixture, eventName) => {
       const event = fromPayload(hookFixture(fixture));
-      expect(event.name).toBe("Stop");
+      expect(event.name).toBe(eventName);
       expect(event.stopHookActive).toBe(false);
       const result = runHook("stop-check.mjs", {
         hook_event_name: event.name,
@@ -520,6 +525,17 @@ describe("stop-check hook", () => {
       expect(JSON.parse(result.stdout)).toEqual({});
     },
   );
+
+  it("answers SubagentStop as well as Stop", () => {
+    // A subagent edits the same working tree the main agent does, so handing
+    // work back is a stop that has to clear the same gate.
+    expect([...STOP_EVENTS].sort()).toEqual(["Stop", "SubagentStop"]);
+  });
+
+  it("ignores an event it was not wired for", () => {
+    const result = runHook("stop-check.mjs", { hook_event_name: "SessionEnd" });
+    expect(result.status).toBe(0);
+  });
 
   it.each([
     [" M src/index.ts", true],
@@ -568,6 +584,35 @@ function readStringArray(value: unknown, key: string): string[] {
   return Array.isArray(read) ? read.filter((item) => typeof item === "string") : [];
 }
 
+/** Every `command` string wired to one lifecycle event, across all matchers. */
+function hookCommands(config: unknown, event: string): string[] {
+  const entries = readKey(readKey(config, "hooks"), event);
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries.flatMap((entry: unknown) => {
+    const commands = readKey(entry, "hooks");
+    return Array.isArray(commands)
+      ? commands.flatMap((hook: unknown) => {
+          const command = readString(hook, "command");
+          return command === undefined ? [] : [command];
+        })
+      : [];
+  });
+}
+
+/** Every `matcher` pattern wired to one lifecycle event. */
+function hookMatchers(config: unknown, event: string): string[] {
+  const entries = readKey(readKey(config, "hooks"), event);
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries.flatMap((entry: unknown) => {
+    const matcher = readString(entry, "matcher");
+    return matcher === undefined ? [] : [matcher];
+  });
+}
+
 describe("shared settings", () => {
   const settings: unknown = JSON.parse(
     readFileSync(path.join(repoRoot, ".claude", "settings.json"), "utf8"),
@@ -592,6 +637,42 @@ describe("shared settings", () => {
 
   it("projects the same lifecycle hooks into both host configurations", () => {
     expect(readKey(codexHooks, "hooks")).toEqual(readKey(settings, "hooks"));
+  });
+
+  it.each([
+    ["PreToolUse", ["Edit", "MultiEdit", "NotebookEdit", "Write", "apply_patch"]],
+    ["PostToolUse", ["Edit", "MultiEdit", "NotebookEdit", "Write", "apply_patch"]],
+  ])("routes every file-editing tool into the %s hook", (event, tools) => {
+    // hook_payload.mjs recognizes all of these as edits. A matcher that leaves
+    // one out makes that support unreachable rather than merely unused.
+    const matchers = hookMatchers(settings, event).map((source) => new RegExp(source));
+    for (const tool of tools) {
+      expect(
+        matchers.some((matcher) => matcher.test(tool)),
+        `${event} does not route ${tool} to a hook`,
+      ).toBe(true);
+    }
+  });
+
+  it("fails the guard closed when it cannot run at all", () => {
+    // Both hosts treat a non-zero exit other than 2 as a *non-blocking* error,
+    // so a guard that dies before it can decide would let the call through.
+    // `|| exit 2` is what turns "could not decide" into "blocked".
+    for (const command of hookCommands(settings, "PreToolUse")) {
+      expect(command, "a PreToolUse guard must not fail open").toMatch(/\|\| exit 2$/);
+    }
+  });
+
+  it("does not fail the stop gate closed", () => {
+    // The mirror image of the rule above: a stop hook that can never exit 0 is
+    // a turn that can never end, so this one stays fail-open on its own crash.
+    for (const event of STOP_EVENTS) {
+      const commands = hookCommands(settings, event);
+      expect(commands, `${event} is not wired`).not.toEqual([]);
+      for (const command of commands) {
+        expect(command).not.toMatch(/exit 2/);
+      }
+    }
   });
 
   it("allows every package script in both spellings", () => {

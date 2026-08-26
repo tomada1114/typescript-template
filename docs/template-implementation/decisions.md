@@ -532,3 +532,35 @@ definition hash; use `/hooks` on first checkout and after command changes.
 で staged ファイルのモジュールグラフから関係するテストだけを走らせる)も追加した。
 この2つは enforcement 層そのものとは無関係な pre-commit の強化だが、過分割を避けて
 同じコミットにまとめた。
+
+---
+
+## 21. Close four gaps in the shared hook wiring (added 2026-08-26)
+
+§20 の配線を実際に叩いて確認したところ、スクリプト側は正しいのに配線が取りこぼして
+いる箇所が4つ見つかった。いずれも「スクリプトが持っている能力に配線が届いていない」
+型の欠陥である。
+
+1. `permissions.deny` の `Read(/.env.*)` / `Edit(/.env.*)` が `.env.example` まで
+   ブロックしていた。deny ルールは仕様上 allowlist 例外を持てないため
+   (`a deny rule can't carry allowlist exceptions`)、`.example` / `.sample` /
+   `.template` を許す規則は宣言層では表現できない。`/.env` だけを宣言層に残し、
+   `.env.*` ファミリは `guard.mjs` の担当にした。lockfile ルールと同じ「表現できる
+   ところまでが宣言層」という分割で、規則の二重管理も起きない。
+2. matcher が `NotebookEdit` / `MultiEdit` を含んでいなかった。`hook_payload.mjs` の
+   `EDIT_TOOLS` はこれらを扱えるのに、配線が到達させていなかった。
+3. PreToolUse が fail-open だった。両ホストとも exit 2 だけがブロックで、それ以外の
+   非ゼロは非ブロックエラーとして扱われる。つまり guard が起動に失敗した場合
+   (パス不正、Node 不在、構文エラー)ツール呼び出しは素通りする。配線を
+   `node … || exit 2` にして「判断できなかったこと自体をブロック」に変えた。
+   Stop 側は同じ扱いにしない — 常に exit 2 になる stop hook は終われないターンに
+   なるため。パス解決も `${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}` に
+   変え、git が使えない環境でも Claude 側は解決できるようにした。
+4. `SubagentStop` が未配線だった。サブエージェントはメインと同じ作業ツリーを編集
+   するので、受け渡しも同じゲートを通す必要がある。両ホストとも `SubagentStop` を
+   サポートしているため、`.codex/hooks.json` との完全一致という §20 の不変条件は
+   保ったままにできた。
+
+`.claude/settings.json` の `Write(...)` / `NotebookEdit(...)` 形式のパスルールは
+受理されるが参照されず起動時に警告になる。パスルールは `Read(...)` と `Edit(...)`
+の2つだけで書く。
