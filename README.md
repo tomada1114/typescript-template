@@ -42,16 +42,15 @@ See [Getting started](docs/getting-started.md), the
 ## Use this template
 
 Create a repository with GitHub's **Use this template** button, then run the
-bootstrap before installing dependencies:
+interactive bootstrap before installing dependencies:
 
 ```sh
-node scripts/bootstrap.mjs my-package \
-  --profile node-library \
-  --author "Jane Doe" \
-  --email jane@example.com \
-  --github-user janedoe \
-  --license MIT
+node scripts/bootstrap.mjs
 ```
+
+Answer the prompts for the package name, profile, author, email, GitHub user,
+license, and description. For automation, pass the package name together with
+the `--profile`, `--author`, `--email`, `--github-user`, and `--license` flags.
 
 Use `node-cli` for an importable library with a command-line executable, or
 `universal-library` for code that must build without Node APIs. Bootstrap removes

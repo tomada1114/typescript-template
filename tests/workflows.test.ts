@@ -1269,12 +1269,18 @@ describe("the Dependabot cooldown agrees with the pnpm install cooldown", () => 
 });
 
 describe("workflow regression checks for repository automation", () => {
-  it("runs bootstrap E2E and Changeset intent checks in CI", () => {
+  it("runs lightweight bootstrap and Changeset intent checks in CI", () => {
     const source = workflowSource("ci.yml");
     if (existsSync(path.join(repoRoot, "docs", "template-implementation"))) {
-      expect(source).toContain("pnpm run bootstrap:e2e");
-    } else {
+      const bootstrapStart = source.indexOf("  bootstrap:");
+      const changesetStart = source.indexOf("  changeset:", bootstrapStart);
+      const bootstrapJob = source.slice(bootstrapStart, changesetStart);
+      expect(bootstrapJob).toContain("node scripts/verify-bootstrap.mjs");
+      expect(bootstrapJob).not.toContain("pnpm install");
+      expect(bootstrapJob).not.toContain("pnpm run check");
       expect(source).not.toContain("pnpm run bootstrap:e2e");
+    } else {
+      expect(source).not.toContain("node scripts/verify-bootstrap.mjs");
     }
     expect(source).toContain("pnpm run changeset:check");
     expect(source).toContain("git branch --force main origin/main");

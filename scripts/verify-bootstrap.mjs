@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import console from "node:console";
 import {
   copyFileSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -16,6 +17,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { findPlaceholders } from "./bootstrap.mjs";
 import { isolatedGitEnv } from "./lib/git-env.mjs";
 import { isMain } from "./lib/is-main.mjs";
 import { classifyCopyPath, describeLinkTarget } from "./lib/symlinks.mjs";
@@ -36,11 +38,80 @@ function run(command, args, cwd) {
     timeout: 900_000,
     // Every command here runs against a throwaway workspace, so none of them
     // may inherit a hook's GIT_DIR — see scripts/lib/git-env.mjs.
-    env: { ...isolatedGitEnv(), COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" },
+    env: isolatedGitEnv(),
   });
   if (result.status !== 0) {
     throw new Error(
       `ERR_BOOTSTRAP_E2E: ${command} ${args.join(" ")} failed with exit ${String(result.status)}.`,
+    );
+  }
+}
+
+const MARKER_FILES = [
+  "AGENTS.md",
+  "README.md",
+  "tests/AGENTS.md",
+  ".github/workflows/ci.yml",
+];
+
+/**
+ * Check the lightweight, observable output of one bootstrap run.
+ *
+ * @param {string} destination
+ * @param {string} profile
+ * @param {string} packageName
+ */
+function assertGenerated(destination, profile, packageName) {
+  const placeholders = findPlaceholders(destination, packageName);
+  if (placeholders.length > 0) {
+    throw new Error(
+      `ERR_PLACEHOLDER_REMAINING: generated ${packageName} still contains placeholders.\n` +
+        placeholders.join("\n"),
+    );
+  }
+
+  for (const relative of MARKER_FILES) {
+    const file = path.join(destination, relative);
+    if (
+      /(?:template-only|profile:[a-z0-9-]+:)/.exec(readFileSync(file, "utf8")) !== null
+    ) {
+      throw new Error(
+        `ERR_BOOTSTRAP_MARKER: generated ${packageName} retains a bootstrap marker in ${relative}.`,
+      );
+    }
+  }
+
+  for (const relative of [
+    "docs/template-requirements",
+    "docs/template-implementation",
+  ]) {
+    if (existsSync(path.join(destination, relative))) {
+      throw new Error(
+        `ERR_TEMPLATE_PATH_REMAINING: generated ${packageName} retains ${relative}.`,
+      );
+    }
+  }
+
+  const manifest = parseJson(
+    readFileSync(path.join(destination, "package.json"), "utf8"),
+  );
+  if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) {
+    throw new Error(
+      `ERR_MANIFEST_SHAPE: generated ${packageName} has no object manifest.`,
+    );
+  }
+  if (readKey(manifest, "name") !== packageName) {
+    throw new Error(`ERR_PACKAGE_NAME: generated package name is not ${packageName}.`);
+  }
+  if (profile === "node-cli" && readKey(manifest, "bin") === undefined) {
+    throw new Error(`ERR_CLI_PROFILE: generated ${packageName} has no bin entry.`);
+  }
+  if (profile !== "node-cli" && readKey(manifest, "bin") !== undefined) {
+    throw new Error(`ERR_NON_CLI_PROFILE: generated ${packageName} has a bin entry.`);
+  }
+  if (packageName === "zukai" && readKey(manifest, "dependencies") !== undefined) {
+    throw new Error(
+      "ERR_ZUKAI_RUNTIME_DEPENDENCIES: generated zukai must have zero runtime dependencies.",
     );
   }
 }
@@ -115,8 +186,6 @@ export function main() {
       const destination = path.join(workspace, packageName);
       mkdirSync(destination);
       copyTemplate(destination);
-      run("git", ["init", "-q"], destination);
-      run("git", ["add", "-A"], destination);
       run(
         process.execPath,
         [
@@ -135,22 +204,7 @@ export function main() {
         ],
         destination,
       );
-      run("corepack", ["pnpm@11.18.0", "install", "--frozen-lockfile"], destination);
-      run("corepack", ["pnpm@11.18.0", "run", "check"], destination);
-      if (packageName === "zukai") {
-        const manifest = parseJson(
-          readFileSync(path.join(destination, "package.json"), "utf8"),
-        );
-        if (
-          typeof manifest !== "object" ||
-          manifest === null ||
-          readKey(manifest, "dependencies") !== undefined
-        ) {
-          throw new Error(
-            "ERR_ZUKAI_RUNTIME_DEPENDENCIES: generated zukai must have zero runtime dependencies.",
-          );
-        }
-      }
+      assertGenerated(destination, profile, packageName);
       console.log(`bootstrap-e2e: ${packageName} (${profile}) passed`);
     }
     return 0;

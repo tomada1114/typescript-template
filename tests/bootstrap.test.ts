@@ -26,6 +26,7 @@ import {
   findPlaceholders,
   normalizeRelativePath,
   parseArguments,
+  promptArguments,
   validatePackageName,
 } from "../scripts/bootstrap.mjs";
 
@@ -48,7 +49,7 @@ function clearGitEnvironment(): void {
 
 beforeEach(clearGitEnvironment);
 
-function copyTemplate(withGit = true): string {
+function copyTemplate(): string {
   const workspace = mkdtempSync(path.join(tmpdir(), "typescript-template-test-"));
   workspaces.push(workspace);
   const result = execFileSync(
@@ -83,10 +84,6 @@ function copyTemplate(withGit = true): string {
     Buffer.from([0, 255, 1, 2, 109, 121, 45, 112, 97, 99, 107, 97, 103, 101]),
   );
 
-  if (withGit) {
-    execFileSync("git", ["init", "-q"], { cwd: workspace });
-    execFileSync("git", ["add", "-A"], { cwd: workspace });
-  }
   return workspace;
 }
 
@@ -113,10 +110,8 @@ function relativeFiles(root: string, directory: string): string[] {
 }
 
 /**
- * Subdirectory AI-layer masters. `bootstrap.mjs` finds these by matching
- * `AI_LAYER_FILES` against the basename at any depth; this list is the
- * explicit enumeration of what that match currently selects outside the root,
- * and must be extended when a new subdirectory master is added.
+ * Subdirectory AI-layer masters. This list mirrors the explicit AI-layer
+ * targets in `bootstrap.mjs` and must be extended when a new master is added.
  */
 const AI_LAYER_SUBDIR_FILES = ["tests/AGENTS.md", "tests/CLAUDE.md"];
 
@@ -201,6 +196,72 @@ describe("bootstrap validation", () => {
     const parsed = options("acme-library", "node-library");
     expect(parsed.description).toBe("A TypeScript package.");
     expect(parsed.binName).toBeUndefined();
+  });
+
+  it("collects package metadata through the interactive prompts", async () => {
+    const answers = [
+      "interactive-package",
+      "node-cli",
+      "Ada Lovelace",
+      "ada@example.com",
+      "ada",
+      "ISC",
+      "An interactive package.",
+      "interactive-command",
+    ];
+    const prompts: string[] = [];
+    const parsed = await promptArguments((prompt) => {
+      prompts.push(prompt);
+      return Promise.resolve(answers.shift() ?? "");
+    });
+
+    expect(parsed).toMatchObject({
+      packageName: "interactive-package",
+      profile: "node-cli",
+      author: "Ada Lovelace",
+      email: "ada@example.com",
+      githubUser: "ada",
+      license: "ISC",
+      description: "An interactive package.",
+      binName: "interactive-command",
+    });
+    expect(prompts).toEqual([
+      "Package name: ",
+      "Profile [node-library]: ",
+      "Author name: ",
+      "Author email: ",
+      "GitHub user: ",
+      "License [MIT]: ",
+      "Description [A TypeScript package.]: ",
+      "Command name (blank for package name): ",
+    ]);
+  });
+
+  it("uses interactive input when the command has no arguments", () => {
+    const root = copyTemplate();
+    const output = execFileSync(process.execPath, ["scripts/bootstrap.mjs"], {
+      cwd: root,
+      encoding: "utf8",
+      input:
+        [
+          "interactive-package",
+          "",
+          "Ada Lovelace",
+          "ada@example.com",
+          "ada",
+          "",
+          "",
+        ].join("\n") + "\n",
+    });
+
+    expect(output).toContain("Bootstrapped interactive-package as node-library.");
+    expect(
+      JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")),
+    ).toMatchObject({
+      name: "interactive-package",
+      license: "MIT",
+      description: "A TypeScript package.",
+    });
   });
 
   it("rejects unknown options instead of silently ignoring them", () => {
@@ -352,66 +413,18 @@ describe("bootstrap profiles", () => {
     expect(existsSync(report)).toBe(true);
   });
 
-  it("uses the filtered walk outside a Git repository", () => {
-    const root = copyTemplate(false);
-    mkdirSync(path.join(root, "node_modules"), { recursive: true });
-    writeFileSync(path.join(root, "node_modules", "untouched.txt"), "my-package");
-    bootstrap(root, options("walked-library", "node-library"));
-    expect(readFileSync(path.join(root, "node_modules", "untouched.txt"), "utf8")).toBe(
-      "my-package",
-    );
+  it("rewrites only explicit targets", () => {
+    const root = copyTemplate();
+    const untouched = path.join(root, "unlisted-placeholder.txt");
+    const dangling = path.join(root, "unlisted-dangling-link");
+    writeFileSync(untouched, "my-package");
+    symlinkSync("missing-target", dangling);
+
+    bootstrap(root, options("explicit-library", "node-library"));
+
+    expect(readFileSync(untouched, "utf8")).toBe("my-package");
+    expect(lstatSync(dangling).isSymbolicLink()).toBe(true);
     expect(findPlaceholders(root)).toEqual([]);
-  });
-
-  it("rejects a dangling symlink instead of dropping it from the copy set", () => {
-    const root = copyTemplate();
-    const relative = ".claude/skills/missing-skill";
-    const link = path.join(root, relative);
-    mkdirSync(path.dirname(link), { recursive: true });
-    symlinkSync("missing-target", link);
-    execFileSync("git", ["add", relative], { cwd: root });
-
-    let caught: unknown;
-    try {
-      bootstrap(root, options("broken-link", "node-library"));
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toBeInstanceOf(BootstrapError);
-    if (!(caught instanceof BootstrapError)) {
-      return;
-    }
-    expect(caught.code).toBe("ERR_BROKEN_SYMLINK");
-    expect(caught.message).toContain(`Link: ${relative}`);
-    expect(caught.message).toContain("Expected: the symlink target to exist.");
-    expect(caught.message).toContain("Actual: missing target missing-target.");
-    expect(caught.message).toContain("Next:");
-  });
-
-  it("rejects a dangling symlink found by the filtered walk outside a Git repository", () => {
-    // The other half of projectFiles: with no Git index to read, the copy set
-    // comes from a directory walk, and a symlink is a file to that walk.
-    const root = copyTemplate(false);
-    const link = path.join(root, ".claude", "skills", "missing-skill");
-    mkdirSync(path.dirname(link), { recursive: true });
-    symlinkSync("missing-target", link);
-
-    expect(() => bootstrap(root, options("broken-link", "node-library"))).toThrow(
-      /ERR_BROKEN_SYMLINK/,
-    );
-  });
-
-  it("still skips a tracked path that is absent rather than dangling", () => {
-    // The distinction the fix turns on: `git ls-files` still reports a deleted
-    // file, and dropping it silently is the behavior that must not change.
-    const root = copyTemplate();
-    const relative = "docs/getting-started.md";
-    const absolute = path.join(root, relative);
-    expect(existsSync(absolute)).toBe(true);
-    rmSync(absolute);
-
-    expect(() => bootstrap(root, options("gone-file", "node-library"))).not.toThrow();
   });
 
   it("makes dry-run non-mutating", () => {
@@ -426,31 +439,81 @@ describe("bootstrap profiles", () => {
     expect(existsSync(path.join(root, "docs", "template-implementation"))).toBe(true);
   });
 
+  it("validates projected dry-run output without mutating the source", () => {
+    const root = copyTemplate();
+    const agents = path.join(root, "AGENTS.md");
+    writeFileSync(
+      agents,
+      `${readFileSync(agents, "utf8")}\nThis reference must be rejected: docs/template-implementation\n`,
+    );
+    const before = readFileSync(agents, "utf8");
+
+    expect(() =>
+      bootstrap(root, {
+        ...options("invalid-dry-run", "node-library"),
+        dryRun: true,
+      }),
+    ).toThrow(/ERR_AI_LAYER_REFERENCE/);
+    expect(readFileSync(agents, "utf8")).toBe(before);
+  });
+
   it("refuses an existing API report destination", () => {
     const root = copyTemplate();
     writeFileSync(path.join(root, "etc", "widgets.api.md"), "occupied");
-    execFileSync("git", ["add", "etc/widgets.api.md"], { cwd: root });
     expect(() => bootstrap(root, options("widgets", "node-library"))).toThrow(
       /ERR_RENAME_DESTINATION/,
     );
   });
 
-  it("does not apply any files when lockfile validation fails", () => {
+  it("does not depend on package-manager or staging processes", () => {
+    const source = readFileSync(
+      path.join(repoRoot, "scripts", "bootstrap.mjs"),
+      "utf8",
+    );
+
+    expect(source).not.toContain('from "node:child_process"');
+    expect(source).not.toContain("spawnSync");
+    expect(source).not.toContain("mkdtempSync");
+    expect(source).not.toContain("regenerateLockfile");
+    expect(source).not.toContain("corepack");
+  });
+
+  it("preserves interactive metadata in generated JSON and JavaScript", () => {
     const root = copyTemplate();
-    const manifestBefore = readFileSync(path.join(root, "package.json"), "utf8");
-    const lockfilePath = path.join(root, "pnpm-lock.yaml");
-    writeFileSync(
-      lockfilePath,
-      readFileSync(lockfilePath, "utf8").replaceAll(
-        "specifier: 11.18.0",
-        "specifier: 11.17.0",
-      ),
-    );
-    expect(() => bootstrap(root, options("atomic-library", "node-library"))).toThrow(
-      /ERR_PACKAGE_MANAGER_MISMATCH/,
-    );
-    expect(readFileSync(path.join(root, "package.json"), "utf8")).toBe(manifestBefore);
-    expect(existsSync(path.join(root, "docs", "template-implementation"))).toBe(true);
+    const description = 'A $& "quoted" package.\nWith a second line.';
+    const parsed = parseArguments([
+      "quoted-package",
+      "--profile",
+      "node-cli",
+      "--author",
+      'Ada "The Great"',
+      "--email",
+      "ada+tag@example.com",
+      "--github-user",
+      "ada",
+      "--license",
+      "MIT",
+      "--description",
+      description,
+      "--bin-name",
+      "quoted-command",
+    ]);
+
+    bootstrap(root, parsed);
+
+    const manifest = JSON.parse(
+      readFileSync(path.join(root, "package.json"), "utf8"),
+    ) as { author: string; description: string };
+    expect(manifest).toMatchObject({
+      author: 'Ada "The Great" <ada+tag@example.com>',
+      description,
+    });
+    expect(readFileSync(path.join(root, "README.md"), "utf8")).toContain(description);
+    expect(() =>
+      execFileSync(process.execPath, ["--check", "scripts/bootstrap.mjs"], {
+        cwd: root,
+      }),
+    ).not.toThrow();
   });
 
   it("keeps package metadata and the license text in sync", () => {
