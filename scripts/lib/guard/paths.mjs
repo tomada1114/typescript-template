@@ -80,9 +80,18 @@ export function checkWrite(filePath) {
   if (filePath === "") {
     return null;
   }
-  const { name } = describePath(filePath);
+  const { name, parts } = describePath(filePath);
   if (LOCKFILES.has(name)) {
     return `${name} is generated — run \`pnpm install\`, \`pnpm add\` or \`pnpm update\` instead of editing it.`;
+  }
+  // Matched on any segment, not only the first: Claude Code sends an absolute
+  // file_path, so the repository's own `.git` never is the first segment of a
+  // real tool call. `.github` is a different name and stays editable.
+  if (parts.includes(".git")) {
+    return "The Git plumbing under .git/ is not edited by automation — a hook or config written there silently replaces the pre-commit enforcement layer for every later commit. Install hooks with `pnpm hooks:install`.";
+  }
+  if (name === "settings.local.json" && parts.at(-2) === ".claude") {
+    return ".claude/settings.local.json holds personal permission grants, so an agent editing it would be granting itself permissions — that is a human edit; ask.";
   }
   // A read block is also a write block: the write-side counterpart of the
   // Read(/.env), Read(/.env.*) and Read(/secrets/**) deny rules in

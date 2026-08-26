@@ -17,7 +17,10 @@ import {
   ALLOWED_PATHS,
   FORBIDDEN_PATHS,
   PACKAGE_LIMITS,
+  REQUIRED_PATHS,
   findAbsoluteMapSources,
+  findDanglingMapSources,
+  findMissingRequiredPaths,
   inspectPackageEntries,
   readTarEntries,
   requiredEntryPaths,
@@ -506,6 +509,9 @@ describe("requiredEntryPaths", () => {
       ...(hasBin ? ["dist/bin.js"] : []),
       "dist/index.d.ts",
       "dist/index.js",
+      // The conventional `"./package.json": "./package.json"` subpath, which
+      // tooling reads and which therefore has to be in the tarball too.
+      "package.json",
     ]);
   });
 });
@@ -559,6 +565,179 @@ describe("findAbsoluteMapSources", () => {
   });
 });
 
+// --- findMissingRequiredPaths ------------------------------------------------
+
+describe("findMissingRequiredPaths", () => {
+  it("accepts a tarball carrying the manifest, a readme and a license", () => {
+    expect(
+      findMissingRequiredPaths([
+        entry("package.json"),
+        entry("README.md"),
+        entry("LICENSE"),
+        entry("dist/index.js"),
+      ]),
+    ).toEqual([]);
+  });
+
+  it.each([["LICENCE"], ["LICENSE.txt"], ["license.md"]])(
+    "accepts the license spelling %s",
+    (license) => {
+      expect(
+        findMissingRequiredPaths([
+          entry("package.json"),
+          entry("README"),
+          entry(license),
+        ]),
+      ).toEqual([]);
+    },
+  );
+
+  it("reports the license a tarball forgot", () => {
+    const problems = findMissingRequiredPaths([
+      entry("package.json"),
+      entry("README.md"),
+      entry("dist/index.js"),
+    ]);
+
+    expect(codesOf(problems)).toEqual(["ERR_PACKAGE_REQUIRED_MISSING"]);
+    expect(problems[0]?.path).toBe("LICENSE");
+    expect(problems[0]?.message).toMatch(/repository root/);
+  });
+
+  it("reports the readme a tarball forgot", () => {
+    const problems = findMissingRequiredPaths([
+      entry("package.json"),
+      entry("LICENSE"),
+    ]);
+
+    expect(codesOf(problems)).toEqual(["ERR_PACKAGE_REQUIRED_MISSING"]);
+    expect(problems[0]?.path).toBe("README");
+  });
+
+  it("reports every requirement of an empty tarball", () => {
+    expect(findMissingRequiredPaths([])).toHaveLength(REQUIRED_PATHS.length);
+  });
+
+  it("does not count a directory entry as the file it is named after", () => {
+    const problems = findMissingRequiredPaths([
+      entry("package.json"),
+      entry("README.md"),
+      entry("LICENSE", 0, { type: "directory" }),
+    ]);
+
+    expect(codesOf(problems)).toEqual(["ERR_PACKAGE_REQUIRED_MISSING"]);
+  });
+
+  it("requires only files the allowlist also permits", () => {
+    // The two lists share their regexes, so a required file can never be a
+    // file the tarball is forbidden to carry.
+    for (const rule of REQUIRED_PATHS) {
+      expect(inspectPackageEntries([entry(rule.sample)], {})).toEqual([]);
+    }
+  });
+});
+
+// --- findDanglingMapSources --------------------------------------------------
+
+describe("findDanglingMapSources", () => {
+  function mapEntry(mapPath: string, map: unknown): Entry {
+    return entry(mapPath, 0, { data: Buffer.from(JSON.stringify(map), "utf8") });
+  }
+
+  it("accepts a map that embeds the contents of every source", () => {
+    expect(
+      findDanglingMapSources([
+        entry("dist/index.js"),
+        mapEntry("dist/index.js.map", {
+          version: 3,
+          sources: ["../src/index.ts"],
+          sourcesContent: ["export const a = 1;\n"],
+        }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("accepts a map whose source is itself published", () => {
+    expect(
+      findDanglingMapSources([
+        entry("dist/index.js"),
+        mapEntry("dist/index.js.map", { version: 3, sources: ["./index.js"] }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("flags a source that is neither embedded nor published", () => {
+    const problems = findDanglingMapSources([
+      entry("dist/index.js"),
+      mapEntry("dist/index.js.map", { version: 3, sources: ["../src/index.ts"] }),
+    ]);
+
+    expect(codesOf(problems)).toEqual(["ERR_PACKAGE_MAP_DANGLING_SOURCE"]);
+    expect(problems[0]?.path).toBe("dist/index.js.map");
+    // The resolved path is what a debugger would look for, so it is what the
+    // message has to name.
+    expect(problems[0]?.message).toContain("src/index.ts");
+  });
+
+  it("flags a declaration map, which tsc emits without sourcesContent", () => {
+    expect(
+      codesOf(
+        findDanglingMapSources([
+          mapEntry("dist/index.d.ts.map", { version: 3, sources: ["../src/index.ts"] }),
+        ]),
+      ),
+    ).toEqual(["ERR_PACKAGE_MAP_DANGLING_SOURCE"]);
+  });
+
+  it("flags a source whose sourcesContent slot is null", () => {
+    expect(
+      codesOf(
+        findDanglingMapSources([
+          mapEntry("dist/index.js.map", {
+            version: 3,
+            sources: ["../src/a.ts", "../src/b.ts"],
+            sourcesContent: ["export const a = 1;\n", null],
+          }),
+        ]),
+      ),
+    ).toEqual(["ERR_PACKAGE_MAP_DANGLING_SOURCE"]);
+  });
+
+  it("resolves a relative sourceRoot before deciding", () => {
+    expect(
+      findDanglingMapSources([
+        entry("src/index.ts"),
+        mapEntry("dist/index.js.map", {
+          version: 3,
+          sourceRoot: "../src",
+          sources: ["index.ts"],
+        }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("leaves an absolute source to findAbsoluteMapSources", () => {
+    const entries = [
+      mapEntry("dist/index.js.map", {
+        version: 3,
+        sources: ["/Users/someone/repo/src/index.ts"],
+      }),
+    ];
+
+    expect(findDanglingMapSources(entries)).toEqual([]);
+    expect(findAbsoluteMapSources(entries)).toHaveLength(1);
+  });
+
+  it("ignores entries that are not maps and maps without data", () => {
+    expect(
+      findDanglingMapSources([
+        mapEntry("dist/index.js", { sources: ["../src/index.ts"] }),
+        entry("dist/index.js.map"),
+      ]),
+    ).toEqual([]);
+  });
+});
+
 describe("verify-package artifact selection", () => {
   it("accepts one explicit release tarball", () => {
     expect(resolveTarballArgument(["--", "--tarball", "dist/package.tgz"])).toBe(
@@ -573,6 +752,36 @@ describe("verify-package artifact selection", () => {
     { args: ["--unknown", "one.tgz"] },
   ])("rejects ambiguous or incomplete arguments: $args", ({ args }) => {
     expect(() => resolveTarballArgument(args)).toThrow();
+  });
+});
+
+// --- the publish contract ----------------------------------------------------
+
+interface PublishConfig {
+  access?: unknown;
+  provenance?: unknown;
+  registry?: unknown;
+}
+
+describe("publishConfig in package.json", () => {
+  const { publishConfig } = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { publishConfig?: PublishConfig };
+
+  it("states the whole publish contract, so no caller has to repeat it", () => {
+    // Every publish path — the release workflow, `pnpm publish:rehearsal`, a
+    // human running `npm publish` by hand — reads this object. A flag passed
+    // at one call site instead would apply to that call site only, which is
+    // how a rehearsal ends up proving something the real publish never does.
+    expect(publishConfig?.access).toBe("public");
+    expect(publishConfig?.provenance).toBe(true);
+  });
+
+  it("pins the registry, so an ambient .npmrc cannot redirect a publish", () => {
+    // Without this, `registry=` in a user-level or CI .npmrc silently decides
+    // where the package goes, and the first sign is a package that is not on
+    // npm.
+    expect(publishConfig?.registry).toBe("https://registry.npmjs.org/");
   });
 });
 

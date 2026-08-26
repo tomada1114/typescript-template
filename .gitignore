@@ -33,6 +33,8 @@ docs/api/
 
 # Claude Code: personal overrides stay local, shared config is tracked
 .claude/settings.local.json
+# Claude Code: agent worktrees are full checkouts, never part of this one
+.claude/worktrees/
 
 # Environment variables (example files are tracked on purpose)
 .env

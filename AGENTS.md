@@ -315,6 +315,12 @@ published less than 7 days ago will not resolve, for any install.
   transitive dependencies, respectively). Do not relax any of them to
   unblock a failing install — find out why the install is actually failing
   first.
+- `verifyDepsBeforeRun: error`: a `pnpm run` whose `node_modules` no longer
+  matches the lockfile fails instead of letting a gate pass against stale
+  dependencies. The fix is `pnpm install`, never a weaker value — pnpm
+  compares dependency fields and the settings above, so an unrelated
+  manifest rewrite (the minimum-Node leg's `git restore package.json`) only
+  costs a deeper check, not a failure.
 
 ### TypeScript version ceiling
 

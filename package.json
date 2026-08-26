@@ -42,12 +42,16 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "types": "./dist/index.d.ts",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "node scripts/clean.mjs dist && tsc -p tsconfig.build.json",
@@ -86,6 +90,7 @@
     "@microsoft/api-extractor": "^7.58.12",
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/eslint-plugin": "^1.6.27",
     "eslint": "^10.8.1",
     "eslint-config-prettier": "^10.1.8",
     "lefthook": "^2.1.10",

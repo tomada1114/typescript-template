@@ -9,7 +9,11 @@
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
     "noUncheckedSideEffectImports": true,
+    "noImplicitReturns": true,
     "useUnknownInCatchVariables": true,
+    // Forbids the syntax Node's type stripping cannot erase — enum, namespace,
+    // parameter properties — so every source file stays runnable unbuilt.
+    "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "moduleDetection": "force",
@@ -17,6 +21,9 @@
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
     "skipLibCheck": true,
+    // Closes the path where a package in node_modules substitutes its own
+    // standard library for TypeScript's built-in lib files.
+    "libReplacement": false,
     "noEmit": true,
 
     // Repository automation (bootstrap, package checks, AI hooks) must run on

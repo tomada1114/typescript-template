@@ -24,8 +24,30 @@
       "Bash(pnpm run api:update)",
       "Bash(pnpm package:lint)",
       "Bash(pnpm run package:lint)",
+      "Bash(pnpm package:check)",
+      "Bash(pnpm run package:check)",
       "Bash(pnpm package:smoke)",
       "Bash(pnpm run package:smoke)",
+      "Bash(pnpm package:verify)",
+      "Bash(pnpm run package:verify)",
+      "Bash(pnpm test:related)",
+      "Bash(pnpm run test:related)",
+      "Bash(pnpm check:staged)",
+      "Bash(pnpm run check:staged)",
+      "Bash(pnpm check:source)",
+      "Bash(pnpm run check:source)",
+      "Bash(pnpm changeset --empty)",
+      "Bash(pnpm run changeset --empty)",
+      "Bash(pnpm changeset:check)",
+      "Bash(pnpm run changeset:check)",
+      "Bash(pnpm repo:check)",
+      "Bash(pnpm run repo:check)",
+      "Bash(pnpm bootstrap:e2e)",
+      "Bash(pnpm run bootstrap:e2e)",
+      "Bash(pnpm publish:rehearsal)",
+      "Bash(pnpm run publish:rehearsal)",
+      "Bash(pnpm hooks:install)",
+      "Bash(pnpm run hooks:install)",
       "Bash(pnpm docs:build)",
       "Bash(pnpm run docs:build)",
       "Bash(pnpm check:quick)",
@@ -37,7 +59,18 @@
       "Bash(pnpm exec eslint:*)",
       "Bash(pnpm exec prettier:*)",
       "Bash(pnpm exec tsc:*)",
-      "Bash(pnpm exec vitest run:*)"
+      "Bash(pnpm exec vitest run:*)",
+      "Bash(git status)",
+      "Bash(git status:*)",
+      "Bash(git diff)",
+      "Bash(git diff:*)",
+      "Bash(git log)",
+      "Bash(git log:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(node .claude/skills/merge-dependabot/scripts/survey-prs.mjs)",
+      "Bash(node .claude/skills/merge-dependabot/scripts/survey-prs.mjs:*)"
     ],
     "deny": [
       "Read(/.env)",
@@ -46,6 +79,8 @@
       "Edit(/.env)",
       "Edit(/.env.*)",
       "Edit(/secrets/**)",
+      "Edit(/.git/**)",
+      "Edit(/.claude/settings.local.json)",
       "Edit(/pnpm-lock.yaml)",
       "Edit(/package-lock.json)",
       "Edit(/npm-shrinkwrap.json)",
@@ -101,16 +136,5 @@
         ]
       }
     ]
-  },
-  "extraKnownMarketplaces": {
-    "tomada-claude-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "tomada1114/tomada-claude-plugins"
-      }
-    }
-  },
-  "enabledPlugins": {
-    "tomada-kit@tomada-claude-plugins": true
   }
 }

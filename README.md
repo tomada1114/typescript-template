@@ -10,7 +10,9 @@ A short description.
 pnpm add my-package
 ```
 
-Requires Node.js 22.14 or newer. The package is ESM-only.
+Requires Node.js 22.14 or newer. The package ships ESM only; on that range
+`require(esm)` is unflagged, so a CommonJS consumer can `require("my-package")`
+directly.
 
 ## Quick start
 

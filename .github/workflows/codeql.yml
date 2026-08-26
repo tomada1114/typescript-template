@@ -3,8 +3,10 @@ name: CodeQL
 on:
   push:
     branches: [main]
+  # No branch filter here on purpose: a stacked pull request that targets a
+  # feature branch is code that will reach main, and skipping it would leave
+  # the analysis silently unrun until the final merge.
   pull_request:
-    branches: [main]
   schedule:
     # Weekly, so a newly published query still finds an unmaintained branch.
     - cron: "0 4 * * 1"
@@ -12,8 +14,11 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseding a pull request cancels its previous analysis. A push to main is
+  # keyed by commit instead, so consecutive merges neither cancel one another
+  # nor leave a merged commit without a CodeQL record.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:

@@ -3,11 +3,18 @@
   // Matches .node-version and devEngines.runtime. The tag is the Node major so
   // the image tracks the same line CI resolves.
   "image": "mcr.microsoft.com/devcontainers/typescript-node:24",
-  // pnpm is installed directly rather than through Corepack, so the container
-  // needs no Corepack download step to reach the pinned version. Keep the
-  // version in step with `packageManager` in package.json. The install is
-  // frozen: the container reproduces the committed lockfile, never rewrites it.
-  "postCreateCommand": "npm install --global pnpm@11.18.0 && pnpm install --frozen-lockfile",
+  // Corepack downloads the pnpm named by `packageManager` in package.json on
+  // first use, and would otherwise stop to ask permission — a postCreateCommand
+  // and an interactive shell in this container both have no one to answer it.
+  "containerEnv": {
+    "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"
+  },
+  // pnpm comes from Corepack rather than a global npm install, so its version
+  // is read from `packageManager` in package.json — the one place it is
+  // written, here as in CI. A version pinned in this file would be a second
+  // copy to keep in step. The install is frozen: the container reproduces the
+  // committed lockfile, never rewrites it.
+  "postCreateCommand": "corepack enable && pnpm install --frozen-lockfile",
   "customizations": {
     "vscode": {
       "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]

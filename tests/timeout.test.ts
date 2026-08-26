@@ -34,6 +34,7 @@ describe("withTimeout", () => {
   it("rejects with TimeoutError once the deadline passes", async () => {
     vi.useFakeTimers();
     const pending = withTimeout(() => neverSettles<never>(), { timeoutMs: 50 });
+    // eslint-disable-next-line vitest/valid-expect -- awaited below, after the fake clock has been advanced past the deadline
     const assertion = expect(pending).rejects.toBeInstanceOf(TimeoutError);
     await vi.advanceTimersByTimeAsync(50);
     await assertion;

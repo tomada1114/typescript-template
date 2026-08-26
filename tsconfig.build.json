@@ -5,8 +5,17 @@
     "outDir": "dist",
     "noEmit": false,
     "declaration": true,
-    "declarationMap": true,
     "sourceMap": true,
+
+    // `src/` is deliberately kept out of the tarball, so a map that only
+    // referenced `../src/*.ts` would resolve to nothing for a consumer.
+    // Embedding the sources makes every published map self-contained.
+    "inlineSources": true,
+
+    // Off because TypeScript honours `inlineSources` for `.js.map` only: a
+    // `.d.ts.map` always references `../src/*.ts` by path, so every one of them
+    // would ship dangling. `check-package.mjs` enforces that as an invariant.
+    "declarationMap": false,
     "isolatedDeclarations": true,
 
     // The published artifact is TypeScript output only; repository automation

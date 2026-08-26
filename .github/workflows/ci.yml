@@ -9,8 +9,11 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseding a pull request cancels its previous run. A push to main is
+  # keyed by commit instead, so consecutive merges neither cancel one another
+  # nor discard the CI record of the commit that already landed.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   static:
@@ -24,16 +27,20 @@ jobs:
         with:
           persist-credentials: false
 
+      # Package scripts call pnpm recursively, so CI installs the reviewed
+      # version on PATH. No `version:` input on purpose: the action reads the
+      # exact `packageManager` string from package.json, which is the single
+      # place that version is written. tests/workflows.test.ts fails if a
+      # workflow starts stating one again.
+      #
+      # It also has to run *before* setup-node: setup-node's default
+      # package-manager cache resolves the pnpm store path by invoking pnpm,
+      # and pnpm is only on PATH once this step has run.
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-
-      # Package scripts call pnpm recursively, so CI installs the reviewed
-      # version on PATH. Keep it in sync with `devEngines.packageManager`;
-      # tests/workflows.test.ts fails if it drifts out of the declared range.
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.18.0
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -77,13 +84,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.18.0
 
       - name: Install dependencies
         if: ${{ !matrix.minimum }}
@@ -111,6 +116,7 @@ jobs:
       - name: Install dependencies (minimum Node)
         if: ${{ matrix.minimum }}
         run: |
+          set -euo pipefail
           pnpm --config.runtime-on-fail=ignore install --frozen-lockfile
           git restore package.json
 
@@ -131,13 +137,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.18.0
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -159,13 +163,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.18.0
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -187,13 +189,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.18.0
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -229,13 +229,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.18.0
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -266,3 +264,11 @@ jobs:
           # Findings are the job's output; uploading SARIF would need
           # security-events write, which this job has no other reason to hold.
           advanced-security: false
+
+      # zizmor audits security posture; actionlint checks that the workflow
+      # YAML, its `${{ }}` expressions, and the embedded shell are actually
+      # valid. Not a package script: actionlint is a Go binary, so the package
+      # manager does not manage it and it would not exist for a local run.
+      - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+        with:
+          version: 1.7.12
