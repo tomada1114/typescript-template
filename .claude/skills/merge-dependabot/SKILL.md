@@ -141,7 +141,8 @@ git merge --no-ff origin/<branch> -m "deps: merge #<number> <title>"
 
 Resolve conflicts by taking **the higher version** of each dependency unless the
 release notes say otherwise. Resolve `pnpm-lock.yaml` conflicts by regenerating,
-never by hand — `.claude/hooks/guard.mjs` blocks editing it, correctly:
+never by hand — `.claude/settings.json`'s `permissions.deny` blocks editing it,
+correctly:
 
 ```bash
 pnpm install --lockfile-only

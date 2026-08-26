@@ -208,7 +208,7 @@ export default defineConfig([
   },
   {
     name: "automation/node-scripts",
-    files: ["scripts/**/*.mjs", ".claude/hooks/**/*.mjs", ".claude/skills/**/*.mjs"],
+    files: ["scripts/**/*.mjs", ".claude/skills/**/*.mjs"],
     rules: {
       // These files are the CLI surface of repository automation.
       "no-console": "off",

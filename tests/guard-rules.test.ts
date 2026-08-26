@@ -2,28 +2,22 @@ import { describe, expect, it } from "vitest";
 
 import { checkCredentials } from "../scripts/lib/guard/credentials.mjs";
 import { checkGateRemoval, isGateFile } from "../scripts/lib/guard/gates.mjs";
-import { checkRead, checkWrite } from "../scripts/lib/guard/paths.mjs";
-import {
-  segments,
-  shortClusterHas,
-  writtenFiles,
-} from "../scripts/lib/guard/shell.mjs";
+import { checkRead } from "../scripts/lib/guard/paths.mjs";
 import { repoRoot } from "../scripts/lib/node-tools.mjs";
 
 // Pure-function coverage for the shared rule engine under scripts/lib/guard/,
-// used by both .claude/hooks/guard.mjs and scripts/check-staged.mjs. Nothing
-// here spawns a process — tests/hooks.test.ts and tests/check-staged.test.ts
-// cover the two callers' own contracts (payload shape, exit codes).
+// used by scripts/check-staged.mjs. Nothing here spawns a process —
+// tests/check-staged.test.ts covers that caller's own contract (staged
+// content, exit codes).
 //
 // Secret-shaped fixtures are assembled from fragments rather than written
 // out. A literal token or key header in this file would be a real finding
-// for every secret scanner pointed at the repository — and the guard hook
-// would refuse to let an agent write this file at all.
+// for every secret scanner pointed at the repository.
 function secretShaped(...parts: string[]): string {
   return parts.join("");
 }
 
-describe("paths: checkRead / checkWrite", () => {
+describe("paths: checkRead", () => {
   it("blocks reading a dotenv file", () => {
     expect(checkRead(".env")).toMatch(/\.env\*/);
   });
@@ -34,46 +28,6 @@ describe("paths: checkRead / checkWrite", () => {
 
   it("blocks a path under secrets/", () => {
     expect(checkRead("secrets/token.txt")).toMatch(/secrets\//);
-  });
-
-  it("blocks hand-editing the lockfile", () => {
-    expect(checkWrite("pnpm-lock.yaml")).toMatch(/pnpm-lock\.yaml is generated/);
-  });
-
-  it("carries the read block through to the write-side message", () => {
-    expect(checkWrite(".env")).toMatch(/written by the agent/);
-  });
-
-  it("allows an ordinary source edit", () => {
-    expect(checkWrite("src/identifier.ts")).toBeNull();
-  });
-
-  it.each([
-    [".git/hooks/pre-commit"],
-    [".git/config"],
-    // Claude Code sends an absolute file_path, so the plumbing is never the
-    // leading segment of a real call.
-    ["/Users/someone/project/.git/hooks/pre-push"],
-  ])("blocks writing the Git plumbing at %s", (target) => {
-    expect(checkWrite(target)).toMatch(/Git plumbing/);
-  });
-
-  it("leaves .github alone", () => {
-    // A near-miss on the same prefix: workflows are edited all the time.
-    expect(checkWrite(".github/workflows/ci.yml")).toBeNull();
-  });
-
-  it("blocks granting permissions through the local settings file", () => {
-    expect(checkWrite(".claude/settings.local.json")).toMatch(
-      /personal permission grants/,
-    );
-    expect(checkWrite(`${repoRoot}/.claude/settings.local.json`)).toMatch(
-      /personal permission grants/,
-    );
-  });
-
-  it("allows editing the shared settings file", () => {
-    expect(checkWrite(".claude/settings.json")).toBeNull();
   });
 });
 
@@ -288,8 +242,9 @@ describe("gates: isGateFile / checkGateRemoval", () => {
   );
 
   it("protects the guard engine's own implementation from deletion", () => {
-    expect(isGateFile(".claude/hooks/guard.mjs")).toBe(true);
     expect(isGateFile("scripts/lib/guard/gates.mjs")).toBe(true);
+    expect(isGateFile("scripts/lib/guard/credentials.mjs")).toBe(true);
+    expect(isGateFile("scripts/lib/guard/paths.mjs")).toBe(true);
     expect(isGateFile("scripts/check-staged.mjs")).toBe(true);
   });
 
@@ -297,11 +252,9 @@ describe("gates: isGateFile / checkGateRemoval", () => {
     // Regression: gates.mjs's own source necessarily contains every marker's
     // literal substring (it is where GATE_MARKERS is defined), so scanning
     // an ENFORCEMENT_FILES path for that text produces a false positive on
-    // any edit that merely moves the definition between files — as
-    // extracting this engine out of the old single-file guard.mjs did.
+    // any edit that merely rewords a comment referencing a marker.
     const before = "reportUnusedDisableDirectives\n--frozen-lockfile\n";
-    const after = "// moved to scripts/lib/guard/gates.mjs\n";
-    expect(checkGateRemoval(".claude/hooks/guard.mjs", before, after)).toBeNull();
+    const after = "// see GATE_MARKERS in this file\n";
     expect(checkGateRemoval("scripts/lib/guard/gates.mjs", before, after)).toBeNull();
   });
 
@@ -311,38 +264,5 @@ describe("gates: isGateFile / checkGateRemoval", () => {
     // directly, so isGateFile must resolve it back to repo-relative first.
     expect(isGateFile(`${repoRoot}/package.json`)).toBe(true);
     expect(isGateFile(`${repoRoot}/README.md`)).toBe(false);
-  });
-});
-
-describe("shell: segments / shortClusterHas / writtenFiles", () => {
-  it("splits on control operators", () => {
-    expect(segments("pnpm test && git push -f origin main")).toEqual([
-      ["pnpm", "test"],
-      ["git", "push", "-f", "origin", "main"],
-    ]);
-  });
-
-  it("keeps a quoted control operator inside its token", () => {
-    expect(segments('git commit -m "a && b"')).toEqual([
-      ["git", "commit", "-m", "a && b"],
-    ]);
-  });
-
-  it("joins a line continuation", () => {
-    expect(segments("pnpm run \\\n  build")).toEqual([["pnpm", "run", "build"]]);
-  });
-
-  it("stops reading a short cluster at an option that takes a value", () => {
-    // In `-mn` the `n` is part of the commit message, not --no-verify.
-    expect(shortClusterHas("-mn", "n", "mFCct")).toBe(false);
-    expect(shortClusterHas("-nm", "n", "mFCct")).toBe(true);
-    expect(shortClusterHas("--no-verify", "n", "mFCct")).toBe(false);
-  });
-
-  it("finds redirection targets in both spellings", () => {
-    expect(writtenFiles(["echo", "x", ">", "out.txt"])).toContain("out.txt");
-    expect(writtenFiles(["echo", "x", ">>out.txt"])).toContain("out.txt");
-    expect(writtenFiles(["tee", "out.txt"])).toContain("out.txt");
-    expect(writtenFiles(["sed", "-i", "s/a/b/", "out.txt"])).toContain("out.txt");
   });
 });

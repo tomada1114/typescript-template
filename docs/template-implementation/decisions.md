@@ -513,3 +513,61 @@ Enforcement を4層に整理した(詳細は `AGENTS.md` の「Enforcement layer
 で staged ファイルのモジュールグラフから関係するテストだけを走らせる)も追加した。
 この2つは enforcement 層そのものとは無関係な pre-commit の強化だが、過分割を避けて
 同じコミットにまとめた。
+
+## 20. Claude Code hooks を廃止し、3層構成に縮小(2026-08-26 追記)
+
+§18・§19 で組んだ4層構成を、実運用を経て3層に縮小した。§18・§19 自体は
+書き換えず(冒頭の注記どおり、確定記録として扱う)、ここに追記する。
+
+判断の理由:
+
+- **危険な操作**(lockfile 手編集・`.env*`/`secrets/**` アクセス・`git commit
+--no-verify`・強制 push・publish・workflow dispatch)は、Claude Code 自身の
+  権限モデル(`permissions.allow` の外は人間承認、`permissions.deny` は全モードで
+  hard block)で実質的にカバーされている。`.claude/hooks/guard.mjs`(PreToolUse)
+  はその上に同じ判断を procedural に重ねていただけで、二重化のコストに見合う
+  追加の安全性がなかった。
+- **テストの自動実行**(`.claude/hooks/stop-check.mjs`、Stop フックで
+  `pnpm check:quick` 相当を実行)は、エージェント自身が能動的にテストを回す運用と、
+  最終的に CI が全ゲートを走らせる運用の両方に重複していた。ターン終了ごとに
+  フルゲートを走らせる価値が、待ち時間というコストに見合わなかった。
+- **整形**(`.claude/hooks/format.mjs`、PostToolUse で編集した1ファイルに
+  ESLint autofix → Prettier)だけは残す価値があった。ただしツール呼び出しの
+  たびに走らせる必要はなく、`git commit` の直前に一度走らせれば
+  「常に整形された状態」は保てる。加えて、Claude Code 経由の編集にしか
+  効かないという弱点があった — 人間や Codex が直接編集したファイルは
+  対象外のままだった。
+
+変更後の3層(詳細は `AGENTS.md` の「Enforcement layers」節):
+
+1. `.claude/settings.json` の `permissions.deny` — 変更なし。加えて
+   `guard.mjs` だけが担っていた `git commit --no-verify` / `-n` と
+   `git push --force` / `-f` の拒否パターンをここに追加した(`--force-with-lease`
+   は対象外のまま許可される)。
+2. `lefthook` pre-commit — 唯一の procedural 層。整形(`prettier --write` +
+   `stage_fixed: true` で再ステージ、自動適用)を先に走らせ、その後
+   `eslint`(`--fix` なし。違反はコミットを止める)・`typecheck`・
+   `test:related`・`check:staged` を並列実行する。**pre-push は削除した** —
+   残っていた `check:quick`(フルテスト込み)は pre-commit の staged 限定
+   チェックと重複するうえ、push のたびにフルテストを待つコストに見合わなかった。
+   CI が同じ `check:quick` の中身を push のたびに走らせるので、検証そのものは
+   失われていない。
+3. `AGENTS.md` 自身 — 変更なし。
+
+削除したもの: `.claude/hooks/`(`guard.mjs` / `format.mjs` / `stop-check.mjs` /
+`lib/payload.mjs`)、`scripts/lib/guard/commands.mjs`・`shell.mjs`(guard.mjs
+専用だったコマンド解析)、`scripts/lib/guard/paths.mjs` の `checkWrite`・
+`LOCKFILES`(同じく guard.mjs 専用。lockfile 保護は `permissions.deny` に
+残っている)、`tests/hooks.test.ts`(フィクスチャテスト。設定ファイルの
+形状検査だけ `tests/settings.test.ts` へ移した)。`scripts/check-staged.mjs`
+と `scripts/lib/guard/{credentials,gates,paths}.mjs` は変更後も pre-commit
+から使われており、削除していない。
+
+**`docs/template-requirements/` の DoD 項目 I からの意図的な逸脱**: 02
+`quality-security-ai.md` §7.2 は post-edit format hook・stop check・guard の
+3 hook を明示的に要求し、03 `bootstrap-release-and-dod.md` の DoD 項目 I は
+「lockfile/secret/Git bypass/publish guard」と「hook の fixture test」を
+チェック項目に挙げている。この仕様書は編集禁止の外部コピーなので、今回の
+変更で生じた乖離は書き換えず、ここに記録する。この判断はテンプレート自身の
+運用実績にもとづくものであり、仕様書が要求する「AI ネイティブ層」の設計を
+否定するものではない。

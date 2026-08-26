@@ -54,10 +54,9 @@ Phase 0〜4 の生成物（`dist/`, `coverage/`, `docs/api/`, `temp/`）は省�
 ```
 typescript-template/
 ├── .claude/                       # Phase 3
-│   ├── hooks/                     #   guard / format / stop-check + lib/payload
 │   ├── rules/                     #   source / testing / docs / package-json
 │   ├── skills/merge-dependabot/   #   唯一同梱する workflow skill
-│   └── settings.json              #   permission allowlist と hook 登録
+│   └── settings.json              #   permission allowlist / denylist（§20 で hooks は廃止）
 ├── .changeset/                    # Phase 4: SemVer intent と version PR 設定
 ├── .github/                       # Phase 2 + 4
 │   ├── ISSUE_TEMPLATE/            #   bug / feature / security report 導線
@@ -92,7 +91,7 @@ typescript-template/
 │   ├── bootstrap.test.ts          # Phase 4: validation / profile / safety
 │   ├── docs.test.ts               # README quick start と public API の同期
 │   ├── cli.test.ts                # runCli の正常系・usage error(2)・rejected input(1)
-│   ├── hooks.test.ts              # Phase 3: hook の許可系・拒否系 fixture test
+│   ├── settings.test.ts           # Phase 3: .claude/settings.json の allow/deny 検査
 │   ├── index.test.ts              # normalizeIdentifier の正常/異常/境界
 │   ├── package.test.ts            # Phase 1: tarball 解析と allowlist
 │   ├── timeout.test.ts            # timeout / abort / cleanup / 同期 throw
@@ -107,7 +106,7 @@ typescript-template/
 ├── SECURITY.md
 ├── api-extractor.json             # Phase 1
 ├── eslint.config.mjs              # flat config + typed lint
-├── lefthook.yml                   # Phase 3: pre-commit（staged 限定）/ pre-push（check:quick）
+├── lefthook.yml                   # Phase 3: pre-commit のみ（staged 限定。§20 で pre-push 削除）
 ├── package.json                   # my-package@0.1.0 / ESM-only / node-cli profile
 ├── pnpm-lock.yaml                 # 生成物・手編集禁止
 ├── pnpm-workspace.yaml            # pnpm 11 supply-chain policy
