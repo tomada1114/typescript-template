@@ -2,7 +2,7 @@
 //
 // These are the checks that "which path is this" alone decides, independent
 // of what a tool call is or what it carries. Shared by the agent guard
-// hook (.agents/hooks/guard.mjs, which sees a pending tool call) and the
+// hook (.claude/hooks/guard.mjs, which sees a pending tool call) and the
 // pre-commit staged-content check (scripts/check-staged.mjs, which sees a
 // git diff) — with the lockfile rule left out of the latter on purpose: a
 // re-generated lockfile is normal to commit, and a git diff cannot tell that

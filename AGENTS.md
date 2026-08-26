@@ -160,10 +160,10 @@ reporting one.
 
 ## Repository automation (`.mjs`)
 
-`scripts/**` and `.agents/hooks/**` must run on a plain Node before
+`scripts/**` and `.claude/hooks/**` must run on a plain Node before
 `pnpm install` has been run, so they are authored as `.mjs` rather than
 TypeScript. They may only import `node:*` builtins, the shared helpers under
-`scripts/lib/`, and helpers local to their own tree (`.agents/hooks/` for
+`scripts/lib/`, and helpers local to their own tree (`.claude/hooks/` for
 the hooks) — never a dependency from `node_modules`; a hook that
 needs an installed tool resolves it at run time through
 `resolveDependencyBin` instead of importing it.
@@ -361,44 +361,45 @@ The rules above are enforced by four layers, from declarative to procedural.
 Each layer holds only what belongs there — the rule itself lives in exactly
 one place, never copied between layers:
 
-| Layer                                        | Fires on                  | Applies to             | Holds                                                                |
-| -------------------------------------------- | ------------------------- | ---------------------- | -------------------------------------------------------------------- |
-| `.claude/settings.json`'s `permissions.deny` | every tool call           | Claude Code only       | Rules a path or command pattern can state declaratively              |
-| `.agents/hooks/guard.mjs` (PreToolUse)       | supported local tool call | Claude Code and Codex  | Pending shell commands and edits, including multi-file Codex patches |
-| `lefthook` pre-commit / pre-push             | `git commit` / `git push` | every author, any tool | Rules a staged diff or the full test suite can decide                |
-| This file                                    | read at session start     | every agent            | Everything else — the reasons behind the rules above                 |
+| Layer                                        | Fires on                  | Applies to             | Holds                                                   |
+| -------------------------------------------- | ------------------------- | ---------------------- | ------------------------------------------------------- |
+| `.claude/settings.json`'s `permissions.deny` | every tool call           | Claude Code only       | Rules a path or command pattern can state declaratively |
+| `.claude/hooks/guard.mjs` (PreToolUse)       | supported local tool call | Claude Code only       | Pending shell commands and edits                        |
+| `lefthook` pre-commit / pre-push             | `git commit` / `git push` | every author, any tool | Rules a staged diff or the full test suite can decide   |
+| This file                                    | read at session start     | every agent            | Everything else — the reasons behind the rules above    |
 
 Claude's `permissions.deny` rules are a hard block, including in
 `bypassPermissions` mode — they are not advisory. They are declarative pattern
-matches, though, so the shared `guard.mjs` also enforces them for Codex and
-catches semantic cases such as `--no-verify` inside an `&&` chain. Static shell
-inspection remains best-effort, and Codex documents that specialized tool paths
-may opt out of hooks; `lefthook`, CI, and this file remain the enforcement layers
-when a lifecycle hook cannot observe a call.
+matches, though, so `guard.mjs` also catches semantic cases a deny pattern
+cannot express, such as `--no-verify` inside an `&&` chain. Static shell
+inspection remains best-effort.
+
+**Hooks are a Claude Code feature only; this repository ships no Codex
+hooks.** For a Codex session — as for a human, or any other tool —
+`lefthook`, CI, and this file are the enforcement layers.
 
 A path rule in `permissions.deny` is consulted only when it is written as
 `Read(...)` or `Edit(...)`. `Edit(...)` covers every built-in tool that changes
 a file; a rule written for `Write(...)` or `NotebookEdit(...)` is accepted,
 never consulted, and warned about at startup.
 
-The shared hook scripts live in `.agents/hooks/` and are wired from both
-`.claude/settings.json` and `.codex/hooks.json`; start Claude Code at the
-repository root because a subdirectory launch does not load root project hooks.
-Codex requires a trusted project layer and exact command-definition review, so
-use `/hooks` after first checkout and after a hook command changes. The rule
-engine lives in `scripts/lib/guard/`, imported by `guard.mjs` and
-`scripts/check-staged.mjs` alike, so the policy is not duplicated.
+The hook scripts live in `.claude/hooks/` and are wired from
+`.claude/settings.json`; start Claude Code at the repository root because a
+subdirectory launch does not load root project hooks. The rule engine lives
+in `scripts/lib/guard/`, imported by `guard.mjs` and `scripts/check-staged.mjs`
+alike, so the policy is not duplicated.
 
-Both hosts treat exit code 2 as the only blocking exit and every other non-zero
-exit as a non-blocking error, so a guard that dies before it can decide — a bad
-path, a missing Node, a syntax error — would let the call through. Both
-configurations therefore run the PreToolUse guard as `node … || exit 2`: a
-failure to decide is itself a block. The stop gate is deliberately **not** wired
-that way, because a stop hook that can never exit 0 is a turn that can never
-end. It is wired to `SubagentStop` as well as `Stop`, since a subagent edits the
-same working tree the main agent does, and its matcher list covers every
-file-editing tool `hook_payload.mjs` recognizes — a tool missing from a matcher
-makes that support unreachable rather than merely unused.
+Claude Code treats exit code 2 as the only blocking exit and every other
+non-zero exit as a non-blocking error, so a guard that dies before it can
+decide — a bad path, a missing Node, a syntax error — would let the call
+through. `.claude/settings.json` therefore runs the PreToolUse guard as
+`node … || exit 2`: a failure to decide is itself a block. The stop gate is
+deliberately **not** wired that way, because a stop hook that can never exit 0
+is a turn that can never end. It is wired to `SubagentStop` as well as `Stop`,
+since a subagent edits the same working tree the main agent does, and its
+matcher list covers every file-editing tool `payload.mjs` recognizes — a tool
+missing from a matcher makes that support unreachable rather than merely
+unused.
 
 The lockfile rule is split on purpose, and is the clearest example of why a
 rule sometimes belongs in only one layer: hand-editing `pnpm-lock.yaml` is

@@ -82,13 +82,13 @@ Vitest / TypeScript 向けに翻訳して流用する（`pytest.raises` → `exp
 `@pytest.mark.parametrize` → `it.each`、`monkeypatch` → `vi.stubEnv`、
 `freezegun` → `vi.useFakeTimers`、`hypothesis` → `fast-check`）。
 
-### 3. hooks `.agents/hooks/*.mjs`（仕様 02 §7.2）
+### 3. hooks `.claude/hooks/*.mjs`（仕様 02 §7.2）
 
-| hook             | イベント                                            | 動作                                                                                                              |
-| ---------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `format.mjs`     | PostToolUse (`Edit\|Write\|apply_patch`)            | Run ESLint autofix and Prettier on every edited file; exit 2 reports failures to the agent                        |
-| `stop-check.mjs` | Stop                                                | Run the `pnpm check:quick` equivalent for TS or package-config changes; prevent recursion with `stop_hook_active` |
-| `guard.mjs`      | PreToolUse (`Edit\|Write\|Read\|Bash\|apply_patch`) | Reject the operations below with **exit 2**                                                                       |
+| hook             | イベント                               | 動作                                                                                                              |
+| ---------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `format.mjs`     | PostToolUse (`Edit\|Write`)            | Run ESLint autofix and Prettier on every edited file; exit 2 reports failures to the agent                        |
+| `stop-check.mjs` | Stop                                   | Run the `pnpm check:quick` equivalent for TS or package-config changes; prevent recursion with `stop_hook_active` |
+| `guard.mjs`      | PreToolUse (`Edit\|Write\|Read\|Bash`) | Reject the operations below with **exit 2**                                                                       |
 
 `guard.mjs` の拒否対象（仕様 02 §7.2）:
 
@@ -126,17 +126,12 @@ Vitest / TypeScript 向けに翻訳して流用する（`pytest.raises` → `exp
   これが settings ファイルの位置を基準に固定する。これを省いた bare path は
   cwd 相対に解決されるため、サブディレクトリで起動したセッションではリポジトリ
   ルートの `.env` を覆わない（#15）
-- `hooks`: register the three hooks above, resolve `.agents/hooks` from the Git top level, and set timeouts
+- `hooks`: register the three hooks above, resolve `.claude/hooks` from the Git top level, and set timeouts
   （format 60s / stop-check 180s / guard 30s 目安）
 - 個人設定（model、output style、追加 permission）は `.claude/settings.local.json` に置き、
   **ここには書かない**。`.gitignore` に登録済み
 
 `$schema` に `https://json.schemastore.org/claude-code-settings.json` を指定する。
-
-Codex CLI receives the same event, matcher, and command projection in
-`.codex/hooks.json`. Because `apply_patch` can name several files inside
-`tool_input.command`, the shared payload adapter extracts every path. Review
-the command definitions with `/hooks` after project trust and after changes.
 
 ### 5. Lefthook `lefthook.yml`
 
@@ -155,7 +150,7 @@ CONTRIBUTING への記載は Phase 4。
 
 **正常系と拒否系の両方**を fixture で検査する（仕様 02 §8 完了条件2）。
 hook は stdin に JSON payload を受け、exit code で結果を返すので、
-Spawn `node .agents/hooks/guard.mjs` and feed it both Claude and Codex payloads.
+Spawn `node .claude/hooks/guard.mjs` and feed it Claude Code payloads.
 
 許可されるべき例（exit 0）:
 
@@ -194,13 +189,13 @@ pn24 run test
 
 # 実際に guard が効くことの手動確認（拒否されるのが正しい）
 echo '{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"pnpm-lock.yaml"}}' \
-  | mise exec node@24.18.1 -- node .agents/hooks/guard.mjs ; echo "exit=$?"   # → 2
+  | mise exec node@24.18.1 -- node .claude/hooks/guard.mjs ; echo "exit=$?"   # → 2
 
 echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m x"}}' \
-  | mise exec node@24.18.1 -- node .agents/hooks/guard.mjs ; echo "exit=$?"   # → 2
+  | mise exec node@24.18.1 -- node .claude/hooks/guard.mjs ; echo "exit=$?"   # → 2
 
 echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"pnpm test"}}' \
-  | mise exec node@24.18.1 -- node .agents/hooks/guard.mjs ; echo "exit=$?"   # → 0
+  | mise exec node@24.18.1 -- node .claude/hooks/guard.mjs ; echo "exit=$?"   # → 0
 
 # guard を bypass せずに通常開発が完結すること（仕様 02 §8 完了条件4）
 git status --short
@@ -217,9 +212,9 @@ git status --short
 | I   | `AGENTS.md` が正本                                | `AGENTS.md`                                   |
 | I   | tool-specific file は差分だけ                     | `CLAUDE.md` が `@AGENTS.md` + Claude 固有のみ |
 | I   | path-scoped rules                                 | `.claude/rules/*.md` の frontmatter `paths`   |
-| I   | changed-file format hook                          | `.agents/hooks/format.mjs`                    |
-| I   | quick stop gate                                   | `.agents/hooks/stop-check.mjs`                |
-| I   | lockfile/secret/Git bypass/publish guard          | `.agents/hooks/guard.mjs`                     |
+| I   | changed-file format hook                          | `.claude/hooks/format.mjs`                    |
+| I   | quick stop gate                                   | `.claude/hooks/stop-check.mjs`                |
+| I   | lockfile/secret/Git bypass/publish guard          | `.claude/hooks/guard.mjs`                     |
 | I   | hook の fixture test                              | `tests/hooks.test.ts`                         |
 | I   | commit/push/PR/publish は permission allowlist 外 | `.claude/settings.json`                       |
 

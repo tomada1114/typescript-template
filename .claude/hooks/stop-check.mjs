@@ -1,7 +1,7 @@
 // Stop and SubagentStop hook: run the quick quality gate before the agent ends
 // its turn.
 //
-// Both hosts fire `SubagentStop` when a delegated agent finishes, and a
+// Claude Code fires `SubagentStop` when a delegated agent finishes, and a
 // subagent edits the same working tree the main agent does. Wiring only `Stop`
 // left work that a subagent finished and handed back ungated until the main
 // agent happened to stop afterwards, so the same gate answers both events.
@@ -16,18 +16,20 @@
 // script and CI from ever disagreeing about the same change.
 //
 // The wall-clock budget is the `timeout` on the Stop and SubagentStop entries
-// in both host configuration files; a hook that times out cannot enforce the gate.
-// If this template grows into a project whose test suite outgrows that budget,
-// raise the timeout in both files rather than dropping a check from the list.
+// in `.claude/settings.json`; a hook that times out cannot enforce the gate. If
+// this template grows into a project whose test suite outgrows that budget,
+// raise the timeout there rather than dropping a check from the list.
 import { spawnSync } from "node:child_process";
 import console from "node:console";
 import process from "node:process";
 
 import { isMain } from "../../scripts/lib/is-main.mjs";
-import { resolveDependencyBin, runNode } from "../../scripts/lib/node-tools.mjs";
-import { loadEvent, projectRoot } from "./hook_payload.mjs";
-
-const repoRoot = projectRoot(import.meta.url);
+import {
+  repoRoot,
+  resolveDependencyBin,
+  runNode,
+} from "../../scripts/lib/node-tools.mjs";
+import { loadEvent } from "./payload.mjs";
 
 /**
  * One command from `pnpm check:quick`.
@@ -153,11 +155,5 @@ export async function main() {
 }
 
 if (isMain(import.meta.url)) {
-  const exitCode = await main();
-  if (exitCode === 0) {
-    // Codex Stop hooks require JSON on stdout for a successful exit; Claude
-    // Code accepts the same empty object, so one response serves both hosts.
-    console.log("{}");
-  }
-  process.exitCode = exitCode;
+  process.exitCode = await main();
 }

@@ -435,7 +435,6 @@ function aiLayerFiles(root) {
     return (
       AI_LAYER_FILES.has(path.basename(relative)) ||
       relative.startsWith(".claude/") ||
-      relative.startsWith(".codex/") ||
       relative.startsWith(".agents/")
     );
   });

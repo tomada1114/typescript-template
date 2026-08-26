@@ -48,14 +48,14 @@ export const CONFIG_GATE_FILES = [
  * `scripts/lib/guard/gates.mjs` — this file — is where {@link GATE_MARKERS}'
  * regex patterns live as source text, so its own content necessarily
  * contains every marker's literal substring. Scanning it (or a file that
- * used to hold that array, like `.agents/hooks/guard.mjs` before this
+ * used to hold that array, like `.claude/hooks/guard.mjs` before this
  * engine was extracted) for "did a marker's text disappear" produces a false
  * positive on any edit that moves that text between files, without ever
  * checking anything real — the markers a config file actually needs are the
  * ones in {@link CONFIG_GATE_FILES}.
  */
 export const ENFORCEMENT_FILES = [
-  /^\.agents\/hooks\/(?:[^/]+\/)*[^/]+\.mjs$/,
+  /^\.claude\/hooks\/(?:[^/]+\/)*[^/]+\.mjs$/,
   /^scripts\/lib\/guard\/(?:[^/]+\/)*[^/]+\.mjs$/,
   /^scripts\/check-staged\.mjs$/,
 ];

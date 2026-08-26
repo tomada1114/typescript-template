@@ -17,6 +17,12 @@ file only records what Claude Code adds on top of them.
   behind a single human approval. `.agents/skills/merge-dependabot` is a
   symlink to this directory so Codex CLI can see it too — edit the real
   files here, never the symlink.
+- `.claude/hooks/` — the three lifecycle hooks (`guard.mjs`, `format.mjs`,
+  `stop-check.mjs`) and their shared payload reader (`payload.mjs`), wired
+  from `.claude/settings.json`. This is a Claude Code-only feature; the rule
+  engine `guard.mjs` calls is `scripts/lib/guard/`, shared with
+  `scripts/check-staged.mjs` so a Codex session or any other tool is covered
+  at commit time instead.
 - `.claude/settings.json` — the shared permission allowlist, limited to local
   build, lint, and test commands, plus `permissions.deny` entries for the
   rules a path or command pattern can state declaratively (`/.env`,

@@ -564,3 +564,33 @@ definition hash; use `/hooks` on first checkout and after command changes.
 `.claude/settings.json` の `Write(...)` / `NotebookEdit(...)` 形式のパスルールは
 受理されるが参照されず起動時に警告になる。パスルールは `Read(...)` と `Edit(...)`
 の2つだけで書く。
+
+---
+
+## 22. 共有 hooks の撤回 — hooks は Claude Code のみ (added 2026-08-26)
+
+§20・§21 で構築した Codex CLI 側の hooks 対応(`.agents/hooks/` への集約、
+`.codex/hooks.json` への配線の投影、`apply_patch` payload アダプタ、パッチの
+ハンクをテキストでシミュレートする `applyUpdate`、両設定ファイルを byte-identical
+に保つパリティテスト)を撤回し、hooks は Claude Code だけが持つ形に単純化する。
+
+理由は維持コストが見合わないこと。Codex 側を面倒見るために、`apply_patch` の
+複数ファイル正規化、パッチのハンクシミュレータ、もう一つのホスト設定とその
+フィクスチャを保守し続ける必要があったが、品質ゲートの実質は `lefthook`
+(pre-commit / pre-push)と CI が担っており、hooks はその上乗せに過ぎない。
+上乗せの維持コストが実装の複雑さに見合わなくなったため、host coverage の判断
+そのものを取り消す。
+
+hooks 本体は `.agents/hooks/` から `.claude/hooks/` に戻し、
+`hook_payload.mjs` は `payload.mjs` にリネームした(`hooks/` ディレクトリの
+中で `hook_` 接頭辞は冗長で、他の3ファイルとも命名が揃う)。`.codex/hooks.json`
+は削除し、`.agents/hooks/` も空になったので削除した。`.agents/` に残るのは
+§17 で構築した `.agents/skills/merge-dependabot` の symlink ブリッジのみ
+——今回の変更は hooks に限定されており、このブリッジとは別件なので残す。
+
+§21 で直した4つの修正のうち、Codex 起因ではないものはすべて維持した:
+matcher への `MultiEdit` / `NotebookEdit` の追加、PreToolUse の fail-closed
+(`|| exit 2`)化、`SubagentStop` の配線、`permissions.deny` の `/.env` と
+`.env.*` の分割。`scripts/lib/guard/` のルールエンジン自体と
+`scripts/check-staged.mjs` の挙動は変更していない — 変わったのはパスと
+ホストカバレッジの記述のみで、判定ロジックはそのまま。

@@ -13,10 +13,12 @@ import path from "node:path";
 import process from "node:process";
 
 import { isMain } from "../../scripts/lib/is-main.mjs";
-import { resolveDependencyBin, runNode } from "../../scripts/lib/node-tools.mjs";
-import { loadEvent, projectRoot } from "./hook_payload.mjs";
-
-const repoRoot = projectRoot(import.meta.url);
+import {
+  repoRoot,
+  resolveDependencyBin,
+  runNode,
+} from "../../scripts/lib/node-tools.mjs";
+import { loadEvent } from "./payload.mjs";
 
 /** Extensions ESLint is configured to parse. */
 const LINTABLE = new Set([".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]);

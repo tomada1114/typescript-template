@@ -1,24 +1,24 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { evaluate } from "../.agents/hooks/guard.mjs";
-import { fromPayload, patchFiles } from "../.agents/hooks/hook_payload.mjs";
+import { evaluate } from "../.claude/hooks/guard.mjs";
+import { fromPayload } from "../.claude/hooks/payload.mjs";
 import {
   CHECKS,
   STOP_EVENTS,
   checkCommand,
   hasRelevantChanges,
-} from "../.agents/hooks/stop-check.mjs";
+} from "../.claude/hooks/stop-check.mjs";
 import { readKey, readString } from "../scripts/lib/json.mjs";
 
 // Agent hooks are separate processes that read a JSON payload on stdin and
 // answer with an exit code, so the cases below drive the real executables the
-// way both hosts do. The pure helpers are also imported directly, which
+// way Claude Code does. The pure helpers are also imported directly, which
 // is what makes a failure point at the rule that broke instead of at "exit 2".
 //
 // Secret-shaped fixtures are assembled from fragments rather than written out.
@@ -27,7 +27,7 @@ import { readKey, readString } from "../scripts/lib/json.mjs";
 // an agent write this file at all.
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const hooksDir = path.join(repoRoot, ".agents", "hooks");
+const hooksDir = path.join(repoRoot, ".claude", "hooks");
 const hookFixturesDir = path.join(repoRoot, "tests", "fixtures", "hooks");
 
 interface HookResult {
@@ -36,7 +36,7 @@ interface HookResult {
   stderr: string;
 }
 
-/** Run one hook the way either host does: payload on stdin, answer as an exit code. */
+/** Run one hook the way Claude Code does: payload on stdin, answer as an exit code. */
 function runHook(hook: string, payload: unknown, cwd: string = repoRoot): HookResult {
   const eventName =
     hook === "guard.mjs"
@@ -77,11 +77,6 @@ function bashPayload(command: string): unknown {
   return { tool_name: "Bash", tool_input: { command } };
 }
 
-/** A Codex apply_patch payload that may name more than one file. */
-function patchPayload(command: string): unknown {
-  return { tool_name: "apply_patch", tool_input: { command } };
-}
-
 /** Read a checked-in host payload fixture. */
 function hookFixture(name: string): unknown {
   return JSON.parse(readFileSync(path.join(hookFixturesDir, name), "utf8"));
@@ -116,12 +111,6 @@ describe("guard: calls that must be allowed", () => {
     ["running the full gate", bashPayload("pnpm check")],
     ["packing a tarball", bashPayload("pnpm pack --pack-destination .smoke")],
     ["installing dependencies", bashPayload("pnpm install --frozen-lockfile")],
-    [
-      "a Codex patch that edits two source files",
-      patchPayload(
-        '*** Begin Patch\n*** Update File: src/index.ts\n@@\n-export { normalizeIdentifier } from "./identifier.js";\n+export { normalizeIdentifier } from "./identifier.js";\n*** Update File: tests/types.test.ts\n@@\n-import { describe } from "vitest";\n+import { describe } from "vitest";\n*** End Patch',
-      ),
-    ],
     [
       "reading a source file",
       { tool_name: "Read", tool_input: { file_path: "src/index.ts" } },
@@ -253,20 +242,6 @@ describe("guard: calls that must be blocked", () => {
       bashPayload("rm -f pnpm-lock.yaml"),
       /pnpm-lock\.yaml is generated/,
     ],
-    [
-      "editing a protected second file in a Codex patch",
-      patchPayload(
-        "*** Begin Patch\n*** Update File: src/index.ts\n@@\n-export { normalizeIdentifier } from \"./identifier.js\";\n+export { normalizeIdentifier } from \"./identifier.js\";\n*** Update File: pnpm-lock.yaml\n@@\n-lockfileVersion: '9.0'\n+lockfileVersion: '8.0'\n*** End Patch",
-      ),
-      /pnpm-lock\.yaml is generated/,
-    ],
-    [
-      "deleting a gate file in a Codex patch",
-      patchPayload(
-        "*** Begin Patch\n*** Delete File: .github/workflows/ci.yml\n*** End Patch",
-      ),
-      /quality or supply-chain gate/,
-    ],
   ];
 
   it.each(blocked)("blocks %s", (_label, payload, reason) => {
@@ -290,17 +265,6 @@ describe("guard: calls that must be blocked", () => {
         new_string: "// removed",
       },
     });
-    expect(result.status).toBe(2);
-    expect(result.stderr).toMatch(/unused-disable check/);
-  });
-
-  it("blocks removing a gate marker through a Codex patch", () => {
-    const result = runHook(
-      "guard.mjs",
-      patchPayload(
-        '*** Begin Patch\n*** Update File: eslint.config.mjs\n@@\n-      reportUnusedDisableDirectives: "error",\n*** End Patch',
-      ),
-    );
     expect(result.status).toBe(2);
     expect(result.stderr).toMatch(/unused-disable check/);
   });
@@ -354,17 +318,6 @@ describe("guard: credentials", () => {
     expect(result.status).toBe(2);
   });
 
-  it("blocks adding a registry auth token through a Codex patch", () => {
-    const result = runHook(
-      "guard.mjs",
-      patchPayload(
-        `*** Begin Patch\n*** Add File: .npmrc\n+${authTokenLine}\n*** End Patch`,
-      ),
-    );
-    expect(result.status).toBe(2);
-    expect(result.stderr).toMatch(/auth token/);
-  });
-
   it("allows an npmrc that only configures a registry", () => {
     const result = runHook(
       "guard.mjs",
@@ -377,7 +330,7 @@ describe("guard: credentials", () => {
 // Pure-function coverage for the rule engine itself — checkCredentials,
 // checkGateRemoval, segments, shortClusterHas, writtenFiles, and friends —
 // lives in tests/guard-rules.test.ts. What stays here is the integration
-// contract: that .agents/hooks/guard.mjs, run as a real process against a
+// contract: that .claude/hooks/guard.mjs, run as a real process against a
 // real payload, produces the right exit code.
 describe("guard: dispatch", () => {
   it("evaluates an unknown tool as harmless", () => {
@@ -390,29 +343,17 @@ describe("guard: dispatch", () => {
     expect(runHook("guard.mjs", "this is not json").status).toBe(0);
   });
 
-  it.each([
-    "claude-edit.json",
-    "claude-bash.json",
-    "codex-apply-patch.json",
-    "codex-bash.json",
-  ])("allows the ordinary %s fixture", (fixture) => {
-    expect(runHook("guard.mjs", hookFixture(fixture)).status).toBe(0);
-  });
-
-  it.each(["claude-bash-noverify.json", "codex-apply-patch-env.json"])(
-    "blocks the protected %s fixture",
+  it.each(["claude-edit.json", "claude-bash.json"])(
+    "allows the ordinary %s fixture",
     (fixture) => {
-      expect(runHook("guard.mjs", hookFixture(fixture)).status).toBe(2);
+      expect(runHook("guard.mjs", hookFixture(fixture)).status).toBe(0);
     },
   );
 
-  it("extracts every source and destination from a Codex patch", () => {
-    const event = fromPayload(hookFixture("codex-apply-patch.json"));
-    expect(event.patch).not.toBeNull();
-    expect(patchFiles(event.patch ?? "", event.cwd).map((file) => file.path)).toEqual([
-      path.normalize("/workspace/note.txt"),
-      path.normalize("/workspace/src/app.ts"),
-    ]);
+  it("blocks the protected claude-bash-noverify.json fixture", () => {
+    expect(runHook("guard.mjs", hookFixture("claude-bash-noverify.json")).status).toBe(
+      2,
+    );
   });
 });
 
@@ -470,20 +411,6 @@ describe("format hook", () => {
     expect(readFileSync(target, "utf8")).toBe("export const value = 1;\n");
   });
 
-  it("lints and formats every file named by a Codex patch", () => {
-    const first = path.join(scratchDir, "first.ts");
-    const second = path.join(scratchDir, "second.ts");
-    writeFileSync(first, "export const first   =    1\n", "utf8");
-    writeFileSync(second, "export const second   =    2\n", "utf8");
-
-    const payload = patchPayload(
-      `*** Begin Patch\n*** Update File: ${first}\n@@\n-export const first = 0;\n+export const first   =    1\n*** Update File: ${second}\n@@\n-export const second = 0;\n+export const second   =    2\n*** End Patch`,
-    );
-    expect(runHook("format.mjs", payload).status).toBe(0);
-    expect(readFileSync(first, "utf8")).toBe("export const first = 1;\n");
-    expect(readFileSync(second, "utf8")).toBe("export const second = 2;\n");
-  });
-
   it("leaves a sibling file in the same directory untouched", () => {
     const target = path.join(scratchDir, "edited.ts");
     const sibling = path.join(scratchDir, "untouched.ts");
@@ -509,7 +436,6 @@ describe("stop-check hook", () => {
 
   it.each([
     ["claude-stop.json", "Stop"],
-    ["codex-stop.json", "Stop"],
     ["claude-subagent-stop.json", "SubagentStop"],
   ])(
     "recognizes the already-continued %s fixture without looping",
@@ -522,7 +448,7 @@ describe("stop-check hook", () => {
         stop_hook_active: true,
       });
       expect(result.status).toBe(0);
-      expect(JSON.parse(result.stdout)).toEqual({});
+      expect(result.stdout).toBe("");
     },
   );
 
@@ -620,9 +546,6 @@ describe("shared settings", () => {
   const manifest: unknown = JSON.parse(
     readFileSync(path.join(repoRoot, "package.json"), "utf8"),
   );
-  const codexHooks: unknown = JSON.parse(
-    readFileSync(path.join(repoRoot, ".codex", "hooks.json"), "utf8"),
-  );
 
   it("holds nothing but the shared configuration", () => {
     // Every repository generated from this template inherits this file, so a
@@ -635,16 +558,12 @@ describe("shared settings", () => {
     ).toEqual(["$schema", "hooks", "permissions"]);
   });
 
-  it("projects the same lifecycle hooks into both host configurations", () => {
-    expect(readKey(codexHooks, "hooks")).toEqual(readKey(settings, "hooks"));
-  });
-
   it.each([
-    ["PreToolUse", ["Edit", "MultiEdit", "NotebookEdit", "Write", "apply_patch"]],
-    ["PostToolUse", ["Edit", "MultiEdit", "NotebookEdit", "Write", "apply_patch"]],
+    ["PreToolUse", ["Edit", "MultiEdit", "NotebookEdit", "Write"]],
+    ["PostToolUse", ["Edit", "MultiEdit", "NotebookEdit", "Write"]],
   ])("routes every file-editing tool into the %s hook", (event, tools) => {
-    // hook_payload.mjs recognizes all of these as edits. A matcher that leaves
-    // one out makes that support unreachable rather than merely unused.
+    // payload.mjs recognizes all of these as edits. A matcher that leaves one
+    // out makes that support unreachable rather than merely unused.
     const matchers = hookMatchers(settings, event).map((source) => new RegExp(source));
     for (const tool of tools) {
       expect(
@@ -655,9 +574,9 @@ describe("shared settings", () => {
   });
 
   it("fails the guard closed when it cannot run at all", () => {
-    // Both hosts treat a non-zero exit other than 2 as a *non-blocking* error,
-    // so a guard that dies before it can decide would let the call through.
-    // `|| exit 2` is what turns "could not decide" into "blocked".
+    // Claude Code treats a non-zero exit other than 2 as a *non-blocking*
+    // error, so a guard that dies before it can decide would let the call
+    // through. `|| exit 2` is what turns "could not decide" into "blocked".
     for (const command of hookCommands(settings, "PreToolUse")) {
       expect(command, "a PreToolUse guard must not fail open").toMatch(/\|\| exit 2$/);
     }
@@ -672,6 +591,21 @@ describe("shared settings", () => {
       for (const command of commands) {
         expect(command).not.toMatch(/exit 2/);
       }
+    }
+  });
+
+  it("wires every hook command to a script that actually exists", () => {
+    // The one regression this move could plausibly introduce: a hook whose
+    // script is missing exits non-zero-but-not-2, so a stale path is treated
+    // as non-blocking instead of failing loudly.
+    const events = ["PreToolUse", "PostToolUse", "Stop", "SubagentStop"];
+    const commands = events.flatMap((event) => hookCommands(settings, event));
+    expect(commands.length).toBeGreaterThan(0);
+    for (const command of commands) {
+      const match = /"([^"]+\.claude\/hooks\/[^"]+\.mjs)"/.exec(command);
+      expect(match, `no .claude/hooks/*.mjs path found in: ${command}`).not.toBeNull();
+      const resolved = (match?.[1] ?? "").replace("${CLAUDE_PROJECT_DIR}", repoRoot);
+      expect(existsSync(resolved), `${resolved} does not exist`).toBe(true);
     }
   });
 

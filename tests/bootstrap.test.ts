@@ -126,7 +126,6 @@ function generatedAiLayer(root: string): string {
     "CLAUDE.md",
     ...AI_LAYER_SUBDIR_FILES,
     ...relativeFiles(root, ".claude"),
-    ...relativeFiles(root, ".codex"),
     ...relativeFiles(root, ".agents"),
   ];
   return files.map((file) => readFileSync(path.join(root, file), "utf8")).join("\n");
@@ -138,7 +137,6 @@ function aiLayerFiles(root: string): string[] {
     "CLAUDE.md",
     ...AI_LAYER_SUBDIR_FILES,
     ...relativeFiles(root, ".claude"),
-    ...relativeFiles(root, ".codex"),
     ...relativeFiles(root, ".agents"),
   ];
 }
@@ -239,9 +237,7 @@ describe("bootstrap profiles", () => {
     const stableAiFiles = aiLayerFiles(root)
       .filter(
         (file) =>
-          file.startsWith(".agents/hooks/") ||
-          file.startsWith(".claude/skills/") ||
-          file.startsWith(".codex/"),
+          file.startsWith(".claude/hooks/") || file.startsWith(".claude/skills/"),
       )
       .map((file) => [file, readFileSync(path.join(root, file), "utf8")] as const);
     bootstrap(
@@ -302,12 +298,12 @@ describe("bootstrap profiles", () => {
     for (const [file, contents] of stableAiFiles) {
       expect(readFileSync(path.join(root, file), "utf8")).toBe(contents);
     }
-    expect(existsSync(path.join(root, ".agents", "hooks", "guard.mjs"))).toBe(true);
-    expect(existsSync(path.join(root, ".agents", "hooks", "format.mjs"))).toBe(true);
-    expect(existsSync(path.join(root, ".agents", "hooks", "stop-check.mjs"))).toBe(
+    expect(existsSync(path.join(root, ".claude", "hooks", "guard.mjs"))).toBe(true);
+    expect(existsSync(path.join(root, ".claude", "hooks", "format.mjs"))).toBe(true);
+    expect(existsSync(path.join(root, ".claude", "hooks", "stop-check.mjs"))).toBe(
       true,
     );
-    expect(existsSync(path.join(root, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(path.join(root, ".claude", "hooks", "payload.mjs"))).toBe(true);
     const dependabotBridge = path.join(root, ".agents", "skills", "merge-dependabot");
     expect(lstatSync(dependabotBridge).isSymbolicLink()).toBe(true);
     expect(existsSync(dependabotBridge)).toBe(true);

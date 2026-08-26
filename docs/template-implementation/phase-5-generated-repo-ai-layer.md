@@ -140,7 +140,7 @@ Phase 4 のテストに、profile ごとに次を追加する:
   `docs/template-implementation` の文字列が残らない
 - library profile で `src/cli.ts` / `src/bin.ts` / `tests/cli.test.ts` への参照が残らない
 - `node-cli` profile では逆に**残っている**こと（消しすぎの検出）
-- Preserve `.agents/hooks/*.mjs`, `.codex/hooks.json`, and `.claude/skills/**` unchanged across profiles
+- Preserve `.claude/hooks/*.mjs` and `.claude/skills/**` unchanged across profiles
 - 生成物で `tests/hooks.test.ts` が green（生成 E2E の `pnpm check` に含まれる）
 
 ### 5. `.claude/skills/merge-dependabot` の扱い
