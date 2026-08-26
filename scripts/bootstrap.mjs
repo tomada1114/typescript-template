@@ -431,6 +431,23 @@ function replaceText(file, replacements, profile, write) {
 }
 
 /**
+ * Read an optional validation target without checking the path first.
+ *
+ * @param {string} file
+ * @returns {Buffer | undefined}
+ */
+function readOptionalValidationFile(file) {
+  try {
+    return readFileSync(file);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/**
  * Verify that generated instructions do not describe template-only or
  * profile-incompatible paths.
  *
@@ -452,10 +469,10 @@ function assertGeneratedAiLayer(root, profile, preview) {
       }
       text = projected;
     } else {
-      if (!existsSync(file) || lstatSync(file).isSymbolicLink()) {
+      const buffer = readOptionalValidationFile(file);
+      if (buffer === undefined) {
         continue;
       }
-      const buffer = readFileSync(file);
       if (buffer.includes(0)) {
         continue;
       }
@@ -863,10 +880,10 @@ export function findPlaceholders(root, packageName, preview) {
       }
       continue;
     }
-    if (!existsSync(absolute) || lstatSync(absolute).isSymbolicLink()) {
+    const buffer = readOptionalValidationFile(absolute);
+    if (buffer === undefined) {
       continue;
     }
-    const buffer = readFileSync(absolute);
     if (buffer.includes(0)) {
       continue;
     }
