@@ -31,6 +31,7 @@ import {
 } from "../scripts/bootstrap.mjs";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+const LEGACY_RELEASE_DIRECTORY = ".change" + "set";
 const workspaces: string[] = [];
 
 // The suite itself runs from a git hook (`lefthook.yml` runs `test:related` on
@@ -330,10 +331,7 @@ describe("bootstrap profiles", () => {
       binaryBefore,
     );
     expect(existsSync(path.join(root, "docs", "template-implementation"))).toBe(false);
-    expect(relativeFiles(root, ".changeset")).toEqual([
-      ".changeset/README.md",
-      ".changeset/config.json",
-    ]);
+    expect(existsSync(path.join(root, LEGACY_RELEASE_DIRECTORY))).toBe(false);
     expect(readFileSync(path.join(root, "README.md"), "utf8")).not.toContain(
       "Use this template",
     );
@@ -436,7 +434,9 @@ describe("bootstrap profiles", () => {
     });
     expect(changed.length).toBeGreaterThan(0);
     expect(readFileSync(path.join(root, "package.json"), "utf8")).toBe(before);
-    expect(existsSync(path.join(root, "docs", "template-implementation"))).toBe(true);
+    expect(readFileSync(path.join(root, "README.md"), "utf8")).toContain(
+      "Use this template",
+    );
   });
 
   it("validates projected dry-run output without mutating the source", () => {

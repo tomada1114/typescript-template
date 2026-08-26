@@ -6,7 +6,7 @@ review them periodically with `pnpm repo:check`.
 - [ ] Require pull requests and required CI checks on `main`
 - [ ] Require conversation resolution and prohibit force-push and deletion
 - [ ] Choose and enforce linear history or the documented merge strategy
-- [ ] Allow GitHub Actions to create and approve pull requests for the Changesets version PR
+- [ ] Restrict release pull requests and tags to authorized maintainers
 - [ ] Enable secret scanning, push protection, Dependabot alerts, and security updates
 - [ ] Enable private vulnerability reporting and CodeQL
 - [ ] Create the `release` environment with a human required reviewer

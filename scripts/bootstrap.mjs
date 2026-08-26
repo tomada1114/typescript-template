@@ -5,7 +5,6 @@ import {
   existsSync,
   lstatSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -114,6 +113,7 @@ const REMOVED_TEMPLATE_PATHS = [
   "docs/template-requirements",
   "docs/template-implementation",
 ];
+const TEMPLATE_ONLY_MARKER = "<!-- template-only:start -->";
 const REMOVED_CLI_REFERENCES =
   /(?:src\/cli\.ts|src\/bin\.ts|tests\/cli\.test\.ts|cli\.ts|bin\.ts|runCli|CliIo|dist\/bin\.js)/;
 
@@ -661,18 +661,6 @@ function transform(root, options, year, preview) {
     }
   }
 
-  const changesetDirectory = path.join(root, ".changeset");
-  if (existsSync(changesetDirectory)) {
-    for (const entry of readdirSync(changesetDirectory, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        if (write) {
-          rmSync(path.join(changesetDirectory, entry.name));
-        }
-        changed.push(`.changeset/${entry.name} (removed)`);
-      }
-    }
-  }
-
   if (existsSync(reportFrom) && reportFrom !== reportTo) {
     if (preview !== undefined) {
       const report = replaceText(
@@ -823,10 +811,11 @@ function transform(root, options, year, preview) {
  * @param {string} root
  */
 function assertTemplate(root) {
-  if (!existsSync(path.join(root, "docs", "template-implementation"))) {
+  const readme = readFileSync(path.join(root, "README.md"), "utf8");
+  if (!readme.includes(TEMPLATE_ONLY_MARKER)) {
     throw new BootstrapError(
       "ERR_ALREADY_BOOTSTRAPPED",
-      "template implementation documents are absent; this repository was already bootstrapped.",
+      "the README template marker is absent; this repository was already bootstrapped.",
     );
   }
   const manifest = readObject(path.join(root, "package.json"));

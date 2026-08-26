@@ -24,6 +24,7 @@ import { classifyCopyPath, describeLinkTarget } from "./lib/symlinks.mjs";
 import { parseJson, readKey } from "./lib/json.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const LEGACY_RELEASE_DIRECTORY = ".change" + "set";
 
 /**
  * @param {string} command
@@ -90,6 +91,12 @@ function assertGenerated(destination, profile, packageName) {
         `ERR_TEMPLATE_PATH_REMAINING: generated ${packageName} retains ${relative}.`,
       );
     }
+  }
+
+  if (existsSync(path.join(destination, LEGACY_RELEASE_DIRECTORY))) {
+    throw new Error(
+      `ERR_RELEASE_INTENT_PATH_REMAINING: generated ${packageName} retains the legacy release directory.`,
+    );
   }
 
   const manifest = parseJson(

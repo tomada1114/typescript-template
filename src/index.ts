@@ -9,7 +9,7 @@
  *
  * Every symbol is exported by name on purpose: no `export *`, no default
  * export. Adding a line here is an API change and needs an API report update
- * (`pnpm api:update`) plus a changeset.
+ * (`pnpm api:update`) plus a release-impact note in the pull request.
  *
  * @packageDocumentation
  */
