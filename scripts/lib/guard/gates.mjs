@@ -53,7 +53,10 @@ export const CONFIG_GATE_FILES = [
  * file actually needs are the ones in {@link CONFIG_GATE_FILES}.
  */
 export const ENFORCEMENT_FILES = [
-  /^scripts\/lib\/guard\/(?:credentials|gates|paths)\.mjs$/,
+  // The whole directory, not a fixed list of today's three modules: a rule
+  // module added later must inherit the same deletion protection without
+  // anyone remembering to name it here.
+  /^scripts\/lib\/guard\/(?:[^/]+\/)*[^/]+\.mjs$/,
   /^scripts\/check-staged\.mjs$/,
 ];
 

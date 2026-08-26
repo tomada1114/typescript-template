@@ -342,8 +342,11 @@ published less than 7 days ago will not resolve, for any install.
 
 - **Commit, push, pull request, and publish always need a human.** They are
   outside the permission allowlist, and `.claude/settings.json`'s
-  `permissions.deny` hard-blocks the dangerous spellings: `--no-verify`, plain
-  force-push, `npm`/`pnpm publish`, and workflow dispatch.
+  `permissions.deny` refuses the common spellings of the dangerous ones:
+  `--no-verify`, plain force-push, `npm`/`pnpm publish`, and workflow
+  dispatch. Those entries are prefix patterns, so they catch the flag written
+  directly after the subcommand and nothing more — the rule is the
+  instruction here, not the pattern.
 - Never read or write `.env*` (the `.example`, `.sample` and `.template`
   variants are fine) or anything under `secrets/`.
 - Never write a credential into a tracked file — no registry auth token, no
@@ -379,6 +382,16 @@ realistic risk. The rules that must hold regardless of which tool or human is
 committing — a staged secret, a stripped gate, a `.env` file about to land in
 history — live in `lefthook`'s pre-commit hook instead, where every author
 goes through the same gate.
+
+Two consequences of that shape are worth naming rather than discovering:
+`Read`/`Edit` deny rules classify a **tool call's path**, so they say nothing
+about a shell command that opens the same file (`cat .env`,
+`cp .env /tmp/x`); and turning the Git hooks off through the environment
+(`LEFTHOOK=0 git commit …`) is invisible to both the pattern layer and the
+hook it disables. Neither is enforced anywhere. "Never read or write `.env*`
+or anything under `secrets/`" and "never bypass the hooks" hold as
+instructions in this file, not as blocks — reaching for either spelling is
+the thing being ruled out, not the spelling that happens to be caught.
 
 `scripts/lib/guard/` is the rule engine `scripts/check-staged.mjs` (the
 pre-commit layer) uses for the checks a staged diff's content, not just its
