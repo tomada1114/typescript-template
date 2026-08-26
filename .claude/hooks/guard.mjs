@@ -52,6 +52,55 @@ function readIfPresent(filePath) {
 }
 
 /**
+ * Collect the text a file-editing call replaces and the text it writes.
+ *
+ * @remarks
+ * The three edit-shaped tools spell this differently: `Edit` carries
+ * `old_string`/`new_string`, `Write` a whole-file `content`, `NotebookEdit` a
+ * `new_source`, and `MultiEdit` an `edits` array of Edit-shaped hunks. Reading
+ * only the `Edit`/`Write` spelling made the content checks below silently
+ * no-op for the other two, which the PreToolUse matcher in
+ * `.claude/settings.json` does route here.
+ *
+ * A MultiEdit's before-text is the concatenation of its own hunks, never the
+ * file on disk: gate-marker scanning is presence-based, so comparing whole-file
+ * content against a handful of replacement hunks would report every marker
+ * outside those hunks as removed.
+ *
+ * @param {unknown} toolInput - The pending call's `tool_input`.
+ * @returns {{ before: string | undefined, after: string | undefined }} The text
+ * being replaced (undefined when only the file on disk can supply it) and the
+ * text replacing it (undefined when the call carries none).
+ */
+function editTexts(toolInput) {
+  const edits = readKey(toolInput, "edits");
+  if (Array.isArray(edits)) {
+    /** @type {string[]} */
+    const before = [];
+    /** @type {string[]} */
+    const after = [];
+    for (const edit of edits) {
+      const replaced = readString(edit, "old_string");
+      if (replaced !== undefined) {
+        before.push(replaced);
+      }
+      const written = readString(edit, "new_string");
+      if (written !== undefined) {
+        after.push(written);
+      }
+    }
+    return { before: before.join("\n"), after: after.join("\n") };
+  }
+  return {
+    before: readString(toolInput, "old_string") ?? readString(toolInput, "old_source"),
+    after:
+      readString(toolInput, "new_string") ??
+      readString(toolInput, "content") ??
+      readString(toolInput, "new_source"),
+  };
+}
+
+/**
  * Decide whether a normalized pending tool call must be blocked.
  *
  * @param {import("./payload.mjs").Event} event - Normalized hook event.
@@ -77,13 +126,13 @@ function evaluateEvent(event) {
   }
 
   const toolInput = readKey(event.raw, "tool_input");
-  const filePath = readString(toolInput, "file_path") ?? "";
+  // The normalized path, so a `NotebookEdit`'s `notebook_path` is checked too.
+  const filePath = event.files[0] ?? "";
   const writeReason = checkWrite(filePath);
   if (writeReason !== null) {
     return writeReason;
   }
-  const oldString = readString(toolInput, "old_string");
-  const after = readString(toolInput, "new_string") ?? readString(toolInput, "content");
+  const { before: oldString, after } = editTexts(toolInput);
   if (after === undefined) {
     return null;
   }

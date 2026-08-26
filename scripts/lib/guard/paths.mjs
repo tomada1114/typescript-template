@@ -94,9 +94,11 @@ export function checkWrite(filePath) {
     return ".claude/settings.local.json holds personal permission grants, so an agent editing it would be granting itself permissions — that is a human edit; ask.";
   }
   // A read block is also a write block: the write-side counterpart of the
-  // Read(/.env), Read(/.env.*) and Read(/secrets/**) deny rules in
-  // .claude/settings.json. Those are anchored to the settings file; this layer
-  // matches by path shape, so it holds from any cwd.
+  // Read(/.env) and Read(/secrets/**) deny rules in .claude/settings.json.
+  // Those are anchored to the settings file and cannot carry the
+  // .env.example exception, which is why the rest of the .env.* family is
+  // this layer's alone; this layer matches by path shape, so it holds from
+  // any cwd.
   const readReason = checkRead(filePath);
   if (readReason !== null) {
     return readReason.replace("read by the agent", "written by the agent");

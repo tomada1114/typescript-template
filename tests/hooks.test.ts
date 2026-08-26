@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -350,6 +350,38 @@ describe("guard: dispatch", () => {
     },
   );
 
+  it("blocks a gate removal spelled as a MultiEdit", () => {
+    // The PreToolUse matcher routes MultiEdit here, and its hunks live in
+    // `edits` rather than in a top-level old_string/new_string pair. Reading
+    // only the Edit spelling made every content check silently no-op for it.
+    const result = runHook("guard.mjs", {
+      tool_name: "MultiEdit",
+      tool_input: {
+        file_path: path.join(repoRoot, "eslint.config.mjs"),
+        edits: [
+          { old_string: "// a comment", new_string: "// another comment" },
+          { old_string: "reportUnusedDisableDirectives", new_string: "// removed" },
+        ],
+      },
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(/unused-disable check/);
+  });
+
+  it("blocks a NotebookEdit targeting a protected path", () => {
+    // NotebookEdit names its target `notebook_path`, so a guard reading only
+    // `file_path` had nothing to judge and let the call through.
+    const result = runHook("guard.mjs", {
+      tool_name: "NotebookEdit",
+      tool_input: {
+        notebook_path: path.join(repoRoot, "secrets", "keys.ipynb"),
+        new_source: "print('hi')",
+      },
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(/secrets\//);
+  });
+
   it("blocks the protected claude-bash-noverify.json fixture", () => {
     expect(runHook("guard.mjs", hookFixture("claude-bash-noverify.json")).status).toBe(
       2,
@@ -365,12 +397,18 @@ describe("format hook", () => {
   // that — but outside Vitest's `*.test.ts` collection glob. It is deliberately
   // *not* in .gitignore: Prettier honours .gitignore by default, so an ignored
   // scratch file would be silently skipped and prove nothing.
-  const scratchDir = path.join(repoRoot, "tests", "tmp-hooks");
+  // The name is unique per run, not a fixed path: `.claude/hooks/stop-check.mjs`
+  // runs `vitest run`, so this suite re-enters itself, and Stop and
+  // SubagentStop can each start a run while another is still in flight. A
+  // shared directory is deleted out from under whichever run created it —
+  // either before the fixture is written (ENOENT) or between the write and
+  // ESLint's own read, which reports "no files matching" and fails the hook.
+  // The flip side is that a hard-killed run leaves its own directory behind,
+  // which is the safe failure: deleting a sibling run's fixtures is not.
+  let scratchDir = "";
 
   beforeAll(() => {
-    // Also clears anything a previous, hard-killed run left behind.
-    rmSync(scratchDir, { recursive: true, force: true });
-    mkdirSync(scratchDir, { recursive: true });
+    scratchDir = mkdtempSync(path.join(repoRoot, "tests", "tmp-hooks-"));
   });
   afterAll(() => {
     rmSync(scratchDir, { recursive: true, force: true });
@@ -418,7 +456,10 @@ describe("format hook", () => {
     writeFileSync(target, "export const value   =    1\n", "utf8");
     writeFileSync(sibling, original, "utf8");
 
-    expect(runHook("format.mjs", writePayload(target)).status).toBe(0);
+    const result = runHook("format.mjs", writePayload(target));
+    // The hook reports what it could not fix on stderr; surfacing it here is
+    // what makes a failure point at the rule rather than at "exit 2".
+    expect(result.status, `format hook reported: ${result.stderr}`).toBe(0);
     // Formatting one edited file must not turn into a whole-tree pass.
     expect(readFileSync(sibling, "utf8")).toBe(original);
   });

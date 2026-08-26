@@ -45,7 +45,11 @@ export function fromPayload(payload) {
   const toolInput = readKey(payload, "tool_input");
   const toolName = readString(payload, "tool_name") ?? null;
   const key = (toolName ?? "").toLowerCase();
-  const filePath = readString(toolInput, "file_path");
+  // `NotebookEdit` names its target `notebook_path`; every other file tool
+  // uses `file_path`. Reading only the latter left a notebook edit with no
+  // path at all, so the path rules had nothing to judge.
+  const filePath =
+    readString(toolInput, "file_path") ?? readString(toolInput, "notebook_path");
   const inputCommand = readString(toolInput, "command") ?? null;
 
   /** @type {Event["tool"]} */
