@@ -125,6 +125,37 @@ describe("syncTrees", () => {
     ]);
     expect(diffTrees(source, mirror)).toEqual([]);
   });
+
+  // A path that changed kind is reported as one `extra` and one `missing`.
+  // Copying before deleting would hit the stale entry of the other kind and
+  // fail with a bare `EISDIR`/`ENOTDIR` instead of repairing the drift.
+  it("replaces a mirror file that the source now keeps as a directory", () => {
+    const { source, mirror } = makeTrees();
+    writeFileSync(path.join(mirror, "skill", "references"), "notes\n");
+    mkdirSync(path.join(source, "skill", "references"), { recursive: true });
+    writeFileSync(
+      path.join(source, "skill", "references", "failure-modes.md"),
+      "modes\n",
+    );
+
+    syncTrees(source, mirror);
+
+    expect(diffTrees(source, mirror)).toEqual([]);
+  });
+
+  it("replaces a mirror directory that the source now keeps as a file", () => {
+    const { source, mirror } = makeTrees();
+    mkdirSync(path.join(mirror, "skill", "references"), { recursive: true });
+    writeFileSync(
+      path.join(mirror, "skill", "references", "failure-modes.md"),
+      "modes\n",
+    );
+    writeFileSync(path.join(source, "skill", "references"), "notes\n");
+
+    syncTrees(source, mirror);
+
+    expect(diffTrees(source, mirror)).toEqual([]);
+  });
 });
 
 describe("formatDrift", () => {

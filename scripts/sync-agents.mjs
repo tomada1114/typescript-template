@@ -172,13 +172,23 @@ function pruneEmptyDirectories(directory, stopAt) {
  */
 export function syncTrees(sourceDirectory, mirrorDirectory) {
   const differences = diffTrees(sourceDirectory, mirrorDirectory);
+  // Deletions run before copies. A path that changed kind — a mirror file
+  // where the source now has a directory, or the reverse — is reported as one
+  // `extra` and one `missing`, and copying first would hit the stale entry
+  // (`EISDIR`, or `ENOTDIR` from `mkdirSync`) instead of replacing it.
   for (const { kind, relative } of differences) {
-    const target = path.join(mirrorDirectory, relative);
-    if (kind === "extra") {
-      rmSync(target);
-      pruneEmptyDirectories(path.dirname(target), mirrorDirectory);
+    if (kind !== "extra") {
       continue;
     }
+    const target = path.join(mirrorDirectory, relative);
+    rmSync(target);
+    pruneEmptyDirectories(path.dirname(target), mirrorDirectory);
+  }
+  for (const { kind, relative } of differences) {
+    if (kind === "extra") {
+      continue;
+    }
+    const target = path.join(mirrorDirectory, relative);
     mkdirSync(path.dirname(target), { recursive: true });
     copyFileSync(path.join(sourceDirectory, relative), target);
   }
