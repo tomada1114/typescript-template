@@ -28,6 +28,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    outputs:
+      prerelease: ${{ steps.verify-tag.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,12 +50,34 @@ jobs:
         run: npm install --global npm@11.5.1
 
       - name: Verify tag matches package version
+        id: verify-tag
         run: |
           VERSION="$(node --input-type=module -e 'import manifest from "./package.json" with { type: "json" }; process.stdout.write(manifest.version)')"
           test "${GITHUB_REF_NAME}" = "v${VERSION}" || {
             echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${VERSION}."
             exit 1
           }
+
+          # A prerelease identifier (`1.0.0-rc.1` -> `rc`, `1.0.0-next.3` ->
+          # `next`) becomes the npm dist-tag it publishes to, so a release
+          # candidate never moves `latest`. A version with no prerelease
+          # component publishes to `latest`, written out explicitly rather
+          # than left as npm's implicit default. Extracted with the same
+          # `node --input-type=module` reader used for VERSION above, so the
+          # version string is parsed once, by one interpreter, instead of a
+          # second time by a hand-rolled shell regex.
+          PRERELEASE_ID="$(VERSION="${VERSION}" node --input-type=module -e 'import process from "node:process"; const match = process.env.VERSION.match(/^\d+\.\d+\.\d+-([^.]+)/); process.stdout.write(match ? match[1] : "")')"
+          if [ "${PRERELEASE_ID}" = "latest" ]; then
+            echo "::error::Prerelease identifier \"latest\" in version ${VERSION} would publish over npm's latest dist-tag. Choose a different identifier."
+            exit 1
+          fi
+          if [ -n "${PRERELEASE_ID}" ]; then
+            echo "dist_tag=${PRERELEASE_ID}" >> "${GITHUB_OUTPUT}"
+            echo "prerelease=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "dist_tag=latest" >> "${GITHUB_OUTPUT}"
+            echo "prerelease=false" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -101,10 +125,14 @@ jobs:
 
       # No --access/--provenance/--registry flags: package.json's
       # publishConfig is the single source for all three, so a rehearsal, a
-      # manual publish and this workflow cannot disagree about them.
+      # manual publish and this workflow cannot disagree about them. --tag is
+      # the one flag that has to live here instead: publishConfig is static
+      # and cannot express a per-release dist-tag decision, so a stable
+      # version passes "latest" explicitly and a prerelease version passes
+      # its own identifier (verify-tag's `dist_tag` output).
       - name: Publish with npm trusted publishing and provenance
         if: steps.registry.outputs.published != 'true'
-        run: npm publish dist/package.tgz
+        run: npm publish dist/package.tgz --tag "${{ steps.verify-tag.outputs.dist_tag }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -128,7 +156,12 @@ jobs:
       - name: Create or repair the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.publish.outputs.prerelease }}
         run: |
+          RELEASE_FLAGS=(--verify-tag --generate-notes)
+          if [ "${PRERELEASE}" = "true" ]; then
+            RELEASE_FLAGS+=(--prerelease)
+          fi
           gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 ||
-            gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes
+            gh release create "${GITHUB_REF_NAME}" "${RELEASE_FLAGS[@]}"
           gh release upload "${GITHUB_REF_NAME}" dist/package.tgz --clobber

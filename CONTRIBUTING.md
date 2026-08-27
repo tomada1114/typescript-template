@@ -66,3 +66,19 @@ that version again: verify it with `npm view my-package@X.Y.Z version`, then
 repair only the GitHub Release by rerunning the release attachment job or
 uploading the original workflow artifact. Do not use unpublish as a routine
 rollback; release a corrected new version instead.
+
+### Cutting a prerelease
+
+To ship a release candidate without moving the `latest` npm dist-tag, set
+`package.json`'s version to a semver prerelease (`1.0.0-rc.1`,
+`1.0.0-next.3`) and push a matching annotated tag (`v1.0.0-rc.1`,
+`v1.0.0-next.3`). `release.yml` parses the prerelease identifier (`rc`,
+`next`, …) out of the version and:
+
+- publishes to the npm dist-tag named after that identifier instead of
+  `latest`, so `npm install my-package@rc` gets the release candidate while
+  a plain `npm install my-package` does not;
+- creates the GitHub Release marked as a pre-release.
+
+A version with no prerelease identifier publishes to `latest` and creates an
+ordinary GitHub Release, exactly as before.
