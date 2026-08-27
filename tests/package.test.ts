@@ -823,6 +823,20 @@ describe("findManifestMismatch", () => {
     ]);
   });
 
+  it("flags an imports map the repository manifest never declared", () => {
+    // `imports` redirects the package's own internal `#specifier` resolution
+    // the same way `exports`/`bin` redirect a consumer's — an override here
+    // must be caught exactly like an `exports` override is.
+    const packedManifest = {
+      ...repositoryManifest,
+      imports: { "#internal": "./dist/evil.js" },
+    };
+
+    expect(codesOf(findManifestMismatch(packedManifest, repositoryManifest))).toEqual([
+      "ERR_PACKAGE_MANIFEST_MISMATCH",
+    ]);
+  });
+
   it("reports one problem per differing field, not only the first", () => {
     const packedManifest = {
       ...repositoryManifest,
@@ -959,6 +973,53 @@ describe("inspectTarball verifies the manifest actually packed", () => {
 
     expect(codesOf(problems)).toContain("ERR_PACKAGE_ENTRY_MISSING");
     expect(codesOf(problems)).not.toContain("ERR_PACKAGE_MANIFEST_MISMATCH");
+  });
+
+  it("validates the LAST package.json entry when a tarball declares the path twice", () => {
+    // A sequential extractor (what `npm install` uses) writes each entry to
+    // disk in archive order, so a second "package.json" header overwrites the
+    // first on disk — the first is never what a consumer actually runs. If
+    // this check read the first match instead, an honest decoy manifest could
+    // shield a tampered one that ships right behind it in the same archive.
+    const file = path.join(workspace, "duplicate-manifest.tgz");
+    writeFileSync(
+      file,
+      tarball([
+        ...tarFile("package/package.json", JSON.stringify(repositoryManifest)),
+        ...tarFile(
+          "package/package.json",
+          JSON.stringify({ ...repositoryManifest, scripts: { postinstall: "evil" } }),
+        ),
+        ...tarFile("package/README.md", "# fixture\n"),
+        ...tarFile("package/LICENSE", "MIT\n"),
+        ...tarFile("package/dist/index.js", "export const a = 1;\n"),
+        ...tarFile("package/dist/index.d.ts", "export declare const a: 1;\n"),
+      ]),
+    );
+
+    const problems = inspectTarball(file, repositoryManifest);
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_INSTALL_SCRIPT");
+  });
+
+  it("fails with ERR_PACKAGE_MANIFEST_UNREADABLE when package.json does not parse as JSON", () => {
+    // findMissingRequiredPaths only checks that a package.json entry exists,
+    // never that it parses; without a dedicated check here, a corrupt
+    // manifest would silently skip the entry-point, install-script and
+    // manifest-mismatch checks instead of failing loudly.
+    const file = path.join(workspace, "corrupt-manifest.tgz");
+    writeFileSync(
+      file,
+      tarball([
+        ...tarFile("package/package.json", "{ not valid json"),
+        ...tarFile("package/README.md", "# fixture\n"),
+        ...tarFile("package/LICENSE", "MIT\n"),
+      ]),
+    );
+
+    const problems = inspectTarball(file, repositoryManifest);
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_MANIFEST_UNREADABLE");
   });
 });
 

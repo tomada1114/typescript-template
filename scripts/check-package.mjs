@@ -198,15 +198,18 @@ export const INSTALL_LIFECYCLE_SCRIPTS = [
  *
  * @remarks
  * Not every field is worth comparing: `description`, `keywords`, `license`
- * and similar carry no install-time behavior. These five decide what code
+ * and similar carry no install-time behavior. These six decide what code
  * runs and which files a consumer can resolve, which is exactly what a
  * `publishConfig` override could redirect without touching anything else a
- * reviewer would think to check.
+ * reviewer would think to check. `imports` is included alongside `exports`
+ * and `bin` because it governs the package's own internal `#specifier`
+ * resolution the same way `exports` governs a consumer's.
  */
 export const MANIFEST_COMPARISON_FIELDS = [
   "name",
   "version",
   "exports",
+  "imports",
   "bin",
   "files",
 ];
@@ -945,14 +948,25 @@ export function findManifestMismatch(packedManifest, repositoryManifest) {
 /**
  * Parse the `package.json` entry actually shipped inside the tarball.
  *
+ * @remarks
+ * A tar archive can validly contain more than one header for the same path;
+ * a sequential extractor (the one `npm install` uses) writes each entry to
+ * disk in archive order, so the *last* one is what a consumer actually ends
+ * up running. Reading the first match here instead would let a crafted
+ * tarball smuggle a clean, first "package.json" past this check while a
+ * second, tampered one is what gets installed — so this reads the last entry
+ * at that path, not the first.
+ *
  * @param {readonly TarEntry[]} entries - Entries from {@link readTarEntries}.
  * @returns {unknown} The parsed manifest, or `undefined` when the tarball
  * carries no top-level `package.json` file or its contents do not parse as
- * JSON — either of which {@link findMissingRequiredPaths} already reports on
- * its own terms.
+ * JSON. The latter case is not silently swallowed: {@link inspectTarball}
+ * still finds the raw entry and reports it as unreadable, since
+ * {@link findMissingRequiredPaths} only checks that a matching path exists,
+ * never that its contents parse.
  */
 function parsePackedManifest(entries) {
-  const manifestEntry = entries.find(
+  const manifestEntry = entries.findLast(
     (candidate) => candidate.path === "package.json" && candidate.type === "file",
   );
   if (manifestEntry?.data === undefined) {
@@ -993,6 +1007,23 @@ export function inspectTarball(tarballPath, repositoryManifest) {
   if (packedManifest !== undefined) {
     problems.push(...findInstallScripts(packedManifest));
     problems.push(...findManifestMismatch(packedManifest, repositoryManifest));
+  } else if (
+    entries.some((entry) => entry.path === "package.json" && entry.type === "file")
+  ) {
+    // The tarball has a package.json entry, but it did not parse as JSON.
+    // findMissingRequiredPaths only checks that the path exists, so without
+    // this, the entry-point, install-script and manifest-mismatch checks
+    // above would all be silently skipped instead of failing loudly.
+    problems.push({
+      code: "ERR_PACKAGE_MANIFEST_UNREADABLE",
+      path: "package.json",
+      message:
+        "The tarball's package.json entry could not be parsed as JSON.\n" +
+        "Expected: a well-formed JSON manifest at the tarball root.\n" +
+        "Actual: package.json is present but its contents do not parse.\n" +
+        "Next: run `pnpm run build`, then check that `pnpm pack` produced a valid " +
+        "package.json before packing again.",
+    });
   }
 
   for (const leak of findAbsoluteMapSources(entries)) {
