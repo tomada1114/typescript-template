@@ -11,6 +11,7 @@ import console from "node:console";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { isDeepStrictEqual } from "node:util";
 import { gunzipSync } from "node:zlib";
 
 import { isMain } from "./lib/is-main.mjs";
@@ -171,6 +172,43 @@ export const FORBIDDEN_PATHS = [
     pattern: /^(scripts|etc|docs)(\/|$)/,
     reason: "repository tooling or documentation, which consumers never load",
   },
+];
+
+/**
+ * `scripts` entries that npm and pnpm run automatically during install,
+ * without a consumer ever asking for them.
+ *
+ * @remarks
+ * `prepare` is included even though it also runs on `git clone` of the
+ * package's own repository (a case this tarball is never in): once published,
+ * npm runs it on every install too, which is the behavior this check exists
+ * to catch.
+ */
+export const INSTALL_LIFECYCLE_SCRIPTS = [
+  "preinstall",
+  "install",
+  "postinstall",
+  "prepare",
+];
+
+/**
+ * Manifest fields compared between the repository's `package.json` (with
+ * `publishConfig` folded on top, the way `pnpm pack` folds it) and the
+ * manifest actually found inside the tarball.
+ *
+ * @remarks
+ * Not every field is worth comparing: `description`, `keywords`, `license`
+ * and similar carry no install-time behavior. These five decide what code
+ * runs and which files a consumer can resolve, which is exactly what a
+ * `publishConfig` override could redirect without touching anything else a
+ * reviewer would think to check.
+ */
+export const MANIFEST_COMPARISON_FIELDS = [
+  "name",
+  "version",
+  "exports",
+  "bin",
+  "files",
 ];
 
 // -----------------------------------------------------------------------------
@@ -773,20 +811,189 @@ export function inspectPackageEntries(entries, options = {}) {
   return problems;
 }
 
+// -----------------------------------------------------------------------------
+// Manifest integrity
+// -----------------------------------------------------------------------------
+
+/**
+ * Narrow a value to a plain object for property reads, without widening it to
+ * `any`.
+ *
+ * @param {unknown} value - Candidate object.
+ * @returns {Record<string, unknown>} `value` itself when it is a non-null
+ * object, otherwise an empty object.
+ */
+function asRecord(value) {
+  return typeof value === "object" && value !== null
+    ? /** @type {Record<string, unknown>} */ (value)
+    : {};
+}
+
+/**
+ * Overlay a manifest's `publishConfig` onto its own top level, the way
+ * `pnpm pack` and `npm publish` do when they decide what a consumer sees.
+ *
+ * @remarks
+ * `publishConfig` exists precisely so a package can develop with one `exports`
+ * or `bin` and publish another; folding it in before comparing is what makes
+ * {@link findManifestMismatch} judge an *intended* override as a match rather
+ * than as tampering. Treating any `publishConfig` at all as suspicious would
+ * make this repository's own `publishConfig.access`/`provenance`/`registry`
+ * block (see package.json) fail the check it exists to run.
+ *
+ * @param {unknown} manifest - Parsed `package.json`.
+ * @returns {Record<string, unknown>} A shallow copy with `publishConfig`
+ * fields overlaid on top of the matching top-level keys.
+ */
+function withPublishConfigApplied(manifest) {
+  const base = asRecord(manifest);
+  const publishConfig = asRecord(readKey(base, "publishConfig"));
+  return { ...base, ...publishConfig };
+}
+
+/**
+ * Find an install-time lifecycle script in the manifest actually packed into
+ * the tarball.
+ *
+ * @remarks
+ * `pnpm pack` folds `publishConfig` onto the manifest before writing it into
+ * the archive, so a `publishConfig.scripts.postinstall` that never appears at
+ * the manifest's top level would otherwise run for every consumer while
+ * passing a check that only reads the repository's `package.json` on disk.
+ * This is checked against the manifest already read out of the tarball, which
+ * is the one a real `npm install` acts on.
+ *
+ * @param {unknown} packedManifest - Manifest parsed from the tarball's own
+ * `package.json` entry.
+ * @returns {PackageProblem[]} One problem per lifecycle script found.
+ */
+export function findInstallScripts(packedManifest) {
+  const scripts = asRecord(readKey(packedManifest, "scripts"));
+  /** @type {PackageProblem[]} */
+  const problems = [];
+
+  for (const name of INSTALL_LIFECYCLE_SCRIPTS) {
+    const command = readKey(scripts, name);
+    if (command === undefined) {
+      continue;
+    }
+    problems.push({
+      code: "ERR_PACKAGE_INSTALL_SCRIPT",
+      path: "package.json",
+      message:
+        `The packed manifest declares a "${name}" script, which npm and pnpm run ` +
+        "automatically during install, with no consumer action required.\n" +
+        "Expected: no preinstall, install, postinstall or prepare script in a published package.json.\n" +
+        `Actual: scripts.${name} is ${JSON.stringify(command)}.\n` +
+        "Next: remove the script from package.json and from publishConfig.scripts if set " +
+        "there, then rebuild and pack again.",
+    });
+  }
+
+  return problems;
+}
+
+/**
+ * Compare the manifest packed into the tarball against the repository's own
+ * `package.json`, after folding the repository manifest's `publishConfig`
+ * onto it.
+ *
+ * @remarks
+ * Every other check in this file that reads "the manifest" reads the
+ * repository's file on disk, never the one npm or pnpm actually wrote into the
+ * archive. A `publishConfig` that redirects `exports`, adds a `bin`, or
+ * renames `files` would pass every one of those checks while shipping
+ * something different to a consumer's `npm install`. This is the one check
+ * that compares the two directly, field by field, so an override has to be
+ * the one recorded in `publishConfig` — nothing else can explain a
+ * difference.
+ *
+ * @param {unknown} packedManifest - Manifest parsed from the tarball's own
+ * `package.json` entry.
+ * @param {unknown} repositoryManifest - Parsed `package.json` at the
+ * repository root.
+ * @returns {PackageProblem[]} One problem per field that differs.
+ */
+export function findManifestMismatch(packedManifest, repositoryManifest) {
+  const expected = withPublishConfigApplied(repositoryManifest);
+  const packed = asRecord(packedManifest);
+  /** @type {PackageProblem[]} */
+  const problems = [];
+
+  for (const field of MANIFEST_COMPARISON_FIELDS) {
+    const expectedValue = readKey(expected, field);
+    const actualValue = readKey(packed, field);
+    if (isDeepStrictEqual(expectedValue, actualValue)) {
+      continue;
+    }
+    problems.push({
+      code: "ERR_PACKAGE_MANIFEST_MISMATCH",
+      path: "package.json",
+      message:
+        `The packed manifest's "${field}" does not match the repository manifest ` +
+        "with publishConfig applied.\n" +
+        `Expected: ${JSON.stringify(expectedValue)}\n` +
+        `Actual: ${JSON.stringify(actualValue)}\n` +
+        "Next: check package.json's publishConfig for an unintended override, then " +
+        "rebuild and pack again.",
+    });
+  }
+
+  return problems;
+}
+
+/**
+ * Parse the `package.json` entry actually shipped inside the tarball.
+ *
+ * @param {readonly TarEntry[]} entries - Entries from {@link readTarEntries}.
+ * @returns {unknown} The parsed manifest, or `undefined` when the tarball
+ * carries no top-level `package.json` file or its contents do not parse as
+ * JSON — either of which {@link findMissingRequiredPaths} already reports on
+ * its own terms.
+ */
+function parsePackedManifest(entries) {
+  const manifestEntry = entries.find(
+    (candidate) => candidate.path === "package.json" && candidate.type === "file",
+  );
+  if (manifestEntry?.data === undefined) {
+    return undefined;
+  }
+  try {
+    return parseJson(manifestEntry.data.toString("utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Inspect a tarball on disk.
  *
+ * @remarks
+ * The declared-entry-point check ({@link requiredEntryPaths}, wired in through
+ * {@link inspectPackageEntries}'s `manifest` option) is driven by the manifest
+ * parsed out of the tarball itself, not by `repositoryManifest` — what a
+ * consumer resolves against is whatever shipped, and after `publishConfig` is
+ * folded in the two can legitimately differ.
+ *
  * @param {string} tarballPath - Path to a `.tgz`.
- * @param {unknown} manifest - Parsed `package.json` of the packed project.
+ * @param {unknown} repositoryManifest - Parsed `package.json` at the
+ * repository root, used to check the packed manifest against it.
  * @returns {PackageProblem[]} Every problem found.
  */
-export function inspectTarball(tarballPath, manifest) {
+export function inspectTarball(tarballPath, repositoryManifest) {
   const entries = readTarEntries(readFileSync(tarballPath));
+  const packedManifest = parsePackedManifest(entries);
+
   const problems = [
-    ...inspectPackageEntries(entries, { manifest }),
+    ...inspectPackageEntries(entries, { manifest: packedManifest }),
     ...findMissingRequiredPaths(entries),
     ...findDanglingMapSources(entries),
   ];
+
+  if (packedManifest !== undefined) {
+    problems.push(...findInstallScripts(packedManifest));
+    problems.push(...findManifestMismatch(packedManifest, repositoryManifest));
+  }
 
   for (const leak of findAbsoluteMapSources(entries)) {
     problems.push({
@@ -811,7 +1018,9 @@ const USAGE = `Usage: node scripts/check-package.mjs (--pack-dir <dir> | --tarba
 
 Inspects a packed tarball against the allowlist, the forbidden-path list, the
 size ceilings in PACKAGE_LIMITS, the files REQUIRED_PATHS demands, the entry
-points package.json declares, and the reachability of every source map source.
+points package.json declares, the reachability of every source map source, and
+the packed package.json itself: no install-time lifecycle script, and no field
+that differs from the repository manifest once publishConfig is applied.
 
 Exit codes:
   0  the tarball is publishable
