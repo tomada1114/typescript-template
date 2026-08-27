@@ -69,7 +69,30 @@ export const GATE_MARKERS = [
   { pattern: /--frozen-lockfile/, name: "the frozen-lockfile install" },
   { pattern: /--max-warnings\s+0/, name: "the zero-warning lint budget" },
   { pattern: /reportUnusedDisableDirectives/, name: "the unused-disable check" },
-  { pattern: /minimumReleaseAge/, name: "the dependency cooldown" },
+  // Line-anchored on the YAML key, for two reasons. A bare /minimumReleaseAge/
+  // is also satisfied by minimumReleaseAgeStrict, …IgnoreMissingTime and
+  // …Exclude, so deleting the cooldown assignment while a sibling key survived
+  // left the marker intact and the removal invisible; and it is satisfied by
+  // prose, so rewording .github/dependabot.yml's comment quoting the setting
+  // tripped a gate that no edit had touched.
+  { pattern: /^[ \t]*minimumReleaseAge[ \t]*:/m, name: "the dependency cooldown" },
+  // The five below are the settings AGENTS.md's "pnpm-workspace.yaml supply-chain
+  // policy" section names but that, unlike the dependency cooldown above and
+  // strictDepBuilds/strictPeerDependencies below, previously had no marker at
+  // all: deleting the line outright was indistinguishable from never having
+  // written it. Whether the *value* on a surviving line was weakened is checked
+  // separately, by GATE_VALUES below.
+  {
+    pattern: /minimumReleaseAgeStrict/,
+    name: "the cooldown's apply-to-already-lockfiled-versions setting",
+  },
+  {
+    pattern: /minimumReleaseAgeIgnoreMissingTime/,
+    name: "the fail-closed setting for missing publish-time metadata",
+  },
+  { pattern: /trustPolicy/, name: "the trust-policy downgrade guard" },
+  { pattern: /trustLockfile/, name: "the lockfile trust re-verification setting" },
+  { pattern: /blockExoticSubdeps/, name: "the exotic-subdependency block" },
   { pattern: /strictDepBuilds/, name: "the lifecycle-script allowlist" },
   { pattern: /strictPeerDependencies/, name: "the peer dependency check" },
   { pattern: /verifyDepsBeforeRun/, name: "the node_modules freshness check" },
@@ -111,6 +134,29 @@ export const GATE_MARKERS = [
   },
 ];
 
+/**
+ * Markers that only make sense in one specific gate file.
+ *
+ * @remarks
+ * {@link GATE_MARKERS} is scanned against every {@link CONFIG_GATE_FILES}
+ * entry, which is right for a setting whose name is unambiguous wherever it
+ * appears. `id-token` is not one of those: `release.yml` carries
+ * `id-token: write` so `npm publish` can mint a provenance attestation, and
+ * `scorecard.yml` carries the same permission for an unrelated reason
+ * (signing OpenSSF results). An unscoped marker would turn dropping
+ * scorecard's — a least-privilege *improvement* — into a hard block, so the
+ * file the marker defends is part of the entry.
+ *
+ * @type {{ file: RegExp, pattern: RegExp, name: string }[]}
+ */
+export const SCOPED_GATE_MARKERS = [
+  {
+    file: /^\.github\/workflows\/release\.yml$/,
+    pattern: /^\s*id-token:\s*write/m,
+    name: "the OIDC id-token permission npm provenance is minted with",
+  },
+];
+
 /** The coverage floor that spec 02 §3.3 fixes; the guard refuses to see it lowered. */
 export const COVERAGE_FLOOR = 80;
 
@@ -125,15 +171,18 @@ export const COVERAGE_THRESHOLD =
 export const VERIFY_DEPS_REQUIRED = "error";
 
 /**
- * The one file whose `verifyDepsBeforeRun` value the check below applies to.
+ * The one file every pnpm-specific value check below applies to:
+ * `verifyDepsBeforeRun`, {@link GATE_VALUES}, and the
+ * `minimumReleaseAgeExclude` check all read a setting pnpm resolves from
+ * `pnpm-workspace.yaml` and nowhere else.
  *
  * @remarks
- * pnpm reads the setting from `pnpm-workspace.yaml` and nowhere else, so
- * scanning every gate file's after-text only turns prose — a comment in
- * `eslint.config.mjs` explaining why the setting exists, for instance — into a
- * hard block on an edit that changes no setting at all.
+ * Restricting each of those checks to this file is what keeps a mention of
+ * the same setting name in prose elsewhere — a comment in `eslint.config.mjs`
+ * explaining why it exists, for instance — from becoming a hard block on an
+ * edit that changes no setting at all.
  */
-export const VERIFY_DEPS_FILE = /^pnpm-workspace\.yaml$/;
+export const PNPM_WORKSPACE_FILE = /^pnpm-workspace\.yaml$/;
 
 /**
  * `verifyDepsBeforeRun` assignments, as written in pnpm-workspace.yaml.
@@ -147,6 +196,162 @@ export const VERIFY_DEPS_FILE = /^pnpm-workspace\.yaml$/;
  */
 export const VERIFY_DEPS_SETTING =
   /^\s*verifyDepsBeforeRun\s*:\s*["']?([A-Za-z-]+)["']?/gm;
+
+/** The dependency cooldown AGENTS.md fixes at 7 days; the guard refuses to see it shortened. */
+export const MINIMUM_RELEASE_AGE_FLOOR = 10080;
+
+/**
+ * `pnpm-workspace.yaml` supply-chain settings AGENTS.md's
+ * "`pnpm-workspace.yaml` supply-chain policy" section forbids relaxing,
+ * checked against the *after* text.
+ *
+ * @remarks
+ * Generalizes the coverage-floor and `verifyDepsBeforeRun` checks above into
+ * a table: each entry's `pattern` captures the assigned value from a single
+ * YAML key, and `expected` reports whether that value keeps the gate at
+ * least as strict as the settings the honest file ships with today. A
+ * pattern that finds no match — the key was never present, or was deleted
+ * outright — is not evaluated here; {@link GATE_MARKERS} is what catches a
+ * key disappearing entirely, this table is what catches one kept but
+ * weakened.
+ *
+ * Every pattern is global, and the check below reads *every* match rather
+ * than the first, exactly as {@link VERIFY_DEPS_SETTING} does: a first-match
+ * read is satisfied by an honest-looking value written above the real one
+ * (an indented `strictDepBuilds: true` under some unread key, with
+ * `strictDepBuilds: false` at the bottom of the file), which is a one-edit
+ * bypass of the whole table.
+ *
+ * `strictDepBuilds` and `strictPeerDependencies` read `true` for
+ * "on"; `minimumReleaseAgeIgnoreMissingTime` and `trustLockfile` read
+ * `false` for "on" — each one fails closed by design (ignoring missing
+ * publish-time metadata, or trusting a lockfile's recorded trust level
+ * without re-verifying it, is the *weaker* behavior), so "must stay at its
+ * safe value" is not the same literal boolean for every entry.
+ *
+ * @type {{ pattern: RegExp, expected: (value: string) => boolean, name: string }[]}
+ */
+export const GATE_VALUES = [
+  {
+    pattern: /^\s*strictDepBuilds\s*:\s*["']?(\w+)["']?/gm,
+    expected: (value) => value === "true",
+    name: "strictDepBuilds",
+  },
+  {
+    pattern: /^\s*strictPeerDependencies\s*:\s*["']?(\w+)["']?/gm,
+    expected: (value) => value === "true",
+    name: "strictPeerDependencies",
+  },
+  {
+    pattern: /^\s*minimumReleaseAgeStrict\s*:\s*["']?(\w+)["']?/gm,
+    expected: (value) => value === "true",
+    name: "minimumReleaseAgeStrict",
+  },
+  {
+    pattern: /^\s*minimumReleaseAgeIgnoreMissingTime\s*:\s*["']?(\w+)["']?/gm,
+    expected: (value) => value === "false",
+    name: "minimumReleaseAgeIgnoreMissingTime",
+  },
+  {
+    pattern: /^\s*trustLockfile\s*:\s*["']?(\w+)["']?/gm,
+    expected: (value) => value === "false",
+    name: "trustLockfile",
+  },
+  {
+    pattern: /^\s*blockExoticSubdeps\s*:\s*["']?(\w+)["']?/gm,
+    expected: (value) => value === "true",
+    name: "blockExoticSubdeps",
+  },
+  {
+    // pnpm accepts exactly two values for this setting: "no-downgrade" and
+    // "off". There is no intermediate value, so "must not be downgraded"
+    // and "must equal no-downgrade" are the same requirement.
+    pattern: /^\s*trustPolicy\s*:\s*["']?([\w-]+)["']?/gm,
+    expected: (value) => value === "no-downgrade",
+    name: "trustPolicy",
+  },
+  {
+    // Anchored the same way VERIFY_DEPS_SETTING is: the `\s*:` right after
+    // the key name means this never matches `minimumReleaseAgeStrict`,
+    // `minimumReleaseAgeIgnoreMissingTime`, or `minimumReleaseAgeExclude` —
+    // each has a suffix immediately after "minimumReleaseAge" where `\s*`
+    // would need a colon.
+    pattern: /^\s*minimumReleaseAge\s*:\s*["']?(\d+)["']?/gm,
+    expected: (value) => Number(value) >= MINIMUM_RELEASE_AGE_FLOOR,
+    name: "minimumReleaseAge",
+  },
+];
+
+/**
+ * Split the text after `minimumReleaseAgeExclude:` on the key's own line into
+ * entries: a YAML flow sequence (`["a@1", "b@2"]`) or a lone scalar.
+ *
+ * @remarks
+ * A block sequence leaves nothing but an optional comment here, so this
+ * returns an empty list and the caller falls through to the bullet scan.
+ * Handling the inline forms at all is what stops a one-line rewrite of the
+ * key from being read as "the exclude list is empty" — pnpm accepts every
+ * spelling, so the guard has to as well.
+ *
+ * @param {string} tail - Text following the key's colon, up to end of line.
+ * @returns {string[]} Each entry's text, unquoted and trimmed.
+ */
+function inlineExcludeEntries(tail) {
+  const withoutComment = tail.replace(/(^|\s)#.*$/, "").trim();
+  const flow = /^\[(.*)\]$/s.exec(withoutComment);
+  const body = flow === null ? withoutComment : (flow[1] ?? "");
+  return body
+    .split(",")
+    .map((entry) =>
+      entry
+        .trim()
+        .replace(/^["']|["']$/g, "")
+        .trim(),
+    )
+    .filter((entry) => entry !== "");
+}
+
+/**
+ * Extract `minimumReleaseAgeExclude`'s entries from `pnpm-workspace.yaml`
+ * text, in either spelling pnpm accepts: a YAML block sequence indented under
+ * the key, or a flow sequence / scalar on the key's own line.
+ *
+ * @remarks
+ * Line-based, like every other pattern in this file, rather than a full YAML
+ * parse: block-sequence entries are the bullet lines following the key, blank
+ * lines skipped, ending at the first line that is not a bullet indented
+ * deeper than the key itself.
+ *
+ * @param {string} text - `pnpm-workspace.yaml` content, before or after.
+ * @returns {string[]} Each entry's text, trimmed.
+ */
+function minimumReleaseAgeExcludeEntries(text) {
+  const keyMatch = /^([ \t]*)minimumReleaseAgeExclude[ \t]*:(.*)$/m.exec(text);
+  if (keyMatch === null) {
+    return [];
+  }
+  const inline = inlineExcludeEntries(keyMatch[2] ?? "");
+  if (inline.length > 0) {
+    return inline;
+  }
+  const indent = (keyMatch[1] ?? "").length;
+  const rest = text.slice(keyMatch.index + keyMatch[0].length).split("\n");
+  /** @type {string[]} */
+  const entries = [];
+  for (const line of rest) {
+    if (line.trim() === "") {
+      continue;
+    }
+    const lineIndent = /^[ \t]*/.exec(line)?.[0].length ?? 0;
+    const item = /^[ \t]*-\s*(.+)$/.exec(line);
+    if (item !== null && lineIndent > indent) {
+      entries.push((item[1] ?? "").trim());
+      continue;
+    }
+    break;
+  }
+  return entries;
+}
 
 /**
  * Resolve a path to repo-relative POSIX form for matching against the
@@ -207,6 +412,11 @@ export function checkGateRemoval(filePath, before, after) {
       return `This edit removes ${name} from ${relative}. Weakening a quality or supply-chain gate needs a human decision, not an agent edit.`;
     }
   }
+  for (const { file, pattern, name } of SCOPED_GATE_MARKERS) {
+    if (file.test(relative) && pattern.test(before) && !pattern.test(after)) {
+      return `This edit removes ${name} from ${relative}. Weakening a quality or supply-chain gate needs a human decision, not an agent edit.`;
+    }
+  }
   for (const match of after.matchAll(COVERAGE_THRESHOLD)) {
     const value = Number(match[2]);
     if (value < COVERAGE_FLOOR) {
@@ -215,11 +425,26 @@ export function checkGateRemoval(filePath, before, after) {
   }
   // Same shape as the coverage floor above: the marker only proves the setting
   // is still named somewhere, so the value it is set to is checked separately.
-  if (VERIFY_DEPS_FILE.test(relative)) {
+  if (PNPM_WORKSPACE_FILE.test(relative)) {
     for (const match of after.matchAll(VERIFY_DEPS_SETTING)) {
       if (match[1] !== VERIFY_DEPS_REQUIRED) {
         return `This edit sets verifyDepsBeforeRun to ${String(match[1])} in ${relative}. Anything other than "${VERIFY_DEPS_REQUIRED}" lets a gate run against a node_modules that no longer matches the lockfile — run \`pnpm install\` instead.`;
       }
+    }
+    for (const { pattern, expected, name } of GATE_VALUES) {
+      for (const match of after.matchAll(pattern)) {
+        const value = match[1];
+        if (value !== undefined && !expected(value)) {
+          return `This edit sets ${name} to ${value} in ${relative}, weakening a pnpm supply-chain gate. See AGENTS.md's "pnpm-workspace.yaml supply-chain policy" section for why this setting must not be relaxed without a human decision.`;
+        }
+      }
+    }
+    const excludedBefore = minimumReleaseAgeExcludeEntries(before);
+    const addedExclude = minimumReleaseAgeExcludeEntries(after).find(
+      (entry) => !excludedBefore.includes(entry),
+    );
+    if (addedExclude !== undefined) {
+      return `This edit adds "${addedExclude}" to minimumReleaseAgeExclude in ${relative}. Excluding a package from the dependency cooldown needs a human's explicit approval — see AGENTS.md's "minimumReleaseAge (supply-chain cooldown)" section: the same PR must cite the advisory, explain why waiting is riskier, and state when the exception will be removed.`;
     }
   }
   return null;
