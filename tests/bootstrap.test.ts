@@ -87,12 +87,6 @@ function aiLayerFiles(root: string): string[] {
   ];
 }
 
-function generatedAiLayer(root: string): string {
-  return aiLayerFiles(root)
-    .map((file) => readFileSync(path.join(root, file), "utf8"))
-    .join("\n");
-}
-
 function options(
   packageName: string,
   profile: "node-library" | "universal-library",
@@ -274,14 +268,10 @@ describe("bootstrap profiles", () => {
     expect(readFileSync(path.join(root, "tests", "fixtures", "binary.dat"))).toEqual(
       binaryBefore,
     );
-    expect(existsSync(path.join(root, "docs", "template-implementation"))).toBe(false);
     expect(existsSync(path.join(root, LEGACY_RELEASE_DIRECTORY))).toBe(false);
     expect(readFileSync(path.join(root, "README.md"), "utf8")).not.toContain(
       "Use this template",
     );
-
-    const aiText = generatedAiLayer(root);
-    expect(aiText).not.toMatch(/docs\/template-(?:requirements|implementation)/);
 
     for (const [file, contents] of stableAiFiles) {
       expect(readFileSync(path.join(root, file), "utf8")).toBe(contents);
@@ -359,7 +349,6 @@ describe("bootstrap profiles", () => {
     });
     expect(changed.length).toBeGreaterThan(0);
     expect(readFileSync(path.join(root, "package.json"), "utf8")).toBe(before);
-    expect(existsSync(path.join(root, "docs", "template-implementation"))).toBe(true);
   });
 
   it("validates projected dry-run output without mutating the source", () => {
@@ -367,7 +356,7 @@ describe("bootstrap profiles", () => {
     const agents = path.join(root, "AGENTS.md");
     writeFileSync(
       agents,
-      `${readFileSync(agents, "utf8")}\nThis reference must be rejected: docs/template-implementation\n`,
+      `${readFileSync(agents, "utf8")}\nThis reference must be rejected: <!-- template-only:start -->\n`,
     );
     const before = readFileSync(agents, "utf8");
 

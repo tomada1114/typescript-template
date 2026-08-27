@@ -37,7 +37,6 @@ const RESERVED_NAMES = new Set(["node_modules", "favicon.ico"]);
 // targets, not a repository-wide search-and-replace. Add a target here when a
 // new generated file intentionally contains one of the template placeholders.
 const PLACEHOLDER_TARGETS = [
-  { file: ".devcontainer/devcontainer.json", placeholder: TEMPLATE_PACKAGE },
   { file: ".github/ISSUE_TEMPLATE/config.yml", placeholder: TEMPLATE_REPOSITORY },
   { file: "CONTRIBUTING.md", placeholder: TEMPLATE_PACKAGE },
   { file: "LICENSE", placeholder: TEMPLATE_AUTHOR },
@@ -45,10 +44,6 @@ const PLACEHOLDER_TARGETS = [
   { file: "README.md", placeholder: TEMPLATE_PACKAGE },
   { file: "README.md", placeholder: TEMPLATE_AUTHOR },
   { file: "README.md", placeholder: TEMPLATE_DESCRIPTION },
-  { file: "SECURITY.md", placeholder: TEMPLATE_REPOSITORY },
-  { file: "SECURITY.md", placeholder: TEMPLATE_PACKAGE },
-  { file: "docs/getting-started.md", placeholder: TEMPLATE_PACKAGE },
-  { file: "docs/reference.md", placeholder: TEMPLATE_PACKAGE },
   { file: "package.json", placeholder: TEMPLATE_REPOSITORY },
   { file: "package.json", placeholder: TEMPLATE_PACKAGE },
   { file: "package.json", placeholder: TEMPLATE_AUTHOR },
@@ -93,10 +88,6 @@ const TEMPLATE_ONLY_YAML_BLOCK =
   /^[ \t]*# template-only:start\s*$[\s\S]*?^[ \t]*# template-only:end\s*$\n?/gm;
 const PROFILE_BLOCK =
   /<!-- profile:([a-z0-9-]+):start -->([\s\S]*?)<!-- profile:\1:end -->/g;
-const REMOVED_TEMPLATE_PATHS = [
-  "docs/template-requirements",
-  "docs/template-implementation",
-];
 
 const USAGE = `Usage: node scripts/bootstrap.mjs
 
@@ -432,12 +423,6 @@ function assertGeneratedAiLayer(root, profile, preview) {
       }
       text = buffer.toString("utf8");
     }
-    if (text.includes("docs/template-requirements")) {
-      problems.push(`${relative}: docs/template-requirements`);
-    }
-    if (text.includes("docs/template-implementation")) {
-      problems.push(`${relative}: docs/template-implementation`);
-    }
     if (text.includes("<!-- template-only:") || text.includes("<!-- profile:")) {
       problems.push(`${relative}: bootstrap marker`);
     }
@@ -587,19 +572,6 @@ function transform(root, options, year, preview) {
   const changed = [];
   const write = !options.dryRun;
 
-  for (const relative of REMOVED_TEMPLATE_PATHS) {
-    const target = path.join(root, relative);
-    if (existsSync(target)) {
-      if (write) {
-        rmSync(target, { recursive: true });
-      }
-      if (preview !== undefined) {
-        preview.set(relative, null);
-      }
-      changed.push(`${relative}/ (removed)`);
-    }
-  }
-
   for (const relative of [
     "tests/bootstrap.test.ts",
     "tests/verify-bootstrap.test.ts",
@@ -708,12 +680,6 @@ function transform(root, options, year, preview) {
  * @param {string} root
  */
 function assertTemplate(root) {
-  if (!existsSync(path.join(root, "docs", "template-implementation"))) {
-    throw new BootstrapError(
-      "ERR_ALREADY_BOOTSTRAPPED",
-      "template implementation documents are absent; this repository was already bootstrapped.",
-    );
-  }
   const manifest = readObject(path.join(root, "package.json"));
   const currentName = readString(manifest, "name");
   if (currentName !== TEMPLATE_PACKAGE) {

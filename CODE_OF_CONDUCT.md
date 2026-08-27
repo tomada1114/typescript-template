@@ -17,9 +17,10 @@ attacks, and publishing another person's private information are unacceptable.
 
 ## Enforcement
 
-Report unacceptable behavior privately through the security contact described
-in [SECURITY.md](SECURITY.md). Project maintainers will investigate and respond
-fairly and consistently, while respecting the reporter's privacy.
+Report unacceptable behavior privately by contacting a maintainer directly
+(for example, through their GitHub profile). Project maintainers will
+investigate and respond fairly and consistently, while respecting the
+reporter's privacy.
 
 ## Attribution
 

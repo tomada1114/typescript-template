@@ -73,17 +73,6 @@ function assertGenerated(destination, packageName) {
     }
   }
 
-  for (const relative of [
-    "docs/template-requirements",
-    "docs/template-implementation",
-  ]) {
-    if (existsSync(path.join(destination, relative))) {
-      throw new Error(
-        `ERR_TEMPLATE_PATH_REMAINING: generated ${packageName} retains ${relative}.`,
-      );
-    }
-  }
-
   if (existsSync(path.join(destination, LEGACY_RELEASE_DIRECTORY))) {
     throw new Error(
       `ERR_RELEASE_INTENT_PATH_REMAINING: generated ${packageName} retains the legacy release directory.`,

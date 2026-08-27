@@ -137,16 +137,6 @@ describe("gates: isGateFile / checkGateRemoval", () => {
     expect(checkGateRemoval(".gitignore", before, after)).toMatch(/exclusion of \.env/);
   });
 
-  it("blocks dropping the verbatim-copy exemption from .prettierignore", () => {
-    expect(
-      checkGateRemoval(
-        ".prettierignore",
-        "docs/template-requirements/\n",
-        "# reformat everything\n",
-      ),
-    ).toMatch(/verbatim-copy formatting exemption/);
-  });
-
   it("blocks dropping the cooldown block from dependabot.yml", () => {
     const before =
       '    schedule:\n      interval: "weekly"\n    cooldown:\n      default-days: 7\n';

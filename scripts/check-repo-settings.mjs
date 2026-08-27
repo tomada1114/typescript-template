@@ -1,15 +1,25 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import console from "node:console";
-import { existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { isMain } from "./lib/is-main.mjs";
 import { parseJson, readKey, readString } from "./lib/json.mjs";
 
-const TEMPLATE_ONLY_STATUS_CHECKS = existsSync(
-  fileURLToPath(new URL("../docs/template-implementation", import.meta.url)),
+const CI_WORKFLOW_SOURCE = readFileSync(
+  fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)),
+  "utf8",
+);
+
+// This repository's own ci.yml still runs the "Bootstrap generated
+// repositories" job inside a `# template-only:start`/`# template-only:end`
+// block; a generated repository has that block stripped out by bootstrap, so
+// reading the job name out of ci.yml directly tells the two apart without
+// depending on any other template-only path's existence.
+const TEMPLATE_ONLY_STATUS_CHECKS = CI_WORKFLOW_SOURCE.includes(
+  "Bootstrap generated repositories",
 )
   ? ["Bootstrap generated repositories"]
   : [];
