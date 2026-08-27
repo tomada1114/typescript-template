@@ -31,9 +31,7 @@ export const CONFIG_GATE_FILES = [
   /^lefthook\.yml$/,
   /^\.claude\/settings\.json$/,
   // Ignore files are gates too: .gitignore's `.env` lines are what keeps a
-  // real dotenv out of a commit in the first place, and .prettierignore's
-  // docs/template-requirements/ entry is the only thing enforcing AGENTS.md's
-  // "never reflow the verbatim upstream copies" rule.
+  // real dotenv out of a commit in the first place.
   /^\.gitignore$/,
   /^\.prettierignore$/,
 ];
@@ -128,10 +126,6 @@ export const GATE_MARKERS = [
   // paths.mjs say about the agent touching it.
   { pattern: /^\.env$/m, name: "the .gitignore exclusion of .env" },
   { pattern: /^\.env\.\*$/m, name: "the .gitignore exclusion of .env.*" },
-  {
-    pattern: /docs\/template-requirements/,
-    name: "the verbatim-copy formatting exemption",
-  },
 ];
 
 /**
