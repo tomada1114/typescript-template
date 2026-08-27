@@ -71,6 +71,8 @@
     "package:check": "pnpm run build && node scripts/clean.mjs .package && pnpm pack --pack-destination .package && pnpm run package:verify -- --pack-dir .package && node scripts/clean.mjs .package",
     "package:verify": "node scripts/verify-package.mjs",
     "docs:build": "typedoc",
+    "agents:sync": "node scripts/sync-agents.mjs",
+    "agents:check": "node scripts/sync-agents.mjs --check",
     "check:staged": "node scripts/check-staged.mjs",
     "check:quick": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
     "check:source": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run api:check && pnpm run docs:build",

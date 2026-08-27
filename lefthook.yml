@@ -76,3 +76,12 @@ pre-commit:
           # see the re-staged (formatted) blobs, not the pre-format ones.
           - name: check:staged
             run: pnpm run check:staged
+
+          # `.claude/skills/` is a generated copy of `.agents/skills/`, and a
+          # commit that changes either side without the other leaves Claude
+          # Code and Codex CLI reading different instructions. The glob keeps
+          # this off every commit that touches neither tree; the same check
+          # runs from `pnpm test` for everyone else.
+          - name: agents:check
+            glob: "{.agents/skills/**,.claude/skills/**}"
+            run: pnpm run agents:check

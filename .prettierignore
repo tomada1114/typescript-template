@@ -9,8 +9,9 @@ pnpm-lock.yaml
 CHANGELOG.md
 etc/*.api.md
 
-# Symlink bridge; keep each bridge explicit so real files stay formatted.
-.agents/skills/merge-dependabot
+# Generated mirror of .agents/skills/ (`pnpm agents:sync`); the real files are
+# formatted at their real path, and reformatting the copy would only drift it.
+.claude/skills/
 
 # Full working copies created by agent sessions; formatted in their own checkout.
 .claude/worktrees/

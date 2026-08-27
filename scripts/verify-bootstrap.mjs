@@ -4,13 +4,10 @@ import console from "node:console";
 import {
   copyFileSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readlinkSync,
   rmSync,
-  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,7 +17,6 @@ import { fileURLToPath } from "node:url";
 import { findPlaceholders } from "./bootstrap.mjs";
 import { isolatedGitEnv } from "./lib/git-env.mjs";
 import { isMain } from "./lib/is-main.mjs";
-import { classifyCopyPath, describeLinkTarget } from "./lib/symlinks.mjs";
 import { parseJson, readKey } from "./lib/json.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -47,12 +43,7 @@ function run(command, args, cwd) {
   }
 }
 
-const MARKER_FILES = [
-  "AGENTS.md",
-  "README.md",
-  "tests/AGENTS.md",
-  ".github/workflows/ci.yml",
-];
+const MARKER_FILES = ["AGENTS.md", "README.md", ".github/workflows/ci.yml"];
 
 /**
  * Check the lightweight, observable output of one bootstrap run.
@@ -117,27 +108,6 @@ function assertGenerated(destination, profile, packageName) {
 }
 
 /**
- * Report whether a source path belongs in the copy set, refusing a symlink that
- * points nowhere rather than skipping it as absent.
- *
- * @param {string} source
- * @param {string} relative
- * @returns {boolean}
- */
-function isCopyableSource(source, relative) {
-  const state = classifyCopyPath(source);
-  if (state.kind === "dangling") {
-    throw new Error(
-      `ERR_BROKEN_SYMLINK: Link: ${relative}\n` +
-        "Expected: the symlink target to exist.\n" +
-        `Actual: missing target ${describeLinkTarget(state.target)}.\n` +
-        "Next: restore the target or remove the link, then rerun `pnpm run bootstrap:e2e`.",
-    );
-  }
-  return state.kind === "present";
-}
-
-/**
  * @param {string} destination
  */
 function copyTemplate(destination) {
@@ -151,18 +121,13 @@ function copyTemplate(destination) {
   }
   for (const relative of files.stdout.split("\0").filter(Boolean)) {
     const source = path.join(ROOT, relative);
-    if (!isCopyableSource(source, relative)) {
+    // `git ls-files` lists a path that a later `rm` removed but no commit
+    // recorded yet; that is a stale entry, not a file to copy.
+    if (!existsSync(source)) {
       continue;
     }
     const target = path.join(destination, relative);
     mkdirSync(path.dirname(target), { recursive: true });
-    // A symlink (`.agents/skills/merge-dependabot` bridges into
-    // `.claude/skills/**`) must be recreated as a symlink, not followed —
-    // copyFileSync resolves it to the directory it points at and fails.
-    if (lstatSync(source).isSymbolicLink()) {
-      symlinkSync(readlinkSync(source), target);
-      continue;
-    }
     copyFileSync(source, target);
   }
 }

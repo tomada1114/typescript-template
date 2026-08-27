@@ -32,6 +32,8 @@ pnpm package:lint  # compatibility alias for package:check
 pnpm package:smoke # install the tarball into throwaway consumers and run it
 pnpm changeset:check # verify that a PR records release intent
 pnpm docs:build    # TypeDoc into docs/api/
+pnpm agents:sync   # regenerate .claude/skills/ from .agents/skills/
+pnpm agents:check  # fail when the two skill trees have drifted apart
 ```
 
 Run a single test file with `pnpm exec vitest run tests/<name>.test.ts`.
@@ -168,6 +170,14 @@ builtins and the shared helpers under `scripts/lib/` — never a dependency
 from `node_modules`; a script that needs an installed tool resolves it at run
 time through `resolveDependencyBin` instead of importing it.
 
+- Agent skills are authored once, under `.agents/skills/` — the path Codex CLI
+  discovers project skills from — and `scripts/sync-agents.mjs` mirrors that
+  tree into `.claude/skills/`, which is the only path Claude Code looks at.
+  Both copies are committed real files rather than one being a symlink, so a
+  fresh clone works on every platform and nothing follows a link into a
+  skill's own subdirectories. Edit the `.agents/` copy, run `pnpm agents:sync`,
+  and commit both sides; `pnpm agents:check` and `tests/sync-agents.test.ts`
+  fail when they disagree.
 - Import Node globals explicitly — `import process from "node:process"`,
   `import console from "node:console"` — rather than relying on ambient globals.
 - These files are type-checked (`allowJs` + `checkJs`), so declare boundary
@@ -241,19 +251,84 @@ time through `resolveDependencyBin` instead of importing it.
 
 ## Testing
 
-Details live in `tests/AGENTS.md` — a Codex session started at the repository
-root does not read it; one started inside `tests/` does. The parts that shape
-decisions from anywhere in the repo:
+Test files live in `tests/<module>.test.ts` — no co-location with `src/`.
+`describe`/`it` names state behavior, not implementation
+(`it("rejects a fractional timeout", …)`), one behavior per `it`.
 
-- Test behavior and contracts through the public interface, never private
-  modules directly. Cover the happy path _and_ the error path.
-- Coverage thresholds are a floor of 80% and are never lowered, and no file is
-  added to the coverage exclude list to make a number move.
+- Test public behavior through `src/index.ts`'s exports, never through
+  `src/internal/**`. Cover the happy path _and_ the error path of every
+  public function.
+- Assert the error class and its stable `code`, never the message text:
+  `expect(() => fn()).toThrow(InvalidInputError)` for a sync throw,
+  `await expect(promise).rejects.toThrow(TimeoutError)` for a rejection.
+  Check that an error propagates through the whole call chain, and that
+  cleanup runs on the failure path too, not only on success.
+- Edge cases worth considering every time: `0`, `1`, negative, fractional
+  where an integer is required, `Number.MAX_SAFE_INTEGER`; an absent optional
+  property versus an explicit `undefined` (`exactOptionalPropertyTypes` makes
+  those distinct); long, unicode, and emoji strings; single-element and
+  duplicate-element collections; cancellation and cleanup for anything async.
+  Use `it.each([...])` for input/output variations, labelled through the
+  `%s`/`%p` placeholders in the title rather than a bare index.
+- Prefer factory functions (`function makeX(overrides = {})`) over shared
+  mutable fixtures. Filesystem tests use a fresh
+  `mkdtempSync(path.join(tmpdir(), "prefix-"))` removed in `afterEach` with
+  `rmSync(dir, { recursive: true, force: true })` — never write into a real
+  project directory. Environment and global replacements go through
+  `vi.stubEnv`/`vi.stubGlobal`, not direct mutation.
+- `vitest.config.ts` sets `restoreMocks`, `clearMocks`, `unstubEnvs` and
+  `unstubGlobals`, so an `afterEach` whose only body is
+  `vi.restoreAllMocks()`/`vi.unstubAllEnvs()` is noise that hides the cleanup a
+  test actually needs. Anything the runner does not know about — a timer, a
+  listener, a temp directory, a child process — is still cleaned up explicitly,
+  including after a failure.
+- Mock only at boundaries (network, filesystem, clock, child process, random),
+  never the module under test, and prefer a real in-memory fake to a mock for
+  anything beyond a one-shot call. Assert on behavior and captured arguments
+  rather than call counts, unless the count itself is the contract.
+- No real `setTimeout` or sleep: `vi.useFakeTimers()` plus
+  `await vi.advanceTimersByTimeAsync(ms)`, restored with `vi.useRealTimers()`.
+  An abortable API is tested for the caller-visible effect of the abort and for
+  the timer and listener it removes, on both outcomes (`tests/timeout.test.ts`
+  is the model).
+- Type tests live in `tests/types.test.ts` (`expectTypeOf`): inferred returns
+  and generics, accepted and rejected inputs, discriminated-union narrowing.
+  Two traps: a `@ts-expect-error` call written directly inside `it()` still
+  _runs_, so wrap invalid calls in a function that is declared and never
+  invoked; and `const error: A | B = new B()` narrows on the initializer, so a
+  union type test must receive the value as a function parameter. This checks
+  the source's own contract — the _published_ `.d.ts` is checked from a
+  consumer's point of view by `pnpm package:smoke`.
+- Tests are independent: no shared mutable module state, no ordering
+  dependency, no dependence on timezone, locale, CPU count, or wall-clock time.
+  Nothing is left as `it.skip`/`it.todo` on `main`, and a flaky test is fixed
+  rather than retried.
+- Coverage thresholds are a floor of 80% (lines, functions, statements,
+  branches), never lowered, and no file is added to the coverage exclude list
+  to make a number move. `coverage.include` is `src/**/*.ts`, so an untested
+  file counts as 0% instead of vanishing from the denominator. Branch coverage
+  is the one that matters — cover both sides of a conditional rather than
+  writing a trivial test to move the percentage.
+
+<!-- profile:node-cli:start -->
+
+- `src/bin.ts` is deliberately at 0% unit coverage: it is a process-binding
+  shim, all its logic lives in `src/cli.ts` (which is unit-tested), and
+  `bin.ts` itself is exercised end-to-end by `tests/cli.test.ts` and the
+  tarball smoke test (`pnpm package:smoke`).
+
+<!-- profile:node-cli:end -->
+
+- Anti-patterns: testing trivial property access while skipping business-logic
+  edge cases; `toBeDefined()`/`not.toBeNull()` where a specific value is
+  checkable; testing that a dependency works; mocking so much that the real
+  code under test never runs.
 - Property-based testing with `fast-check` is worth reaching for when a function
   has a well-defined invariant over a large input space — a round trip, an
-  idempotent normalization, an ordering guarantee. It is deliberately **not** a
-  dependency today: the placeholder API does not need it, and adding it is a
-  real dependency decision that goes through the review below.
+  idempotent normalization, an ordering guarantee — not as a default. It is
+  deliberately **not** a dependency today: the placeholder API does not need it,
+  and adding it is a real dependency decision that goes through the review
+  below.
 
 ## Dependencies
 

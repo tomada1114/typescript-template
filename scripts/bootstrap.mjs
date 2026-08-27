@@ -3,7 +3,6 @@ import { Buffer } from "node:buffer";
 import console from "node:console";
 import {
   existsSync,
-  lstatSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -79,12 +78,7 @@ const PLACEHOLDER_TARGETS = [
 
 // These files carry bootstrap-only blocks. They are deliberately enumerated so
 // adding an unrelated tracked file cannot make bootstrap rewrite it.
-const MARKER_TARGETS = [
-  "AGENTS.md",
-  "README.md",
-  "tests/AGENTS.md",
-  ".github/workflows/ci.yml",
-];
+const MARKER_TARGETS = ["AGENTS.md", "README.md", ".github/workflows/ci.yml"];
 
 // The AI-layer assertion retains the profile/reference guard without walking
 // the repository. Extend this list when a new AI-layer file becomes part of
@@ -92,9 +86,10 @@ const MARKER_TARGETS = [
 const AI_LAYER_TARGETS = [
   "AGENTS.md",
   "CLAUDE.md",
-  "tests/AGENTS.md",
-  "tests/CLAUDE.md",
   ".claude/settings.json",
+  ".agents/skills/merge-dependabot/SKILL.md",
+  ".agents/skills/merge-dependabot/references/failure-modes.md",
+  ".agents/skills/merge-dependabot/scripts/survey-prs.mjs",
   ".claude/skills/merge-dependabot/SKILL.md",
   ".claude/skills/merge-dependabot/references/failure-modes.md",
   ".claude/skills/merge-dependabot/scripts/survey-prs.mjs",
@@ -600,7 +595,7 @@ function replaceTargets(root, replacements, profile, reportPath, write, preview)
   const changed = [];
   for (const [relative, fileReplacements] of byFile) {
     const file = path.join(root, relative);
-    if (!existsSync(file) || lstatSync(file).isSymbolicLink()) {
+    if (!existsSync(file)) {
       continue;
     }
     const result = replaceText(file, fileReplacements, profile, write);
