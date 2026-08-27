@@ -1089,6 +1089,10 @@ describe("the release workflow preserves the reviewed artifact", () => {
     // tests/package.test.ts). A flag here would be a second copy that only
     // this call site obeys — the rehearsal and a manual publish would keep
     // whatever the manifest says, and the two could drift apart unnoticed.
+    // --tag is the one exception: publishConfig is a static file and cannot
+    // express a per-release dist-tag decision (stable release vs. a
+    // release-candidate that must not move `latest`), so that one flag is
+    // required rather than forbidden.
     const publishes = runCommands(source).filter(({ command }) =>
       /\bnpm publish\b/.test(command),
     );
@@ -1099,6 +1103,39 @@ describe("the release workflow preserves the reviewed artifact", () => {
         /--(?:access|provenance|registry)\b/.test(command),
       ),
     ).toEqual([]);
+  });
+
+  it("always publishes with an explicit dist-tag from the tag-verification step", () => {
+    // A release candidate must never move the `latest` npm dist-tag. The
+    // verify-tag step derives the right dist-tag (the prerelease identifier,
+    // or "latest" for a stable version) and every npm publish call carries
+    // it — including the stable case, where it evaluates to `--tag latest`
+    // as an explicit statement rather than an implicit default.
+    const publishes = runCommands(source).filter(({ command }) =>
+      /\bnpm publish\b/.test(command),
+    );
+
+    expect(publishes).toHaveLength(1);
+    expect(
+      publishes.filter(({ command }) =>
+        /--tag\s+"\$\{\{\s*steps\.verify-tag\.outputs\.dist_tag\s*\}\}"/.test(command),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("derives the npm dist-tag and prerelease flag from the version's prerelease identifier", () => {
+    expect(source).toContain("id: verify-tag");
+    expect(source).toContain('echo "dist_tag=${PRERELEASE_ID}" >> "${GITHUB_OUTPUT}"');
+    expect(source).toContain('echo "dist_tag=latest" >> "${GITHUB_OUTPUT}"');
+    expect(source).toContain('echo "prerelease=true" >> "${GITHUB_OUTPUT}"');
+    expect(source).toContain('echo "prerelease=false" >> "${GITHUB_OUTPUT}"');
+  });
+
+  it("marks the GitHub Release as a prerelease when the version has a prerelease identifier", () => {
+    expect(source).toContain("needs.publish.outputs.prerelease");
+    expect(source).toContain("--prerelease");
+    expect(source.indexOf("outputs:")).toBeGreaterThan(-1);
+    expect(source).toContain("prerelease: ${{ steps.verify-tag.outputs.prerelease }}");
   });
 
   it("does not hide a rebuild or repack behind the release scripts", () => {
