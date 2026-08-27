@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -27,6 +26,7 @@ import {
   promptArguments,
   validatePackageName,
 } from "../scripts/bootstrap.mjs";
+import { copyTemplate as copyTrackedFiles } from "../scripts/verify-bootstrap.mjs";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const LEGACY_RELEASE_DIRECTORY = ".change" + "set";
@@ -51,20 +51,7 @@ beforeEach(clearGitEnvironment);
 function copyTemplate(): string {
   const workspace = mkdtempSync(path.join(tmpdir(), "typescript-template-test-"));
   workspaces.push(workspace);
-  const result = execFileSync(
-    "git",
-    ["-C", repoRoot, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-    { encoding: "utf8" },
-  );
-  for (const relative of result.split("\0").filter(Boolean)) {
-    const source = path.join(repoRoot, relative);
-    if (!existsSync(source)) {
-      continue;
-    }
-    const destination = path.join(workspace, relative);
-    mkdirSync(path.dirname(destination), { recursive: true });
-    copyFileSync(source, destination);
-  }
+  copyTrackedFiles(workspace, repoRoot);
   const binary = path.join(workspace, "tests", "fixtures", "binary.dat");
   mkdirSync(path.dirname(binary), { recursive: true });
   writeFileSync(
