@@ -70,6 +70,23 @@ export const GATE_MARKERS = [
   { pattern: /--max-warnings\s+0/, name: "the zero-warning lint budget" },
   { pattern: /reportUnusedDisableDirectives/, name: "the unused-disable check" },
   { pattern: /minimumReleaseAge/, name: "the dependency cooldown" },
+  // The four below are the settings AGENTS.md's "pnpm-workspace.yaml supply-chain
+  // policy" section names but that, unlike minimumReleaseAge/strictDepBuilds/
+  // strictPeerDependencies above, previously had no marker at all: deleting the
+  // line outright was indistinguishable from never having written it. Whether
+  // the *value* on a surviving line was weakened is checked separately, by
+  // GATE_VALUES below.
+  {
+    pattern: /minimumReleaseAgeStrict/,
+    name: "the cooldown's apply-to-already-lockfiled-versions setting",
+  },
+  {
+    pattern: /minimumReleaseAgeIgnoreMissingTime/,
+    name: "the fail-closed setting for missing publish-time metadata",
+  },
+  { pattern: /trustPolicy/, name: "the trust-policy downgrade guard" },
+  { pattern: /trustLockfile/, name: "the lockfile trust re-verification setting" },
+  { pattern: /blockExoticSubdeps/, name: "the exotic-subdependency block" },
   { pattern: /strictDepBuilds/, name: "the lifecycle-script allowlist" },
   { pattern: /strictPeerDependencies/, name: "the peer dependency check" },
   { pattern: /verifyDepsBeforeRun/, name: "the node_modules freshness check" },
@@ -83,6 +100,20 @@ export const GATE_MARKERS = [
   // presence-based: this is inert until that field exists, and protective
   // from the moment it does.
   { pattern: /"provenance"/, name: "the npm provenance contract" },
+  // The release workflow's own two provenance markers: package.json's
+  // publishConfig.provenance (above) is the *content* of the contract, but
+  // the release workflow is what actually exercises it — the `id-token: write`
+  // permission is what lets `npm publish` mint a signed provenance attestation
+  // at all, and the comment naming `--provenance` records the deliberate
+  // choice to drive it through publishConfig rather than a CLI flag.
+  {
+    pattern: /--provenance/,
+    name: "the release workflow's npm provenance flag reference",
+  },
+  {
+    pattern: /id-token/,
+    name: "the OIDC id-token permission a workflow needs for npm trusted publishing",
+  },
   { pattern: /^\s*permissions:/m, name: "a workflow's least-privilege permissions" },
   // Deliberately not line-anchored, unlike the YAML marker above, and it
   // requires the array to hold at least one entry: a settings.json rewritten
@@ -125,15 +156,18 @@ export const COVERAGE_THRESHOLD =
 export const VERIFY_DEPS_REQUIRED = "error";
 
 /**
- * The one file whose `verifyDepsBeforeRun` value the check below applies to.
+ * The one file every pnpm-specific value check below applies to:
+ * `verifyDepsBeforeRun`, {@link GATE_VALUES}, and the
+ * `minimumReleaseAgeExclude` check all read a setting pnpm resolves from
+ * `pnpm-workspace.yaml` and nowhere else.
  *
  * @remarks
- * pnpm reads the setting from `pnpm-workspace.yaml` and nowhere else, so
- * scanning every gate file's after-text only turns prose — a comment in
- * `eslint.config.mjs` explaining why the setting exists, for instance — into a
- * hard block on an edit that changes no setting at all.
+ * Restricting each of those checks to this file is what keeps a mention of
+ * the same setting name in prose elsewhere — a comment in `eslint.config.mjs`
+ * explaining why it exists, for instance — from becoming a hard block on an
+ * edit that changes no setting at all.
  */
-export const VERIFY_DEPS_FILE = /^pnpm-workspace\.yaml$/;
+export const PNPM_WORKSPACE_FILE = /^pnpm-workspace\.yaml$/;
 
 /**
  * `verifyDepsBeforeRun` assignments, as written in pnpm-workspace.yaml.
@@ -147,6 +181,119 @@ export const VERIFY_DEPS_FILE = /^pnpm-workspace\.yaml$/;
  */
 export const VERIFY_DEPS_SETTING =
   /^\s*verifyDepsBeforeRun\s*:\s*["']?([A-Za-z-]+)["']?/gm;
+
+/** The dependency cooldown AGENTS.md fixes at 7 days; the guard refuses to see it shortened. */
+export const MINIMUM_RELEASE_AGE_FLOOR = 10080;
+
+/**
+ * `pnpm-workspace.yaml` supply-chain settings AGENTS.md's
+ * "`pnpm-workspace.yaml` supply-chain policy" section forbids relaxing,
+ * checked against the *after* text.
+ *
+ * @remarks
+ * Generalizes the coverage-floor and `verifyDepsBeforeRun` checks above into
+ * a table: each entry's `pattern` captures the assigned value from a single
+ * YAML key, and `expected` reports whether that value keeps the gate at
+ * least as strict as the settings the honest file ships with today. A
+ * pattern that finds no match — the key was never present, or was deleted
+ * outright — is not evaluated here; {@link GATE_MARKERS} is what catches a
+ * key disappearing entirely, this table is what catches one kept but
+ * weakened. `strictDepBuilds` and `strictPeerDependencies` read `true` for
+ * "on"; `minimumReleaseAgeIgnoreMissingTime` and `trustLockfile` read
+ * `false` for "on" — each one fails closed by design (ignoring missing
+ * publish-time metadata, or trusting a lockfile's recorded trust level
+ * without re-verifying it, is the *weaker* behavior), so "must stay at its
+ * safe value" is not the same literal boolean for every entry.
+ *
+ * @type {{ pattern: RegExp, expected: (value: string) => boolean, name: string }[]}
+ */
+export const GATE_VALUES = [
+  {
+    pattern: /^\s*strictDepBuilds\s*:\s*["']?(\w+)["']?/m,
+    expected: (value) => value === "true",
+    name: "strictDepBuilds",
+  },
+  {
+    pattern: /^\s*strictPeerDependencies\s*:\s*["']?(\w+)["']?/m,
+    expected: (value) => value === "true",
+    name: "strictPeerDependencies",
+  },
+  {
+    pattern: /^\s*minimumReleaseAgeStrict\s*:\s*["']?(\w+)["']?/m,
+    expected: (value) => value === "true",
+    name: "minimumReleaseAgeStrict",
+  },
+  {
+    pattern: /^\s*minimumReleaseAgeIgnoreMissingTime\s*:\s*["']?(\w+)["']?/m,
+    expected: (value) => value === "false",
+    name: "minimumReleaseAgeIgnoreMissingTime",
+  },
+  {
+    pattern: /^\s*trustLockfile\s*:\s*["']?(\w+)["']?/m,
+    expected: (value) => value === "false",
+    name: "trustLockfile",
+  },
+  {
+    pattern: /^\s*blockExoticSubdeps\s*:\s*["']?(\w+)["']?/m,
+    expected: (value) => value === "true",
+    name: "blockExoticSubdeps",
+  },
+  {
+    // pnpm accepts exactly two values for this setting: "no-downgrade" and
+    // "off". There is no intermediate value, so "must not be downgraded"
+    // and "must equal no-downgrade" are the same requirement.
+    pattern: /^\s*trustPolicy\s*:\s*["']?([\w-]+)["']?/m,
+    expected: (value) => value === "no-downgrade",
+    name: "trustPolicy",
+  },
+  {
+    // Anchored the same way VERIFY_DEPS_SETTING is: the `\s*:` right after
+    // the key name means this never matches `minimumReleaseAgeStrict`,
+    // `minimumReleaseAgeIgnoreMissingTime`, or `minimumReleaseAgeExclude` —
+    // each has a suffix immediately after "minimumReleaseAge" where `\s*`
+    // would need a colon.
+    pattern: /^\s*minimumReleaseAge\s*:\s*["']?(\d+)["']?/m,
+    expected: (value) => Number(value) >= MINIMUM_RELEASE_AGE_FLOOR,
+    name: "minimumReleaseAge",
+  },
+];
+
+/**
+ * Extract `minimumReleaseAgeExclude`'s entries from `pnpm-workspace.yaml`
+ * text, as pnpm writes them: a YAML block sequence indented under the key.
+ *
+ * @remarks
+ * Line-based, like every other pattern in this file, rather than a full YAML
+ * parse: entries are the bullet lines immediately following the key, ending
+ * at the first line that is blank or indented at or below the key's own
+ * indentation.
+ *
+ * @param {string} text - `pnpm-workspace.yaml` content, before or after.
+ * @returns {string[]} Each entry's text, trimmed.
+ */
+function minimumReleaseAgeExcludeEntries(text) {
+  const keyMatch = /^([ \t]*)minimumReleaseAgeExclude\s*:\s*$/m.exec(text);
+  if (keyMatch === null) {
+    return [];
+  }
+  const indent = (keyMatch[1] ?? "").length;
+  const rest = text.slice(keyMatch.index + keyMatch[0].length).split("\n");
+  /** @type {string[]} */
+  const entries = [];
+  for (const line of rest) {
+    if (line.trim() === "") {
+      continue;
+    }
+    const lineIndent = /^[ \t]*/.exec(line)?.[0].length ?? 0;
+    const item = /^[ \t]*-\s*(.+)$/.exec(line);
+    if (item !== null && lineIndent > indent) {
+      entries.push((item[1] ?? "").trim());
+      continue;
+    }
+    break;
+  }
+  return entries;
+}
 
 /**
  * Resolve a path to repo-relative POSIX form for matching against the
@@ -215,11 +362,24 @@ export function checkGateRemoval(filePath, before, after) {
   }
   // Same shape as the coverage floor above: the marker only proves the setting
   // is still named somewhere, so the value it is set to is checked separately.
-  if (VERIFY_DEPS_FILE.test(relative)) {
+  if (PNPM_WORKSPACE_FILE.test(relative)) {
     for (const match of after.matchAll(VERIFY_DEPS_SETTING)) {
       if (match[1] !== VERIFY_DEPS_REQUIRED) {
         return `This edit sets verifyDepsBeforeRun to ${String(match[1])} in ${relative}. Anything other than "${VERIFY_DEPS_REQUIRED}" lets a gate run against a node_modules that no longer matches the lockfile — run \`pnpm install\` instead.`;
       }
+    }
+    for (const { pattern, expected, name } of GATE_VALUES) {
+      const match = pattern.exec(after);
+      const value = match?.[1];
+      if (value !== undefined && !expected(value)) {
+        return `This edit sets ${name} to ${value} in ${relative}, weakening a pnpm supply-chain gate. See AGENTS.md's "pnpm-workspace.yaml supply-chain policy" section for why this setting must not be relaxed without a human decision.`;
+      }
+    }
+    const addedExclude = minimumReleaseAgeExcludeEntries(after).find(
+      (entry) => !minimumReleaseAgeExcludeEntries(before).includes(entry),
+    );
+    if (addedExclude !== undefined) {
+      return `This edit adds "${addedExclude}" to minimumReleaseAgeExclude in ${relative}. Excluding a package from the dependency cooldown needs a human's explicit approval — see AGENTS.md's "minimumReleaseAge (supply-chain cooldown)" section: the same PR must cite the advisory, explain why waiting is riskier, and state when the exception will be removed.`;
     }
   }
   return null;

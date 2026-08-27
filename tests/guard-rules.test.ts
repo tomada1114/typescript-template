@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { checkCredentials } from "../scripts/lib/guard/credentials.mjs";
@@ -264,5 +267,125 @@ describe("gates: isGateFile / checkGateRemoval", () => {
     // directly, so isGateFile must resolve it back to repo-relative first.
     expect(isGateFile(`${repoRoot}/package.json`)).toBe(true);
     expect(isGateFile(`${repoRoot}/README.md`)).toBe(false);
+  });
+});
+
+describe("gates: pnpm-workspace.yaml value negation (GATE_VALUES)", () => {
+  // Marker-presence scanning alone lets `strictPeerDependencies: true` become
+  // `strictPeerDependencies: false` without tripping anything: the marker's
+  // literal text survives the edit. Each case here flips one setting's value
+  // while keeping its line (and therefore its marker) intact, and must be
+  // blocked on the value alone.
+  it.each([
+    ["strictDepBuilds", "strictDepBuilds: true\n", "strictDepBuilds: false\n"],
+    [
+      "strictPeerDependencies",
+      "strictPeerDependencies: true\n",
+      "strictPeerDependencies: false\n",
+    ],
+    [
+      "minimumReleaseAgeStrict",
+      "minimumReleaseAgeStrict: true\n",
+      "minimumReleaseAgeStrict: false\n",
+    ],
+    [
+      "minimumReleaseAgeIgnoreMissingTime",
+      "minimumReleaseAgeIgnoreMissingTime: false\n",
+      "minimumReleaseAgeIgnoreMissingTime: true\n",
+    ],
+    ["trustLockfile", "trustLockfile: false\n", "trustLockfile: true\n"],
+    ["blockExoticSubdeps", "blockExoticSubdeps: true\n", "blockExoticSubdeps: false\n"],
+    ["trustPolicy", "trustPolicy: no-downgrade\n", "trustPolicy: off\n"],
+    ["minimumReleaseAge", "minimumReleaseAge: 10080\n", "minimumReleaseAge: 60\n"],
+  ])("blocks weakening %s without removing its line", (name, before, after) => {
+    const reason = checkGateRemoval("pnpm-workspace.yaml", before, after);
+    expect(reason).toMatch(new RegExp(name));
+    expect(reason).toMatch(/human decision/);
+  });
+
+  it("allows raising minimumReleaseAge above the floor", () => {
+    expect(
+      checkGateRemoval(
+        "pnpm-workspace.yaml",
+        "minimumReleaseAge: 10080\n",
+        "minimumReleaseAge: 20160\n",
+      ),
+    ).toBeNull();
+  });
+
+  it("does not apply pnpm-workspace.yaml's value checks to another gate file", () => {
+    // Same restriction as verifyDepsBeforeRun's file check: a comment
+    // elsewhere mentioning one of these setting names by name is not an
+    // assignment.
+    expect(
+      checkGateRemoval(
+        "eslint.config.mjs",
+        "// nothing about pnpm yet\n",
+        "// pnpm sets strictDepBuilds: false nowhere; this repo pins it to true.\n",
+      ),
+    ).toBeNull();
+  });
+
+  it("blocks adding an entry to minimumReleaseAgeExclude", () => {
+    const before = "minimumReleaseAge: 10080\n";
+    const after = "minimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n  - left-pad\n";
+    expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toMatch(
+      /human's explicit approval/,
+    );
+  });
+
+  it("blocks adding a second entry to an existing minimumReleaseAgeExclude list", () => {
+    const before = "minimumReleaseAgeExclude:\n  - left-pad\n";
+    const after = "minimumReleaseAgeExclude:\n  - left-pad\n  - is-odd\n";
+    expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toMatch(/is-odd/);
+  });
+
+  it("allows keeping the same minimumReleaseAgeExclude entries unchanged", () => {
+    const yaml = "minimumReleaseAgeExclude:\n  - left-pad\n";
+    expect(checkGateRemoval("pnpm-workspace.yaml", yaml, yaml)).toBeNull();
+  });
+
+  it("allows removing an entry from minimumReleaseAgeExclude", () => {
+    const before = "minimumReleaseAgeExclude:\n  - left-pad\n  - is-odd\n";
+    const after = "minimumReleaseAgeExclude:\n  - left-pad\n";
+    expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toBeNull();
+  });
+});
+
+describe("gates: the release workflow's provenance markers", () => {
+  it("blocks dropping the id-token permission from the release workflow", () => {
+    const before = "permissions:\n  contents: read\n  id-token: write\n";
+    const after = "permissions:\n  contents: read\n";
+    expect(checkGateRemoval(".github/workflows/release.yml", before, after)).toMatch(
+      /id-token/,
+    );
+  });
+
+  it("blocks dropping the --provenance flag reference from the release workflow", () => {
+    const before =
+      "# No --access/--provenance/--registry flags: publishConfig is the source.\n";
+    const after = "# publishConfig is the source.\n";
+    expect(checkGateRemoval(".github/workflows/release.yml", before, after)).toMatch(
+      /provenance/,
+    );
+  });
+});
+
+describe("gates: the real pnpm-workspace.yaml and release workflow still pass", () => {
+  // The hard bar every check above must clear: the honest, currently
+  // committed files must never trip their own new checks.
+  it("passes GATE_VALUES and the minimumReleaseAgeExclude check unchanged", () => {
+    const workspace = readFileSync(path.join(repoRoot, "pnpm-workspace.yaml"), "utf8");
+    expect(checkGateRemoval("pnpm-workspace.yaml", workspace, workspace)).toBeNull();
+  });
+
+  it("passes the id-token and --provenance markers unchanged", () => {
+    const release = readFileSync(
+      path.join(repoRoot, ".github/workflows/release.yml"),
+      "utf8",
+    );
+    expect(
+      checkGateRemoval(".github/workflows/release.yml", release, release),
+    ).toBeNull();
   });
 });
