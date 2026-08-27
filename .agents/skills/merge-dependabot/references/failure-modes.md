@@ -99,7 +99,7 @@ source-only test suite would miss.
 **Fix:** reproduce locally, which is far faster than iterating in CI:
 
 ```bash
-pnpm run package:lint
+pnpm run package:check
 pnpm run package:smoke
 ```
 

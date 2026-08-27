@@ -12,9 +12,9 @@ where its boundaries are, and which decisions need a human.
 
 ## Overview
 
-An ESM-only TypeScript package published to npm. Development runs on Node 24;
-the published contract supports Node >= 22.14. pnpm 11 is the package manager,
-used through Corepack.
+An ESM-only TypeScript package published to npm. Development and the published
+contract both run on Node >= 24. pnpm 11 is the package manager, used through
+Corepack.
 
 ## Quick reference
 
@@ -26,7 +26,6 @@ pnpm test          # tests only
 pnpm test:coverage # tests with the coverage thresholds enforced
 pnpm build         # emit dist/ from src/
 pnpm package:check # build and pack once, then run every artifact check
-pnpm package:lint  # compatibility alias for package:check
 pnpm package:smoke # install the tarball into throwaway consumers and run it
 pnpm docs:build    # TypeDoc into docs/api/
 pnpm agents:sync   # regenerate .claude/skills/ from .agents/skills/
@@ -42,25 +41,9 @@ tools — format applied rather than merely checked, tests limited to the ones
 reachable from the staged files — before every commit. Nothing — not a hook,
 not a workflow — defines a check of its own; they all call these scripts.
 
-### Verifying against the minimum supported Node
-
-`devEngines.runtime` pins development to Node 24 and pnpm treats a mismatch as a
-hard error. Checking that the package still works on the minimum supported Node
-is the one case where that check is deliberately waived:
-
-```sh
-pnpm --config.runtime-on-fail=ignore run check
-```
-
-No other spelling works. Do not relax `onFail` in `package.json` to make this
-easier.
-
-`pnpm install` — and only `install`, not `run` — materializes its effective
-settings back into `package.json`, so an install carrying that flag rewrites
-`devEngines.runtime.onFail` to `"ignore"` on disk. Restore the manifest
-(`git restore package.json`) before anything reads it. CI does this in the
-minimum-Node leg. Bootstrap does not install dependencies; run the documented
-install step after the rewrite.
+Development and the published contract both sit on Node 24, so there is no
+second runtime to verify against and no reason to ever waive
+`devEngines.runtime`'s `onFail: error`. Do not relax it.
 
 ## Architecture
 
@@ -169,8 +152,9 @@ time through `resolveDependencyBin` instead of importing it.
   `dot-notation` rule disagree about literal-key access on a `Record`, so
   reads go through these helpers instead of either style.
 - A file that is both importable and runnable guards its CLI half with
-  `isMain(import.meta.url)` from `scripts/lib/is-main.mjs`. `import.meta.main`
-  is Node 24+ and the floor is 22.14.
+  `isMain(import.meta.url)` from `scripts/lib/is-main.mjs`. The helper predates
+  the Node 24 floor; `import.meta.main` now covers the same ground and the
+  helper is a candidate for removal.
 - Git exports `GIT_DIR` to every hook it runs, and `git commit -- <path>` also
   exports a temporary `GIT_INDEX_FILE`; `lefthook.yml` runs this suite from its
   pre-commit hook. An inherited `GIT_DIR` outranks both a `cwd` and an explicit `-C`, so a
@@ -411,11 +395,11 @@ The rules above are enforced by three layers, from declarative to procedural.
 Each layer holds only what belongs there — the rule itself lives in exactly
 one place, never copied between layers:
 
-| Layer                                        | Fires on              | Applies to             | Holds                                                             |
-| -------------------------------------------- | --------------------- | ---------------------- | ----------------------------------------------------------------- |
-| `.claude/settings.json`'s `permissions.deny` | every tool call       | Claude Code only       | Rules a path or command pattern can state declaratively           |
-| `lefthook` pre-commit                        | `git commit`          | every author, any tool | Rules a staged diff, formatting, or a related-test run can decide |
-| This file                                    | read at session start | every agent            | Everything else — the reasons behind the rules above              |
+| Layer                                        | Fires on              | Applies to             | Holds                                                          |
+| -------------------------------------------- | --------------------- | ---------------------- | -------------------------------------------------------------- |
+| `.claude/settings.json`'s `permissions.deny` | every tool call       | Claude Code only       | Rules a path or command pattern can state declaratively        |
+| `lefthook` pre-commit                        | `git commit`          | every author, any tool | Formatting, a related-test run, and the one content rule below |
+| This file                                    | read at session start | every agent            | Everything else — the reasons behind the rules above           |
 
 `permissions.deny` rules are a hard block, including in `bypassPermissions`
 mode — they are not advisory. They are declarative pattern matches, though,
@@ -425,10 +409,9 @@ arguments is fragile: it cannot tell `git commit` from `git commit
 like `sh -c '…'` defeats it entirely. That gap is accepted rather than closed
 with a second, procedural Claude Code layer: an agent's own permission model
 plus a human's approval on commit/push/PR/publish already cover a session's
-realistic risk. The rules that must hold regardless of which tool or human is
-committing — a staged secret, a stripped gate, a `.env` file about to land in
-history — live in `lefthook`'s pre-commit hook instead, where every author
-goes through the same gate.
+realistic risk. The one rule that must hold regardless of which tool or human
+is committing — a secret about to land in history — lives in `lefthook`'s
+pre-commit hook instead, where every author goes through the same gate.
 
 Two consequences of that shape are worth naming rather than discovering:
 `Read`/`Edit` deny rules classify a **tool call's path**, so they say nothing
@@ -441,10 +424,18 @@ instructions in this file, not as blocks — reaching for either spelling is
 the thing being ruled out, not the spelling that happens to be caught.
 
 `scripts/lib/guard/` is the rule engine `scripts/check-staged.mjs` (the
-pre-commit layer) uses for the checks a staged diff's content, not just its
-path, must decide: a credential pattern, a gate marker stripped from a config
-file, a coverage threshold lowered below the floor. Its own header explains
-exactly what it does and does not cover.
+pre-commit layer) uses to decide whether a staged path or its content is
+secret-shaped. That is the whole of its scope, on purpose.
+
+The hook deliberately does **not** try to stop a commit from deleting a
+workflow, relaxing a config, or lowering a threshold. Those are judgement
+calls, and a judgement call belongs in the pull request, where a reader can
+weigh it and disagree — a hook cannot. A hook that blocks legitimate work
+teaches its author to reach for `--no-verify`, and that flag disables the
+secret check along with everything else, so a narrow hook that never fires on
+intended work protects more than a broad one that has to be routed around.
+"Never weaken a gate to make a run pass" therefore holds as an instruction in
+this file and as something a reviewer checks, not as a block.
 
 The lockfile rule is split on purpose, and is the clearest example of why a
 rule sometimes belongs in only one layer: hand-editing `pnpm-lock.yaml` is

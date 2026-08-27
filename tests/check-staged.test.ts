@@ -106,7 +106,12 @@ describe("checkStagedChange", () => {
     expect(checkStagedChange(change, dir)).toMatch(/private key/);
   });
 
-  it("blocks removing a gate marker from a gate file", () => {
+  it("allows weakening a config file", () => {
+    // Deliberate: whether relaxing a gate is a good idea is a judgement call,
+    // and a judgement call belongs in the pull request, where a reader can
+    // disagree with it. A hook that blocked this would fire on legitimate work
+    // and teach its author to reach for `--no-verify`, which would disable the
+    // secret checks above along with it.
     const dir = makeRepo();
     stage(dir, "eslint.config.mjs", "reportUnusedDisableDirectives\n");
     commit(dir);
@@ -114,16 +119,16 @@ describe("checkStagedChange", () => {
       status: "M",
       path: stage(dir, "eslint.config.mjs", "// removed\n"),
     };
-    expect(checkStagedChange(change, dir)).toMatch(/unused-disable check/);
+    expect(checkStagedChange(change, dir)).toBeNull();
   });
 
-  it("blocks deleting a gate file outright", () => {
+  it("allows deleting a file, whatever it is", () => {
     const dir = makeRepo();
     stage(dir, "package.json", "{}\n");
     commit(dir);
     execFileSync("git", ["rm", "-q", "package.json"], { cwd: dir });
     const change = { status: "D", path: "package.json" };
-    expect(checkStagedChange(change, dir)).toMatch(/quality or supply-chain gate/);
+    expect(checkStagedChange(change, dir)).toBeNull();
   });
 
   it("allows a re-generated lockfile", () => {
