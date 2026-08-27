@@ -350,9 +350,58 @@ describe("gates: pnpm-workspace.yaml value negation (GATE_VALUES)", () => {
     const after = "minimumReleaseAgeExclude:\n  - left-pad\n";
     expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toBeNull();
   });
+
+  it("reads every assignment, not just the first one in the file", () => {
+    // A first-match read is satisfied by an honest-looking value written
+    // above the real one, which would make the whole table a one-edit bypass.
+    const before = "strictDepBuilds: true\n";
+    const after = "defaults:\n  strictDepBuilds: true\nstrictDepBuilds: false\n";
+    expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toMatch(
+      /strictDepBuilds/,
+    );
+  });
+
+  it.each([
+    ["a flow sequence", 'minimumReleaseAgeExclude: ["left-pad@1.0.0"]\n'],
+    ["a bare scalar", "minimumReleaseAgeExclude: left-pad@1.0.0\n"],
+  ])("blocks a cooldown exclusion written as %s", (_label, after) => {
+    expect(checkGateRemoval("pnpm-workspace.yaml", "", after)).toMatch(
+      /left-pad@1\.0\.0/,
+    );
+  });
+
+  it("allows rewriting the same exclusion from a block to a flow sequence", () => {
+    const before = "minimumReleaseAgeExclude:\n  - left-pad@1.0.0\n";
+    const after = 'minimumReleaseAgeExclude: ["left-pad@1.0.0"]\n';
+    expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toBeNull();
+  });
+
+  it("reads an empty minimumReleaseAgeExclude key as holding no entries", () => {
+    const before = "minimumReleaseAge: 10080\n";
+    const after = "minimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n";
+    expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toBeNull();
+  });
 });
 
-describe("gates: the release workflow's provenance markers", () => {
+describe("gates: the dependency cooldown marker is anchored on its own key", () => {
+  it("blocks deleting minimumReleaseAge while a sibling key keeps the substring", () => {
+    // A bare /minimumReleaseAge/ marker is satisfied by minimumReleaseAgeStrict,
+    // so the assignment could be deleted without the marker ever going missing.
+    const before = "minimumReleaseAge: 10080\nminimumReleaseAgeStrict: true\n";
+    const after = "minimumReleaseAgeStrict: true\n";
+    expect(checkGateRemoval("pnpm-workspace.yaml", before, after)).toMatch(
+      /dependency cooldown/,
+    );
+  });
+
+  it("allows rewording a comment that merely quotes the setting", () => {
+    const before = "    # Matches `minimumReleaseAge: 10080` in pnpm-workspace.yaml\n";
+    const after = "    # Matches the pnpm cooldown in pnpm-workspace.yaml\n";
+    expect(checkGateRemoval(".github/dependabot.yml", before, after)).toBeNull();
+  });
+});
+
+describe("gates: the release workflow's id-token permission", () => {
   it("blocks dropping the id-token permission from the release workflow", () => {
     const before = "permissions:\n  contents: read\n  id-token: write\n";
     const after = "permissions:\n  contents: read\n";
@@ -361,13 +410,25 @@ describe("gates: the release workflow's provenance markers", () => {
     );
   });
 
-  it("blocks dropping the --provenance flag reference from the release workflow", () => {
+  it("allows dropping id-token from a workflow that is not the release one", () => {
+    // scorecard.yml carries id-token: write to sign OpenSSF results, nothing
+    // to do with npm provenance. Dropping it there narrows a permission, so
+    // the marker must not reach outside the file it defends.
+    const before = "permissions:\n  contents: read\n  id-token: write\n";
+    const after = "permissions:\n  contents: read\n";
+    expect(
+      checkGateRemoval(".github/workflows/scorecard.yml", before, after),
+    ).toBeNull();
+  });
+
+  it("allows rewording a comment that merely mentions --provenance", () => {
+    // The repository drives provenance through package.json's publishConfig;
+    // release.yml's only mention of the flag is a comment saying it is *not*
+    // used, so prose about it is not a gate.
     const before =
       "# No --access/--provenance/--registry flags: publishConfig is the source.\n";
-    const after = "# publishConfig is the source.\n";
-    expect(checkGateRemoval(".github/workflows/release.yml", before, after)).toMatch(
-      /provenance/,
-    );
+    const after = "# Flags are omitted: publishConfig is the source.\n";
+    expect(checkGateRemoval(".github/workflows/release.yml", before, after)).toBeNull();
   });
 });
 
@@ -379,7 +440,7 @@ describe("gates: the real pnpm-workspace.yaml and release workflow still pass", 
     expect(checkGateRemoval("pnpm-workspace.yaml", workspace, workspace)).toBeNull();
   });
 
-  it("passes the id-token and --provenance markers unchanged", () => {
+  it("passes the id-token marker unchanged", () => {
     const release = readFileSync(
       path.join(repoRoot, ".github/workflows/release.yml"),
       "utf8",
