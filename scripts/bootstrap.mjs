@@ -96,13 +96,30 @@ const PROFILE_BLOCK =
   /<!-- profile:([a-z0-9-]+):start -->([\s\S]*?)<!-- profile:\1:end -->/g;
 
 // Directories a Markdown-reference scan has no business reading: version
-// control internals, and (defensively) a dependency tree that should not
-// exist yet at bootstrap time.
-const MARKDOWN_SCAN_SKIP_DIRECTORIES = new Set(["node_modules", ".git"]);
+// control internals, a dependency tree that should not exist yet at
+// bootstrap time, and the gitignored scratch/worktree directories this
+// template's own tooling creates (see .gitignore). None of these are part of
+// the generated repository, but a bootstrap run against a real, non-fresh
+// checkout can still find them sitting on disk.
+const MARKDOWN_SCAN_SKIP_DIRECTORIES = new Set([
+  "node_modules",
+  ".git",
+  "worktrees",
+  "coverage",
+  ".package",
+  ".smoke",
+  ".attw",
+  ".rehearsal",
+]);
+
+// A fenced code block, stripped before scanning for inline code spans so a
+// single backtick pair used inside example prose (e.g. a shell command
+// demonstrating backtick substitution) is never mistaken for a path
+// reference.
+const MARKDOWN_FENCED_BLOCK = /^```[\s\S]*?^```[ \t]*$/gm;
 
 // A single-backtick inline code span, e.g. the `scripts/foo.mjs` in prose.
-// Deliberately excludes a fenced code block: the character class excludes
-// newlines, so it cannot match across the lines a fence's contents sit on.
+// The character class excludes newlines, so it cannot match across lines.
 const MARKDOWN_INLINE_CODE = /`([^`\n]+)`/g;
 
 // A conservative repo-relative path shape: letters, digits, `.`, `_`, `-`,
@@ -463,7 +480,8 @@ function listMarkdownFiles(root) {
 function extractPathTokens(text) {
   /** @type {Set<string>} */
   const tokens = new Set();
-  for (const match of text.matchAll(MARKDOWN_INLINE_CODE)) {
+  const withoutFences = text.replace(MARKDOWN_FENCED_BLOCK, "");
+  for (const match of withoutFences.matchAll(MARKDOWN_INLINE_CODE)) {
     const token = match[1] ?? "";
     if (
       token.includes("/") &&
@@ -891,9 +909,14 @@ export function bootstrap(
 ) {
   assertTemplate(root);
   const year = context.year ?? new Date().getUTCFullYear();
-  /** @type {Map<string, string | null> | undefined} */
-  const preview = options.dryRun ? new Map() : undefined;
-  const changed = transform(root, options, year, preview);
+
+  // Validate a dry-run preview before writing or deleting anything for real.
+  // transform() now removes its own script (scripts/bootstrap.mjs), so a
+  // validation failure discovered only after a real write would leave the
+  // repository half-migrated with no bootstrap script left to fix and rerun.
+  /** @type {Map<string, string | null>} */
+  const preview = new Map();
+  const changed = transform(root, { ...options, dryRun: true }, year, preview);
 
   const placeholders = findPlaceholders(root, preview);
   if (placeholders.length > 0) {
@@ -903,7 +926,11 @@ export function bootstrap(
     );
   }
   assertGeneratedAiLayer(root, options.profile, preview);
-  return changed;
+
+  if (options.dryRun) {
+    return changed;
+  }
+  return transform(root, options, year);
 }
 
 /**
