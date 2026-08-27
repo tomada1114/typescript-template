@@ -1,7 +1,6 @@
 * text=auto eol=lf
 
 pnpm-lock.yaml linguist-generated=true
-etc/*.api.md linguist-generated=true
 
 *.png binary
 *.jpg binary

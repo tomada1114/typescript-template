@@ -17,7 +17,7 @@ intentional hard error for normal development; use the documented override
 only for the minimum-Node compatibility check below.
 
 Useful focused commands are `pnpm check:quick`, `pnpm test`,
-`pnpm test:coverage`, `pnpm build`, `pnpm api:check`, and
+`pnpm test:coverage`, `pnpm build`, `pnpm docs:build`, and
 `pnpm package:smoke`.
 
 ## Bootstrap profiles

@@ -27,7 +27,6 @@ export const CONFIG_GATE_FILES = [
   /^pnpm-workspace\.yaml$/,
   /^package\.json$/,
   /^tsconfig(?:\.[^/]+)?\.json$/,
-  /^api-extractor\.json$/,
   /^typedoc\.json$/,
   /^lefthook\.yml$/,
   /^\.claude\/settings\.json$/,

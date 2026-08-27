@@ -1,9 +1,8 @@
 [files]
 extend-exclude = [
-  # Generated files. A typo in a package name is upstream's, and rewriting it
-  # here would invalidate the lockfile or the API report.
+  # Generated file. A typo in a package name is upstream's, and rewriting it
+  # here would invalidate the lockfile.
   "pnpm-lock.yaml",
-  "etc/*.api.md",
   # Verbatim copies of the upstream requirement documents (Japanese).
   "docs/template-requirements/",
 ]

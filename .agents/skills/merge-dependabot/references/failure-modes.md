@@ -92,9 +92,9 @@ decided to accept, and do not lower the threshold.
 `Package smoke` fails — `publint`, are-the-types-wrong, the tarball allowlist,
 or the consumer `tsc` run.
 
-**Cause:** usually a TypeScript or API Extractor bump changing emitted
-declarations, or a packaging-metadata interaction. This is exactly the class of
-break that a source-only test suite would miss.
+**Cause:** usually a TypeScript bump changing emitted declarations, or a
+packaging-metadata interaction. This is exactly the class of break that a
+source-only test suite would miss.
 
 **Fix:** reproduce locally, which is far faster than iterating in CI:
 
@@ -103,9 +103,8 @@ pnpm run package:lint
 pnpm run package:smoke
 ```
 
-If the emitted API changed shape, `pnpm run api:check` will also be red and the
-report needs regenerating with `pnpm run api:update` — but only after you have
-confirmed the change is intended.
+If the emitted declarations changed shape, fix the source — but only after you
+have confirmed the change is intended.
 
 ## F7 — Merge state `BEHIND` or `DIRTY`
 
