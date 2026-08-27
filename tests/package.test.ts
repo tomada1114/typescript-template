@@ -20,8 +20,11 @@ import {
   REQUIRED_PATHS,
   findAbsoluteMapSources,
   findDanglingMapSources,
+  findInstallScripts,
+  findManifestMismatch,
   findMissingRequiredPaths,
   inspectPackageEntries,
+  inspectTarball,
   readTarEntries,
   requiredEntryPaths,
 } from "../scripts/check-package.mjs";
@@ -736,6 +739,290 @@ describe("findDanglingMapSources", () => {
   });
 });
 
+// --- findInstallScripts -------------------------------------------------
+
+describe("findInstallScripts", () => {
+  it.each(["preinstall", "install", "postinstall", "prepare"])(
+    "flags a packed manifest declaring %s",
+    (name) => {
+      const problems = findInstallScripts({ scripts: { [name]: "node evil.js" } });
+
+      expect(codesOf(problems)).toEqual(["ERR_PACKAGE_INSTALL_SCRIPT"]);
+      expect(problems[0]?.message).toContain(name);
+      expect(problems[0]?.message).toContain("node evil.js");
+    },
+  );
+
+  it("reports every lifecycle script present, not only the first", () => {
+    const problems = findInstallScripts({
+      scripts: { postinstall: "a", prepare: "b", build: "c" },
+    });
+
+    expect(codesOf(problems)).toEqual([
+      "ERR_PACKAGE_INSTALL_SCRIPT",
+      "ERR_PACKAGE_INSTALL_SCRIPT",
+    ]);
+  });
+
+  it("accepts a manifest with no scripts field", () => {
+    expect(findInstallScripts({})).toEqual([]);
+  });
+
+  it("accepts ordinary, non-lifecycle scripts", () => {
+    expect(findInstallScripts({ scripts: { build: "tsc", test: "vitest" } })).toEqual(
+      [],
+    );
+  });
+
+  it("accepts a manifest that is not an object", () => {
+    expect(findInstallScripts(undefined)).toEqual([]);
+    expect(findInstallScripts(null)).toEqual([]);
+  });
+});
+
+// --- findManifestMismatch -------------------------------------------------
+
+describe("findManifestMismatch", () => {
+  const repositoryManifest = {
+    name: "fixture-package",
+    version: "1.0.0",
+    files: ["dist"],
+    exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
+  };
+
+  it("accepts a packed manifest identical to the repository manifest", () => {
+    expect(findManifestMismatch(repositoryManifest, repositoryManifest)).toEqual([]);
+  });
+
+  it("flags an exports field the tarball does not share with the repository manifest", () => {
+    const packedManifest = {
+      ...repositoryManifest,
+      exports: { ".": { types: "./dist/index.d.ts", import: "./dist/evil.js" } },
+    };
+
+    const problems = findManifestMismatch(packedManifest, repositoryManifest);
+
+    expect(codesOf(problems)).toEqual(["ERR_PACKAGE_MANIFEST_MISMATCH"]);
+    expect(problems[0]?.message).toContain("exports");
+    expect(problems[0]?.message).toContain("dist/evil.js");
+  });
+
+  it.each(["name", "version", "files"] as const)("flags a mismatched %s", (field) => {
+    const packedManifest = { ...repositoryManifest, [field]: "something-else" };
+
+    expect(codesOf(findManifestMismatch(packedManifest, repositoryManifest))).toEqual([
+      "ERR_PACKAGE_MANIFEST_MISMATCH",
+    ]);
+  });
+
+  it("flags a bin the repository manifest never declared", () => {
+    const packedManifest = { ...repositoryManifest, bin: { evil: "./dist/evil.js" } };
+
+    expect(codesOf(findManifestMismatch(packedManifest, repositoryManifest))).toEqual([
+      "ERR_PACKAGE_MANIFEST_MISMATCH",
+    ]);
+  });
+
+  it("flags an imports map the repository manifest never declared", () => {
+    // `imports` redirects the package's own internal `#specifier` resolution
+    // the same way `exports`/`bin` redirect a consumer's — an override here
+    // must be caught exactly like an `exports` override is.
+    const packedManifest = {
+      ...repositoryManifest,
+      imports: { "#internal": "./dist/evil.js" },
+    };
+
+    expect(codesOf(findManifestMismatch(packedManifest, repositoryManifest))).toEqual([
+      "ERR_PACKAGE_MANIFEST_MISMATCH",
+    ]);
+  });
+
+  it("reports one problem per differing field, not only the first", () => {
+    const packedManifest = {
+      ...repositoryManifest,
+      name: "different-name",
+      version: "9.9.9",
+    };
+
+    expect(codesOf(findManifestMismatch(packedManifest, repositoryManifest))).toEqual([
+      "ERR_PACKAGE_MANIFEST_MISMATCH",
+      "ERR_PACKAGE_MANIFEST_MISMATCH",
+    ]);
+  });
+
+  it("folds publishConfig onto the repository manifest before comparing", () => {
+    // publishConfig.access/provenance/registry (this repository's own shape)
+    // must never be treated as a mismatch on their own — only the fields in
+    // MANIFEST_COMPARISON_FIELDS are compared, and folding is required so a
+    // deliberate exports/bin override is not flagged as tampering.
+    const withPublishConfig = {
+      ...repositoryManifest,
+      publishConfig: {
+        access: "public",
+        exports: { ".": { types: "./dist/index.d.ts", import: "./dist/prod.js" } },
+      },
+    };
+    const packedManifest = {
+      ...repositoryManifest,
+      exports: { ".": { types: "./dist/index.d.ts", import: "./dist/prod.js" } },
+    };
+
+    expect(findManifestMismatch(packedManifest, withPublishConfig)).toEqual([]);
+  });
+
+  it("still flags a packed manifest that diverges from publishConfig's own promise", () => {
+    const withPublishConfig = {
+      ...repositoryManifest,
+      publishConfig: {
+        exports: { ".": { types: "./dist/index.d.ts", import: "./dist/prod.js" } },
+      },
+    };
+    const packedManifest = {
+      ...repositoryManifest,
+      exports: {
+        ".": { types: "./dist/index.d.ts", import: "./dist/something-else.js" },
+      },
+    };
+
+    expect(codesOf(findManifestMismatch(packedManifest, withPublishConfig))).toEqual([
+      "ERR_PACKAGE_MANIFEST_MISMATCH",
+    ]);
+  });
+});
+
+// --- inspectTarball: the packed manifest, not the repository's --------------
+
+describe("inspectTarball verifies the manifest actually packed", () => {
+  let workspace: string;
+
+  beforeAll(() => {
+    workspace = mkdtempSync(path.join(tmpdir(), "package-manifest-fixture-"));
+  });
+
+  afterAll(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const repositoryManifest = {
+    name: "fixture-package",
+    version: "1.0.0",
+    files: ["dist"],
+    exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
+  };
+
+  /** Write a synthetic tarball whose package.json is `packedManifest`. */
+  function writeFixtureTarball(name: string, packedManifest: unknown): string {
+    const file = path.join(workspace, name);
+    writeFileSync(
+      file,
+      tarball([
+        ...tarFile("package/package.json", JSON.stringify(packedManifest)),
+        ...tarFile("package/README.md", "# fixture\n"),
+        ...tarFile("package/LICENSE", "MIT\n"),
+        ...tarFile("package/dist/index.js", "export const a = 1;\n"),
+        ...tarFile("package/dist/index.d.ts", "export declare const a: 1;\n"),
+      ]),
+    );
+    return file;
+  }
+
+  it("fails with ERR_PACKAGE_INSTALL_SCRIPT when the packed manifest declares postinstall", () => {
+    const tarballPath = writeFixtureTarball("postinstall.tgz", {
+      ...repositoryManifest,
+      scripts: { postinstall: "node ./evil.js" },
+    });
+
+    const problems = inspectTarball(tarballPath, repositoryManifest);
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_INSTALL_SCRIPT");
+  });
+
+  it("fails with ERR_PACKAGE_MANIFEST_MISMATCH when the packed exports were rewritten", () => {
+    const tarballPath = writeFixtureTarball("mismatch.tgz", {
+      ...repositoryManifest,
+      exports: { ".": { types: "./dist/index.d.ts", import: "./dist/evil.js" } },
+    });
+
+    const problems = inspectTarball(tarballPath, repositoryManifest);
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_MANIFEST_MISMATCH");
+  });
+
+  it("passes with no problems when the packed manifest matches the repository manifest", () => {
+    const tarballPath = writeFixtureTarball("honest.tgz", repositoryManifest);
+
+    expect(inspectTarball(tarballPath, repositoryManifest)).toEqual([]);
+  });
+
+  it("derives required entry points from the packed manifest, not the repository one", () => {
+    // The repository manifest promises dist/index.js; the packed manifest
+    // (as publishConfig would fold it) promises dist/prod.js instead, which
+    // this tarball does not contain. Only the packed manifest's promise
+    // should be enforced.
+    const tarballPath = writeFixtureTarball("required-entry.tgz", {
+      ...repositoryManifest,
+      exports: { ".": { types: "./dist/index.d.ts", import: "./dist/prod.js" } },
+    });
+
+    const problems = inspectTarball(tarballPath, {
+      ...repositoryManifest,
+      publishConfig: {
+        exports: { ".": { types: "./dist/index.d.ts", import: "./dist/prod.js" } },
+      },
+    });
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_ENTRY_MISSING");
+    expect(codesOf(problems)).not.toContain("ERR_PACKAGE_MANIFEST_MISMATCH");
+  });
+
+  it("validates the LAST package.json entry when a tarball declares the path twice", () => {
+    // A sequential extractor (what `npm install` uses) writes each entry to
+    // disk in archive order, so a second "package.json" header overwrites the
+    // first on disk — the first is never what a consumer actually runs. If
+    // this check read the first match instead, an honest decoy manifest could
+    // shield a tampered one that ships right behind it in the same archive.
+    const file = path.join(workspace, "duplicate-manifest.tgz");
+    writeFileSync(
+      file,
+      tarball([
+        ...tarFile("package/package.json", JSON.stringify(repositoryManifest)),
+        ...tarFile(
+          "package/package.json",
+          JSON.stringify({ ...repositoryManifest, scripts: { postinstall: "evil" } }),
+        ),
+        ...tarFile("package/README.md", "# fixture\n"),
+        ...tarFile("package/LICENSE", "MIT\n"),
+        ...tarFile("package/dist/index.js", "export const a = 1;\n"),
+        ...tarFile("package/dist/index.d.ts", "export declare const a: 1;\n"),
+      ]),
+    );
+
+    const problems = inspectTarball(file, repositoryManifest);
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_INSTALL_SCRIPT");
+  });
+
+  it("fails with ERR_PACKAGE_MANIFEST_UNREADABLE when package.json does not parse as JSON", () => {
+    // findMissingRequiredPaths only checks that a package.json entry exists,
+    // never that it parses; without a dedicated check here, a corrupt
+    // manifest would silently skip the entry-point, install-script and
+    // manifest-mismatch checks instead of failing loudly.
+    const file = path.join(workspace, "corrupt-manifest.tgz");
+    writeFileSync(
+      file,
+      tarball([
+        ...tarFile("package/package.json", "{ not valid json"),
+        ...tarFile("package/README.md", "# fixture\n"),
+        ...tarFile("package/LICENSE", "MIT\n"),
+      ]),
+    );
+
+    const problems = inspectTarball(file, repositoryManifest);
+
+    expect(codesOf(problems)).toContain("ERR_PACKAGE_MANIFEST_UNREADABLE");
+  });
+});
+
 describe("verify-package artifact selection", () => {
   it("accepts one explicit release tarball", () => {
     expect(resolveTarballArgument(["--", "--tarball", "dist/package.tgz"])).toBe(
@@ -844,7 +1131,15 @@ describe("a tarball produced by npm pack", () => {
     );
     writeFileSync(
       path.join(root, "dist", "index.js.map"),
-      JSON.stringify({ version: 3, sources: ["../src/index.ts"], mappings: "" }),
+      JSON.stringify({
+        version: 3,
+        sources: ["../src/index.ts"],
+        // Embedded so this fixture is a genuinely problem-free tarball: without
+        // it, findDanglingMapSources would flag the map even though nothing
+        // about the manifest verification this file tests is at fault.
+        sourcesContent: ["export const a = 1;\n"],
+        mappings: "",
+      }),
     );
     writeFileSync(path.join(root, "dist", "bin.js"), "#!/usr/bin/env node\n");
     // A basename over 100 bytes cannot be split across the ustar prefix and
@@ -902,5 +1197,12 @@ describe("a tarball produced by npm pack", () => {
     const entries = readTarEntries(readFileSync(tarballPath));
 
     expect(findAbsoluteMapSources(entries)).toEqual([]);
+  });
+
+  it("passes inspectTarball with no problems, including the manifest checks", () => {
+    // The regression this issue closes: an honestly packed tarball whose
+    // manifest carries no install script and matches the repository manifest
+    // must still be publishable end to end.
+    expect(inspectTarball(tarballPath, manifest)).toEqual([]);
   });
 });
