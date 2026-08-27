@@ -27,7 +27,7 @@ irreversible choice for the generated repository:
 
 | Profile             | Runtime contract                                   | `sideEffects` |
 | ------------------- | -------------------------------------------------- | ------------- |
-| `node-library`      | Node.js >= 22.14                                   | `false`       |
+| `node-library`      | Node.js >= 24                                      | `false`       |
 | `universal-library` | ES and DOM APIs; Node built-ins fail the src build | `false`       |
 
 The universal profile omits `engines.node`, sets build `types` to an empty
@@ -41,18 +41,8 @@ as the lockfile update. Record the advisory and why waiting is riskier, remove
 the exception after the version ages out, and never use a broad package-only
 or wildcard exclusion.
 
-To verify the minimum supported Node version, use Node 22.14 and run:
-
-```sh
-pnpm --config.runtime-on-fail=ignore install --frozen-lockfile
-git restore package.json
-pnpm --config.runtime-on-fail=ignore run check
-```
-
-The `git restore` is not optional. `pnpm install` writes its effective settings
-back into `package.json`, so the flag turns `devEngines.runtime.onFail` into
-`"ignore"` on disk; leaving it there both dirties the working tree and fails the
-tests that assert on the manifest. `pnpm run` does not write the manifest.
+Development and the published contract both sit on Node 24, so there is no
+second runtime to check the package against.
 
 ## Pull requests
 

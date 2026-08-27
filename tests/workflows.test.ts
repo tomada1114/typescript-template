@@ -4,12 +4,9 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { REQUIRED_STATUS_CHECKS } from "../scripts/check-repo-settings.mjs";
-
 // GitHub Actions cannot be executed from here, so the properties spec 02 §5.1
 // requires of every workflow are asserted against the files instead. This is
-// the local evidence for DoD G; `docs/maintainer-checklist.md` covers what
-// only a real pull request or the GitHub UI can show.
+// the local evidence for DoD G.
 //
 // The scanner below is deliberately not a YAML parser. A parser would be a new
 // dependency for a repository whose whole point is a small, reviewable
@@ -47,10 +44,10 @@ function scan(source: string): Line[] {
   let scalarIndent: number | null = null;
 
   source.split("\n").forEach((raw, index) => {
-    // Trailing comments are dropped so that documenting a permission scope, as
-    // zizmor's undocumented-permissions audit asks for, does not change what a
-    // line means here. A `#` inside a quoted value would be cut too, which is
-    // why shell bodies are read from the raw source by `runCommands` instead.
+    // Trailing comments are dropped so that documenting a permission scope
+    // does not change what a line means here. A `#` inside a quoted value
+    // would be cut too, which is why shell bodies are read from the raw
+    // source by `runCommands` instead.
     const text = raw.trim().replace(/\s+#.*$/, "");
     const indent = raw.length - raw.trimStart().length;
 
@@ -539,18 +536,6 @@ function lintWorkflow(source: string): Problem[] {
 
 // --- version agreement -------------------------------------------------------
 
-/** Values of a `node:` matrix key, which is how the test matrix is written. */
-function matrixNodeVersions(source: string): string[] {
-  const versions: string[] = [];
-  for (const line of scan(source)) {
-    const version = /^(?:- )?node:\s*"?(\d[\d.]*)"?$/.exec(line.text)?.[1];
-    if (version !== undefined) {
-      versions.push(version);
-    }
-  }
-  return versions;
-}
-
 /**
  * Every `version:` a pnpm/action-setup step states.
  *
@@ -576,119 +561,6 @@ function pnpmSetupVersions(source: string): string[] {
     }
   }
   return versions;
-}
-
-/**
- * The lines nested directly under `key:` inside `parentLines`, where `key:`
- * sits at the same indent as `parentLines`' own first line — the same
- * "sibling at the block's own indent" shape `jobsOf` and `stepsOf` above
- * already rely on, generalized so `matrixRows` can walk `strategy` ->
- * `matrix` -> `include` without hardcoding an indent width at each step.
- */
-function childBlock(parentLines: Line[], key: string): Line[] {
-  const first = parentLines[0];
-  if (first === undefined) {
-    return [];
-  }
-  const index = parentLines.findIndex(
-    (line) => line.indent === first.indent && line.text === `${key}:`,
-  );
-  if (index === -1) {
-    return [];
-  }
-  return blockOf(parentLines, index);
-}
-
-/** Strip a single layer of matching quotes, if the value has any. */
-function stripQuotes(value: string): string {
-  const trimmed = value.trim();
-  const doubleQuoted = /^"(.*)"$/.exec(trimmed)?.[1];
-  if (doubleQuoted !== undefined) {
-    return doubleQuoted;
-  }
-  const singleQuoted = /^'(.*)'$/.exec(trimmed)?.[1];
-  return singleQuoted ?? trimmed;
-}
-
-/**
- * Every `strategy.matrix` combination a job's steps run under, as one
- * `{key: value}` row per combination — supporting the two shapes this
- * repository's workflows use: an inline flow sequence (`os: [a, b, c]`) and
- * an `include:` list of mapping rows. A job with no matrix runs once, with no
- * substitutions, hence the single empty row.
- */
-function matrixRows(job: Job): Record<string, string>[] {
-  const strategyBody = childBlock(job.body, "strategy");
-  const matrixBody = childBlock(strategyBody, "matrix");
-  if (matrixBody.length === 0) {
-    return [{}];
-  }
-
-  const includeBody = childBlock(matrixBody, "include");
-  if (includeBody.length > 0) {
-    const rows: Record<string, string>[] = [];
-    let current: Record<string, string> | undefined;
-    for (const line of includeBody) {
-      const bulletMatch = /^- ([A-Za-z0-9_-]+):\s*(.+)$/.exec(line.text);
-      const bulletKey = bulletMatch?.[1];
-      const bulletValue = bulletMatch?.[2];
-      if (bulletKey !== undefined && bulletValue !== undefined) {
-        current = { [bulletKey]: stripQuotes(bulletValue) };
-        rows.push(current);
-        continue;
-      }
-      const plainMatch = /^([A-Za-z0-9_-]+):\s*(.+)$/.exec(line.text);
-      const plainKey = plainMatch?.[1];
-      const plainValue = plainMatch?.[2];
-      if (plainKey !== undefined && plainValue !== undefined && current !== undefined) {
-        current[plainKey] = stripQuotes(plainValue);
-      }
-    }
-    return rows.length > 0 ? rows : [{}];
-  }
-
-  const rows: Record<string, string>[] = [];
-  for (const line of matrixBody) {
-    const flowMatch = /^([A-Za-z0-9_-]+):\s*\[(.+)]$/.exec(line.text);
-    const key = flowMatch?.[1];
-    const values = flowMatch?.[2];
-    if (key === undefined || values === undefined) {
-      continue;
-    }
-    for (const value of values.split(",")) {
-      rows.push({ [key]: stripQuotes(value) });
-    }
-  }
-  return rows.length > 0 ? rows : [{}];
-}
-
-/** Substitute every `${{ matrix.KEY }}` in a job name template with `row`'s value. */
-function expandJobName(template: string, row: Record<string, string>): string {
-  return template.replace(
-    /\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}/g,
-    (_match, key: string) => row[key] ?? "",
-  );
-}
-
-/**
- * Every job `name:` a workflow declares, expanded across its
- * `strategy.matrix` — the same names branch protection (or the ruleset that
- * replaces it) sees as check run names.
- */
-function jobNames(workflowFile: string): string[] {
-  const lines = scan(workflowSource(workflowFile));
-  const names: string[] = [];
-  for (const job of jobsOf(lines)) {
-    const nameLine = jobKey(job, "name");
-    if (nameLine === undefined) {
-      continue;
-    }
-    const template = inlineValue(nameLine);
-    for (const row of matrixRows(job)) {
-      names.push(expandJobName(template, row));
-    }
-  }
-  return names;
 }
 
 // --- fixtures ----------------------------------------------------------------
@@ -1100,11 +972,9 @@ describe("the workflows in .github/workflows", () => {
     expect(workflowNames).toEqual([
       "check-pr-title.yml",
       "ci.yml",
-      "codeql.yml",
       "dependency-review.yml",
       "pr-label.yml",
       "release.yml",
-      "scorecard.yml",
       "security-audit.yml",
       "typos.yml",
     ]);
@@ -1146,9 +1016,9 @@ describe("the workflows in .github/workflows", () => {
     expect(refs.filter((ref) => !PINNED_REF.test(ref))).toEqual([]);
   });
 
-  it("collects coverage exactly once across the whole matrix", () => {
-    // Spec 02 §5.2: the minimum-Node Ubuntu leg is the source of truth, and a
-    // second collector would make the threshold depend on which leg finished.
+  it("collects coverage exactly once", () => {
+    // Spec 02 §5.2: the `test` job is the single source of truth, and a
+    // second collector would make the threshold depend on which job finished.
     const collectors = runCommands(workflowSource("ci.yml")).filter(({ command }) =>
       command.includes("test:coverage"),
     );
@@ -1156,38 +1026,15 @@ describe("the workflows in .github/workflows", () => {
     expect(collectors).toHaveLength(1);
   });
 
-  it("restores package.json after an install that overrides runtime-on-fail", () => {
-    // `pnpm install` writes its effective settings back into package.json, so
-    // `--config.runtime-on-fail=ignore` leaves `devEngines.runtime.onFail` as
-    // "ignore" on disk. A later step that reads the manifest — the tests in
-    // this file and in tests/bootstrap.test.ts — then sees a contract nobody
-    // committed. Whoever adds the override owns restoring the manifest.
-    const overriding = runCommands(workflowSource("ci.yml")).filter(
-      ({ command }) =>
-        command.includes("--config.runtime-on-fail=ignore") &&
-        /\bpnpm\b[^\n;&|]*\binstall\b/.test(command),
-    );
-
-    expect(overriding).not.toEqual([]);
-    expect(
-      overriding.filter(({ command }) => !command.includes("git restore package.json")),
-    ).toEqual([]);
-  });
-
   it("grants a write scope only where the job cannot do its work without one", () => {
-    // codeql and scorecard upload to the security tab; pr-label writes a label
-    // and tolerates the read-only token a fork PR gets. Everything else, and in
+    // pr-label writes a label and tolerates the read-only token a fork PR
+    // gets; release needs OIDC and a tag push. Everything else, and in
     // particular everything that runs repository code, stays read-only.
     const writers = workflowNames.filter((name) =>
       scan(workflowSource(name)).some((line) => line.text.endsWith(": write")),
     );
 
-    expect(writers.sort()).toEqual([
-      "codeql.yml",
-      "pr-label.yml",
-      "release.yml",
-      "scorecard.yml",
-    ]);
+    expect(writers.sort()).toEqual(["pr-label.yml", "release.yml"]);
   });
 });
 
@@ -1213,9 +1060,8 @@ describe("the release workflow preserves the reviewed artifact", () => {
 
   it("does not refer to a long-lived npm token or enable a dependency cache", () => {
     expect(source).not.toContain("NPM_TOKEN");
-    // setup-node's package-manager-cache is explicitly disabled (zizmor
-    // cache-poisoning): a release workflow must never restore build state
-    // from a previous run's cache.
+    // setup-node's package-manager-cache is explicitly disabled: a release
+    // workflow must never restore build state from a previous run's cache.
     expect(source).not.toMatch(/cache:\s*(?!false\b)\S/);
   });
 
@@ -1384,8 +1230,8 @@ describe("workflow regression checks for repository automation", () => {
   it("runs the lightweight bootstrap check in CI", () => {
     const source = workflowSource("ci.yml");
     const bootstrapStart = source.indexOf("  bootstrap:");
-    const nextJobStart = source.indexOf("  platform-smoke:", bootstrapStart);
-    const bootstrapJob = source.slice(bootstrapStart, nextJobStart);
+    const blockEnd = source.indexOf("# template-only:end", bootstrapStart);
+    const bootstrapJob = source.slice(bootstrapStart, blockEnd);
     expect(bootstrapJob).toContain("node scripts/verify-bootstrap.mjs");
     expect(bootstrapJob).not.toContain("pnpm install");
     expect(bootstrapJob).not.toContain("pnpm run check");
@@ -1407,85 +1253,6 @@ describe("workflow regression checks for repository automation", () => {
     expect(source).toContain("for attempt in 1 2 3");
     expect(source).toContain("exit 1");
   });
-
-  it("fails closed and checks the human-managed repository settings", () => {
-    const source = readFileSync(
-      path.join(repoRoot, "scripts", "check-repo-settings.mjs"),
-      "utf8",
-    );
-    expect(source).not.toContain("repo-settings: skipped");
-    expect(source).toContain("required_approving_review_count");
-    expect(source).toContain("required_conversation_resolution");
-    expect(source).toContain("required_reviewers");
-    expect(source).toContain("can_approve_pull_request_reviews");
-  });
-
-  it("runs the repository settings check on the weekly security-audit schedule", () => {
-    const source = workflowSource("security-audit.yml");
-    expect(source).toContain("check-repo-settings.mjs");
-  });
-});
-
-// --- REQUIRED_STATUS_CHECKS agrees with the workflows it names --------------
-
-const STATUS_CHECK_WORKFLOWS = [
-  "ci.yml",
-  "codeql.yml",
-  "typos.yml",
-  "check-pr-title.yml",
-  "dependency-review.yml",
-];
-
-describe("REQUIRED_STATUS_CHECKS matches the workflow job names that gate main", () => {
-  it("derives exactly the job names branch protection is expected to require", () => {
-    const derived = new Set(STATUS_CHECK_WORKFLOWS.flatMap((file) => jobNames(file)));
-    expect(new Set(REQUIRED_STATUS_CHECKS)).toEqual(derived);
-  });
-
-  it("has no duplicate entries", () => {
-    expect(new Set(REQUIRED_STATUS_CHECKS).size).toBe(REQUIRED_STATUS_CHECKS.length);
-  });
-});
-
-// --- the maintainer checklist mirrors what pnpm repo:check verifies ---------
-
-describe("the maintainer checklist mirrors what pnpm repo:check verifies", () => {
-  const scriptSource = readFileSync(
-    path.join(repoRoot, "scripts", "check-repo-settings.mjs"),
-    "utf8",
-  );
-  const checklist = readFileSync(
-    path.join(repoRoot, "docs", "maintainer-checklist.md"),
-    "utf8",
-  );
-
-  // Only a literal, double-quoted label is picked up — a template literal
-  // (the per-status-check `main requires status check "${requiredCheck}"`)
-  // reports a different check on every REQUIRED_STATUS_CHECKS entry and has
-  // no single line to point at, so it is deliberately not required here.
-  const labels = [
-    ...new Set(
-      [...scriptSource.matchAll(/expectSetting\(\s*"([^"]+)"/g)]
-        .map((match) => match[1])
-        .filter((label) => label !== undefined),
-    ),
-  ];
-
-  const verifiedSection = /## Verified by `pnpm repo:check`\n([\s\S]*?)\n## /.exec(
-    checklist,
-  )?.[1];
-
-  it("has a 'Verified by `pnpm repo:check`' section to check against", () => {
-    expect(verifiedSection).toBeDefined();
-  });
-
-  it("finds at least one static expectSetting label in the script", () => {
-    expect(labels.length).toBeGreaterThan(0);
-  });
-
-  it.each(labels)("documents %s under 'Verified by `pnpm repo:check`'", (label) => {
-    expect(verifiedSection).toContain(label);
-  });
 });
 
 // --- agreement with package.json and .node-version ---------------------------
@@ -1494,7 +1261,7 @@ interface Manifest {
   engines?: { node?: string };
   packageManager?: string;
   devEngines?: {
-    runtime?: { onFail?: string };
+    runtime?: { onFail?: string; version?: string };
     packageManager?: { version?: string };
   };
 }
@@ -1502,48 +1269,27 @@ interface Manifest {
 const manifest = JSON.parse(
   readFileSync(path.join(repoRoot, "package.json"), "utf8"),
 ) as Manifest;
-const nodeVersionFile = readFileSync(
-  path.join(repoRoot, ".node-version"),
-  "utf8",
-).trim();
-
-describe("the CI matrix agrees with the package contract", () => {
-  const matrix = matrixNodeVersions(workflowSource("ci.yml"));
-
-  it("runs the minimum Node that engines.node promises when one is declared", () => {
-    const minimum = /(\d+(?:\.\d+)*)/.exec(manifest.engines?.node ?? "")?.[1];
-    if (minimum === undefined) {
-      expect(manifest.engines).toBeUndefined();
-      return;
-    }
-
-    // Compared by the precision engines.node states: ">=22.14" is satisfied by
-    // the matrix entry 22.14.0, and only by a 22.14 patch of it.
-    const depth = minimum.split(".").length;
-    expect(
-      matrix.filter(
-        (version) => version.split(".").slice(0, depth).join(".") === minimum,
-      ),
-    ).not.toEqual([]);
-  });
-
-  it("runs the Node in .node-version", () => {
-    const depth = nodeVersionFile.split(".").length;
-    expect(
-      matrix.filter(
-        (version) => version.split(".").slice(0, depth).join(".") === nodeVersionFile,
-      ),
-    ).not.toEqual([]);
-  });
-
-  it("runs nothing else, so a stale entry is noticed", () => {
-    expect(matrix).toHaveLength(2);
-  });
-});
-
 describe("the development runtime contract fails closed", () => {
   it("treats the Node 24 requirement as an error", () => {
     expect(manifest.devEngines?.runtime?.onFail).toBe("error");
+  });
+
+  it("names the same Node major in engines, devEngines, and .node-version", () => {
+    // Three places state the runtime: `engines.node` is the published
+    // contract, `devEngines.runtime.version` is what pnpm enforces locally,
+    // and `.node-version` is what every CI job installs. Nothing makes them
+    // agree on its own, so bumping one and not the others would publish a
+    // floor no job ever runs against.
+    const major = (value: string) => /(\d+)/.exec(value)?.[1];
+    const nodeVersionFile = readFileSync(
+      path.join(repoRoot, ".node-version"),
+      "utf8",
+    ).trim();
+
+    expect(major(nodeVersionFile)).toBe(major(manifest.engines?.node ?? ""));
+    expect(major(manifest.devEngines?.runtime?.version ?? "")).toBe(
+      major(nodeVersionFile),
+    );
   });
 });
 

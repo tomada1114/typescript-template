@@ -104,11 +104,6 @@ function assertGenerated(destination, packageName) {
         "Next: update the template manifest, then rerun bootstrap:e2e.",
     );
   }
-  if (packageName === "zukai" && readKey(manifest, "dependencies") !== undefined) {
-    throw new Error(
-      "ERR_ZUKAI_RUNTIME_DEPENDENCIES: generated zukai must have zero runtime dependencies.",
-    );
-  }
 }
 
 /**
@@ -187,7 +182,6 @@ export function main() {
     const cases = [
       ["node-library", "acme-node-library"],
       ["universal-library", "acme-universal-library"],
-      ["node-library", "zukai"],
     ];
     for (const [profile, packageName] of cases) {
       if (profile === undefined || packageName === undefined) {

@@ -238,7 +238,7 @@ function installConsumer(workspace, tarball) {
       subject: path.basename(tarball),
       expected: "npm install exits 0",
       actual: `exit ${String(result.status)}\n${excerpt(result.stderr || result.stdout)}`,
-      next: "Run `pnpm run package:lint` to check the manifest, then pack again.",
+      next: "Run `pnpm run package:check` to check the manifest, then pack again.",
     });
   }
   return consumer;
@@ -541,7 +541,7 @@ export async function run(): Promise<string> {
       subject: `moduleResolution: ${resolution}`,
       expected: "tsc exits 0 against the published declarations",
       actual: `exit ${String(result.status)}\n${excerpt(result.stdout || result.stderr)}`,
-      next: "Run `pnpm run build` and `pnpm run package:lint`, then check `exports.types`.",
+      next: "Run `pnpm run build` and `pnpm run package:check`, then check `exports.types`.",
     });
   }
   return result.stdout;

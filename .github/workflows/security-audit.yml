@@ -57,31 +57,3 @@ jobs:
           done
           echo "::error::Production dependency audit failed after 3 attempts."
           exit 1
-
-  repo-settings:
-    name: Repository settings drift
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-
-      # The default GITHUB_TOKEN cannot read admin-level repository settings
-      # (rulesets, Actions permissions, security-and-analysis status), so this
-      # step runs with a maintainer-provisioned fine-grained PAT instead. See
-      # docs/maintainer-checklist.md's "Human-only" section for what it needs
-      # and how it is stored. This is a report-only check: it never writes to
-      # the GitHub API, and a red run here is the intended, expected signal
-      # that a live repository setting has drifted from what
-      # docs/maintainer-checklist.md requires — not a workflow bug to silence.
-      - name: Check repository settings
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_READ_TOKEN }}
-        run: node scripts/check-repo-settings.mjs

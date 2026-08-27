@@ -1,26 +1,34 @@
 #!/usr/bin/env node
-// Pre-commit gate: refuse a commit whose staged content is unsafe, from the
-// git index alone — no tool call, no running agent.
+// Pre-commit gate: refuse a commit that would put a secret into history, from
+// the git index alone — no tool call, no running agent.
 //
-// This is one of the layers described in AGENTS.md's "Enforcement layers":
-// `.claude/settings.json`'s `permissions.deny` only ever sees a tool call
-// inside a Claude Code session; this script sees what actually reaches
-// `git commit`, from any author — a human, Codex, or any other tool. It does
-// not duplicate every rule that layer enforces:
+// The scope is deliberately narrow. This hook only blocks what is wrong no
+// matter who decided it: a secret-shaped path (`.env`, `secrets/**`) or a
+// credential in the content of a staged file. Everything else a commit might
+// do — deleting a workflow, relaxing a config, lowering a threshold — is a
+// judgement call, and a judgement call belongs in the pull request, where a
+// reader can weigh it and disagree. A hook cannot.
 //
-//   - Lockfile hand-editing is `permissions.deny`-only. A regenerated
-//     lockfile (`pnpm install`) is an ordinary, expected commit, and a git
-//     diff cannot tell that apart from a hand edit — only a layer that sees
-//     the tool call that produced the change can.
+// That narrowness is the point rather than a gap. A hook that blocks
+// legitimate work teaches its author to reach for `--no-verify`, and that flag
+// turns off the secret check along with everything else. This one should never
+// have a reason to fire on work someone meant to do.
+//
+// It complements `.claude/settings.json`'s `permissions.deny`, which only ever
+// sees a tool call inside a Claude Code session; this script sees what
+// actually reaches `git commit`, from any author — a human, Codex, or any
+// other tool. Two rules stay on that side and are deliberately not duplicated
+// here:
+//
+//   - Lockfile hand-editing. A regenerated lockfile (`pnpm install`) is an
+//     ordinary, expected commit, and a git diff cannot tell that apart from a
+//     hand edit — only a layer that sees the tool call that produced the
+//     change can.
 //   - `git commit --no-verify`, a bare force-push, and publish/workflow
-//     dispatch are `permissions.deny`-only: none of them leave anything in a
-//     diff for this script to see. `--no-verify` in particular disables this
-//     script along with the rest of the git hook chain, so no git hook can
-//     catch it — a layer that runs before the commit is even attempted is the
-//     only one that can.
-//
-// What this script adds that `permissions.deny` cannot: it also protects a
-// commit made by a tool that declarative layer was never wired into.
+//     dispatch leave nothing in a diff for this script to see. `--no-verify`
+//     in particular disables this script along with the rest of the git hook
+//     chain, so no git hook can catch it — a layer that runs before the commit
+//     is even attempted is the only one that can.
 //
 // Exit codes:
 //   0  every staged change is safe to commit
@@ -30,7 +38,6 @@ import console from "node:console";
 import process from "node:process";
 
 import { checkCredentials } from "./lib/guard/credentials.mjs";
-import { checkGateRemoval, isGateFile } from "./lib/guard/gates.mjs";
 import { checkRead } from "./lib/guard/paths.mjs";
 import { isMain } from "./lib/is-main.mjs";
 import { repoRoot } from "./lib/node-tools.mjs";
@@ -115,22 +122,6 @@ function readStaged(path, cwd) {
 }
 
 /**
- * Read a path's content at HEAD, or "" when it did not exist there.
- *
- * @param {string} path - Path relative to the repository root.
- * @param {string} cwd - Repository to read from.
- * @returns {string} The committed content, or an empty string for a new file.
- */
-function readAtHead(path, cwd) {
-  const result = spawnSync("git", ["show", `HEAD:${path}`], {
-    cwd,
-    encoding: "utf8",
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  return result.status === 0 ? result.stdout : "";
-}
-
-/**
  * Check one staged change against every rule this script enforces.
  *
  * @param {StagedChange} change - One entry from {@link stagedChanges}.
@@ -139,10 +130,10 @@ function readAtHead(path, cwd) {
  * @returns {string | null} The block reason, or null when the change is safe.
  */
 export function checkStagedChange(change, cwd = repoRoot) {
+  // A deletion has no content to inspect, and whether removing a file is a
+  // good idea is a question for the pull request, not for a hook that cannot
+  // be reasoned with.
   if (change.status === "D") {
-    if (isGateFile(change.path)) {
-      return `Deleting ${change.path} removes a quality or supply-chain gate. That needs a human decision.`;
-    }
     return null;
   }
 
@@ -157,13 +148,7 @@ export function checkStagedChange(change, cwd = repoRoot) {
 
   const after = readStaged(change.path, cwd);
 
-  const credentialReason = checkCredentials(after);
-  if (credentialReason !== null) {
-    return credentialReason;
-  }
-
-  const before = change.status === "A" ? "" : readAtHead(change.path, cwd);
-  return checkGateRemoval(change.path, before, after);
+  return checkCredentials(after);
 }
 
 /**

@@ -16,7 +16,8 @@ coverage/
 .attw/
 .rehearsal/
 
-# Generated API documentation (docs/*.md is hand-written and tracked)
+# Generated API documentation. Anything else under docs/ is hand-written and
+# tracked.
 docs/api/
 
 # Tool caches

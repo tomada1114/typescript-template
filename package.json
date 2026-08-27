@@ -15,7 +15,7 @@
   "homepage": "https://github.com/your-name/my-package#readme",
   "type": "module",
   "engines": {
-    "node": ">=22.14"
+    "node": ">=24"
   },
   "packageManager": "pnpm@11.18.0",
   "devEngines": {
@@ -50,7 +50,7 @@
   },
   "scripts": {
     "build": "node scripts/clean.mjs dist && tsc -p tsconfig.build.json",
-    "clean": "node scripts/clean.mjs dist coverage docs/api .package .smoke .attw .rehearsal .eslintcache",
+    "clean": "node scripts/clean.mjs dist coverage docs/api .package .smoke .attw .eslintcache",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
@@ -59,7 +59,6 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:related": "vitest related --run",
-    "package:lint": "pnpm run package:check",
     "package:smoke": "pnpm run build && node scripts/clean.mjs .smoke && pnpm pack --pack-destination .smoke && node scripts/smoke-package.mjs --pack-dir .smoke",
     "package:check": "pnpm run build && node scripts/clean.mjs .package && pnpm pack --pack-destination .package && pnpm run package:verify -- --pack-dir .package && node scripts/clean.mjs .package",
     "package:verify": "node scripts/verify-package.mjs",
@@ -72,9 +71,7 @@
     "check": "pnpm run check:source && node scripts/clean.mjs .package && pnpm pack --pack-destination .package && pnpm run package:verify -- --pack-dir .package && node scripts/clean.mjs .package",
     "fix": "eslint . --fix && prettier --write .",
     "hooks:install": "lefthook install",
-    "bootstrap:e2e": "node scripts/verify-bootstrap.mjs",
-    "publish:rehearsal": "pnpm run build && node scripts/clean.mjs .rehearsal && pnpm pack --pack-destination .rehearsal && node scripts/publish-rehearsal.mjs --pack-dir .rehearsal && node scripts/clean.mjs .rehearsal",
-    "repo:check": "node scripts/check-repo-settings.mjs"
+    "bootstrap:e2e": "node scripts/verify-bootstrap.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

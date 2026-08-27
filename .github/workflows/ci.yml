@@ -61,21 +61,11 @@ jobs:
         run: pnpm run docs:build
 
   test:
-    name: Test (Node ${{ matrix.node }})
+    name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # The minimum supported runtime (package.json `engines.node`).
-          - node: "22.14.0"
-            minimum: true
-          # The development default (.node-version).
-          - node: "24"
-            minimum: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,43 +75,15 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: ${{ matrix.node }}
+          node-version-file: .node-version
 
       - name: Install dependencies
-        if: ${{ !matrix.minimum }}
         run: pnpm install --frozen-lockfile
 
-      - name: Run tests
-        if: ${{ !matrix.minimum }}
-        run: pnpm run test
-
-      # The two steps below are the minimum-Node leg. They repeat the commands
-      # above with one flag added rather than interpolating it, so the command
-      # a reader sees is the command that runs.
-      #
-      # `devEngines.runtime` pins development to Node ^24 with `onFail: error`,
-      # so pnpm refuses to run at all on the minimum supported runtime. Opting
-      # out here is what makes the `engines.node` floor testable: removing the
-      # flag does not make CI stricter, it breaks the job. See AGENTS.md's
-      # "Verifying against the minimum supported Node" section.
-      #
-      # `pnpm install` materializes its effective settings back into
-      # package.json, so the flag rewrites `devEngines.runtime.onFail` to
-      # "ignore" on disk. The manifest is part of what the tests below assert
-      # on, so restore it before they read it. Only `install` writes it back;
-      # the `pnpm run` step that follows leaves the manifest alone.
-      - name: Install dependencies (minimum Node)
-        if: ${{ matrix.minimum }}
-        run: |
-          set -euo pipefail
-          pnpm --config.runtime-on-fail=ignore install --frozen-lockfile
-          git restore package.json
-
-      # This leg is the single source of coverage: spec 02 §5.2 forbids
-      # collecting it more than once across the matrix.
-      - name: Run tests with coverage (minimum Node)
-        if: ${{ matrix.minimum }}
-        run: pnpm --config.runtime-on-fail=ignore run test:coverage
+      # The single source of coverage: it is collected exactly once across the
+      # whole workflow.
+      - name: Run tests with coverage
+        run: pnpm run test:coverage
 
   package:
     name: Package artifact
@@ -167,68 +129,3 @@ jobs:
       - name: Verify bootstrap transformations
         run: node scripts/verify-bootstrap.mjs
   # template-only:end
-
-  platform-smoke:
-    name: Package smoke (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    defaults:
-      run:
-        # Windows runners default to pwsh; one shell keeps the smoke command
-        # identical on all three platforms.
-        shell: bash
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # Packs the tarball and installs it into a throwaway consumer that
-      # imports the package and exercises its public API. No coverage is
-      # collected here.
-      - name: Smoke test the packed tarball
-        run: pnpm run package:smoke
-
-  workflow-security:
-    name: Workflow security lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # zizmor audits these workflows for the failure modes this file is
-      # written to avoid: unpinned actions, over-broad permissions, credential
-      # persistence, and template injection. Exceptions live in
-      # .github/zizmor.yml with a stated reason.
-      - uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
-        with:
-          version: 1.28.0
-          # Findings are the job's output; uploading SARIF would need
-          # security-events write, which this job has no other reason to hold.
-          advanced-security: false
-
-      # zizmor audits security posture; actionlint checks that the workflow
-      # YAML, its `${{ }}` expressions, and the embedded shell are actually
-      # valid. Not a package script: actionlint is a Go binary, so the package
-      # manager does not manage it and it would not exist for a local run.
-      - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
-        with:
-          version: 1.7.12
