@@ -276,7 +276,7 @@ Test files live in `tests/<module>.test.ts` — no co-location with `src/`.
   test to move the percentage. `src/**` keeps its 80% floor
   (lines/functions/statements/branches). `scripts/**` was never measured
   before it was added to `coverage.include`, so its floor is that first
-  measurement (62/55/65/60% lines/branches/functions/statements) rounded down
+  measurement (60/55/65/60% lines/branches/functions/statements) rounded down
   to a clean value, not a guessed default — raise it as real coverage grows,
   never lower it to make a run pass. `scripts/lib/guard/**` — the
   credential/path-detection rule engine, the most security-critical code in
