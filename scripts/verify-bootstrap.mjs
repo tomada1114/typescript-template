@@ -4,6 +4,7 @@ import console from "node:console";
 import {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -122,22 +123,64 @@ function assertGenerated(destination, packageName) {
 }
 
 /**
- * @param {string} destination
+ * Decide whether a path `git ls-files` reported is safe to copy.
+ *
+ * `git`'s own untracked-file walk already keeps a genuine socket or FIFO out
+ * of the list this guards (`git add`/`ls-files --others` silently drop them),
+ * so in practice only a stale index entry or a tracked symlink reach here —
+ * but the check is written against "not a regular file" rather than
+ * "is a symlink" so it also holds if that git behavior ever changes, or a
+ * caller feeds it a path some other way.
+ *
+ * @param {string} source - Absolute path on disk.
+ * @param {string} relative - Repository-relative path, used in the error.
+ * @returns {boolean} `true` when `source` is a regular file to copy, `false`
+ * when it is a stale index entry to skip.
  */
-function copyTemplate(destination) {
+export function assertCopyable(source, relative) {
+  /** @type {import("node:fs").Stats} */
+  let stats;
+  try {
+    stats = lstatSync(source);
+  } catch (error) {
+    // `git ls-files` lists a path that a later `rm` removed but no commit
+    // recorded yet; that is a stale entry, not a file to copy.
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+  if (stats.isFile()) {
+    return true;
+  }
+  throw new Error(
+    `ERR_BOOTSTRAP_UNSUPPORTED_ENTRY: ${relative} is not a regular file.\n` +
+      "Expected: a regular file, so the copy faithfully reproduces the source tree.\n" +
+      `Actual: ${stats.isSymbolicLink() ? "a symlink" : "a socket, FIFO, or device entry"}.\n` +
+      "Next: replace it with a real file, or remove it from git, then rerun bootstrap:e2e.",
+  );
+}
+
+/**
+ * Copy every file `git ls-files` reports from `root` into `destination`,
+ * preserving relative paths.
+ *
+ * @param {string} destination
+ * @param {string} [root] - Repository root to copy from. Defaults to this
+ * template's own checkout.
+ */
+export function copyTemplate(destination, root = ROOT) {
   const files = spawnSync(
     "git",
-    ["-C", ROOT, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+    ["-C", root, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
     { encoding: "utf8", timeout: 30_000, env: isolatedGitEnv() },
   );
   if (files.status !== 0) {
     throw new Error(`ERR_GIT_FILES: ${files.stderr.trim()}`);
   }
   for (const relative of files.stdout.split("\0").filter(Boolean)) {
-    const source = path.join(ROOT, relative);
-    // `git ls-files` lists a path that a later `rm` removed but no commit
-    // recorded yet; that is a stale entry, not a file to copy.
-    if (!existsSync(source)) {
+    const source = path.join(root, relative);
+    if (!assertCopyable(source, relative)) {
       continue;
     }
     const target = path.join(destination, relative);

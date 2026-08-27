@@ -600,7 +600,11 @@ function transform(root, options, year, preview) {
     }
   }
 
-  for (const relative of ["tests/bootstrap.test.ts", "scripts/verify-bootstrap.mjs"]) {
+  for (const relative of [
+    "tests/bootstrap.test.ts",
+    "tests/verify-bootstrap.test.ts",
+    "scripts/verify-bootstrap.mjs",
+  ]) {
     const target = path.join(root, relative);
     if (existsSync(target)) {
       if (write) {
