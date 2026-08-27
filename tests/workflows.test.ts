@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { REQUIRED_STATUS_CHECKS } from "../scripts/check-repo-settings.mjs";
+
 // GitHub Actions cannot be executed from here, so the properties spec 02 §5.1
 // requires of every workflow are asserted against the files instead. This is
 // the local evidence for DoD G; the maintainer checklist in
@@ -575,6 +577,119 @@ function pnpmSetupVersions(source: string): string[] {
     }
   }
   return versions;
+}
+
+/**
+ * The lines nested directly under `key:` inside `parentLines`, where `key:`
+ * sits at the same indent as `parentLines`' own first line — the same
+ * "sibling at the block's own indent" shape `jobsOf` and `stepsOf` above
+ * already rely on, generalized so `matrixRows` can walk `strategy` ->
+ * `matrix` -> `include` without hardcoding an indent width at each step.
+ */
+function childBlock(parentLines: Line[], key: string): Line[] {
+  const first = parentLines[0];
+  if (first === undefined) {
+    return [];
+  }
+  const index = parentLines.findIndex(
+    (line) => line.indent === first.indent && line.text === `${key}:`,
+  );
+  if (index === -1) {
+    return [];
+  }
+  return blockOf(parentLines, index);
+}
+
+/** Strip a single layer of matching quotes, if the value has any. */
+function stripQuotes(value: string): string {
+  const trimmed = value.trim();
+  const doubleQuoted = /^"(.*)"$/.exec(trimmed)?.[1];
+  if (doubleQuoted !== undefined) {
+    return doubleQuoted;
+  }
+  const singleQuoted = /^'(.*)'$/.exec(trimmed)?.[1];
+  return singleQuoted ?? trimmed;
+}
+
+/**
+ * Every `strategy.matrix` combination a job's steps run under, as one
+ * `{key: value}` row per combination — supporting the two shapes this
+ * repository's workflows use: an inline flow sequence (`os: [a, b, c]`) and
+ * an `include:` list of mapping rows. A job with no matrix runs once, with no
+ * substitutions, hence the single empty row.
+ */
+function matrixRows(job: Job): Record<string, string>[] {
+  const strategyBody = childBlock(job.body, "strategy");
+  const matrixBody = childBlock(strategyBody, "matrix");
+  if (matrixBody.length === 0) {
+    return [{}];
+  }
+
+  const includeBody = childBlock(matrixBody, "include");
+  if (includeBody.length > 0) {
+    const rows: Record<string, string>[] = [];
+    let current: Record<string, string> | undefined;
+    for (const line of includeBody) {
+      const bulletMatch = /^- ([A-Za-z0-9_-]+):\s*(.+)$/.exec(line.text);
+      const bulletKey = bulletMatch?.[1];
+      const bulletValue = bulletMatch?.[2];
+      if (bulletKey !== undefined && bulletValue !== undefined) {
+        current = { [bulletKey]: stripQuotes(bulletValue) };
+        rows.push(current);
+        continue;
+      }
+      const plainMatch = /^([A-Za-z0-9_-]+):\s*(.+)$/.exec(line.text);
+      const plainKey = plainMatch?.[1];
+      const plainValue = plainMatch?.[2];
+      if (plainKey !== undefined && plainValue !== undefined && current !== undefined) {
+        current[plainKey] = stripQuotes(plainValue);
+      }
+    }
+    return rows.length > 0 ? rows : [{}];
+  }
+
+  const rows: Record<string, string>[] = [];
+  for (const line of matrixBody) {
+    const flowMatch = /^([A-Za-z0-9_-]+):\s*\[(.+)]$/.exec(line.text);
+    const key = flowMatch?.[1];
+    const values = flowMatch?.[2];
+    if (key === undefined || values === undefined) {
+      continue;
+    }
+    for (const value of values.split(",")) {
+      rows.push({ [key]: stripQuotes(value) });
+    }
+  }
+  return rows.length > 0 ? rows : [{}];
+}
+
+/** Substitute every `${{ matrix.KEY }}` in a job name template with `row`'s value. */
+function expandJobName(template: string, row: Record<string, string>): string {
+  return template.replace(
+    /\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}/g,
+    (_match, key: string) => row[key] ?? "",
+  );
+}
+
+/**
+ * Every job `name:` a workflow declares, expanded across its
+ * `strategy.matrix` — the same names branch protection (or the ruleset that
+ * replaces it) sees as check run names.
+ */
+function jobNames(workflowFile: string): string[] {
+  const lines = scan(workflowSource(workflowFile));
+  const names: string[] = [];
+  for (const job of jobsOf(lines)) {
+    const nameLine = jobKey(job, "name");
+    if (nameLine === undefined) {
+      continue;
+    }
+    const template = inlineValue(nameLine);
+    for (const row of matrixRows(job)) {
+      names.push(expandJobName(template, row));
+    }
+  }
+  return names;
 }
 
 // --- fixtures ----------------------------------------------------------------
@@ -1304,6 +1419,73 @@ describe("workflow regression checks for repository automation", () => {
     expect(source).toContain("required_conversation_resolution");
     expect(source).toContain("required_reviewers");
     expect(source).toContain("can_approve_pull_request_reviews");
+  });
+
+  it("runs the repository settings check on the weekly security-audit schedule", () => {
+    const source = workflowSource("security-audit.yml");
+    expect(source).toContain("check-repo-settings.mjs");
+  });
+});
+
+// --- REQUIRED_STATUS_CHECKS agrees with the workflows it names --------------
+
+const STATUS_CHECK_WORKFLOWS = [
+  "ci.yml",
+  "codeql.yml",
+  "typos.yml",
+  "check-pr-title.yml",
+  "dependency-review.yml",
+];
+
+describe("REQUIRED_STATUS_CHECKS matches the workflow job names that gate main", () => {
+  it("derives exactly the job names branch protection is expected to require", () => {
+    const derived = new Set(STATUS_CHECK_WORKFLOWS.flatMap((file) => jobNames(file)));
+    expect(new Set(REQUIRED_STATUS_CHECKS)).toEqual(derived);
+  });
+
+  it("has no duplicate entries", () => {
+    expect(new Set(REQUIRED_STATUS_CHECKS).size).toBe(REQUIRED_STATUS_CHECKS.length);
+  });
+});
+
+// --- the maintainer checklist mirrors what pnpm repo:check verifies ---------
+
+describe("the maintainer checklist mirrors what pnpm repo:check verifies", () => {
+  const scriptSource = readFileSync(
+    path.join(repoRoot, "scripts", "check-repo-settings.mjs"),
+    "utf8",
+  );
+  const checklist = readFileSync(
+    path.join(repoRoot, "docs", "maintainer-checklist.md"),
+    "utf8",
+  );
+
+  // Only a literal, double-quoted label is picked up — a template literal
+  // (the per-status-check `main requires status check "${requiredCheck}"`)
+  // reports a different check on every REQUIRED_STATUS_CHECKS entry and has
+  // no single line to point at, so it is deliberately not required here.
+  const labels = [
+    ...new Set(
+      [...scriptSource.matchAll(/expectSetting\(\s*"([^"]+)"/g)]
+        .map((match) => match[1])
+        .filter((label) => label !== undefined),
+    ),
+  ];
+
+  const verifiedSection = /## Verified by `pnpm repo:check`\n([\s\S]*?)\n## /.exec(
+    checklist,
+  )?.[1];
+
+  it("has a 'Verified by `pnpm repo:check`' section to check against", () => {
+    expect(verifiedSection).toBeDefined();
+  });
+
+  it("finds at least one static expectSetting label in the script", () => {
+    expect(labels.length).toBeGreaterThan(0);
+  });
+
+  it.each(labels)("documents %s under 'Verified by `pnpm repo:check`'", (label) => {
+    expect(verifiedSection).toContain(label);
   });
 });
 
