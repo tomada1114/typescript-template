@@ -47,9 +47,12 @@ Nothing below is checked by `pnpm repo:check`; a human confirms these.
 - [ ] Run OpenSSF Scorecard for public repositories; document accepted
       findings
 - [ ] Create a fine-grained personal access token with read-only
-      `Administration`, `Actions`, and `Secret scanning alerts` repository
-      permissions, and store it as the `REPO_SETTINGS_READ_TOKEN` repository
-      secret. `.github/workflows/security-audit.yml`'s `repo-settings` job
+      `Administration`, `Actions`, `Code scanning alerts`, and `Metadata`
+      repository permissions, and store it as the `REPO_SETTINGS_READ_TOKEN`
+      repository secret. `Code scanning alerts` is what
+      `repos/{owner}/{repo}/code-scanning/default-setup` needs; without it
+      the CodeQL item above is reported as "could not be checked" rather
+      than as drift. `.github/workflows/security-audit.yml`'s `repo-settings` job
       reads it to run `pnpm repo:check` on the weekly schedule — the
       default `GITHUB_TOKEN` cannot read these admin-level endpoints
       (rulesets, Actions permissions, security-and-analysis settings) on

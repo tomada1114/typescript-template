@@ -76,15 +76,17 @@ function api(endpoint) {
  * Call the GitHub API, treating an HTTP 404 as "not found" rather than a
  * failure. Legacy branch protection and the code-scanning default-setup
  * endpoint both 404 when the feature simply is not configured, which is a
- * meaningful answer here, not an error to abort on.
+ * meaningful answer here, not an error to abort on. Any other failure — a
+ * token without the permission, a 5xx, no network — is still raised, so an
+ * unreadable setting is never reported as a disabled one.
  *
  * @param {string} endpoint
- * @returns {{found: true, body: unknown} | {found: false}}
+ * @returns {{found: true, stdout: string} | {found: false}}
  */
-function apiOrNotFound(endpoint) {
+function requestOrNotFound(endpoint) {
   const result = gh(["api", endpoint]);
   if (result.status === 0) {
-    return { found: true, body: parseJson(result.stdout) };
+    return { found: true, stdout: result.stdout };
   }
   if (result.stderr.includes("HTTP 404")) {
     return { found: false };
@@ -92,6 +94,30 @@ function apiOrNotFound(endpoint) {
   throw new Error(
     `ERR_GH_API: ${endpoint} failed.\nActual: ${result.stderr.trim() || `exit ${String(result.status)}`}`,
   );
+}
+
+/**
+ * {@link requestOrNotFound} with the body parsed.
+ *
+ * @param {string} endpoint
+ * @returns {{found: true, body: unknown} | {found: false}}
+ */
+function apiOrNotFound(endpoint) {
+  const result = requestOrNotFound(endpoint);
+  return result.found
+    ? { found: true, body: parseJson(result.stdout) }
+    : { found: false };
+}
+
+/**
+ * Whether an endpoint that answers through presence alone reports its feature
+ * as enabled: 204 with no body when it is on, 404 when it is off.
+ *
+ * @param {string} endpoint
+ * @returns {boolean}
+ */
+function apiPresence(endpoint) {
+  return requestOrNotFound(endpoint).found;
 }
 
 /**
@@ -197,7 +223,10 @@ function targetsMainBranch(detail) {
   const exclude = readKey(refName, "exclude");
   const includesMain =
     Array.isArray(include) &&
-    include.some((value) => value === "~DEFAULT_BRANCH" || value === "refs/heads/main");
+    include.some(
+      (value) =>
+        value === "~ALL" || value === "~DEFAULT_BRANCH" || value === "refs/heads/main",
+    );
   const excludesMain =
     Array.isArray(exclude) &&
     exclude.some((value) => value === "~DEFAULT_BRANCH" || value === "refs/heads/main");
@@ -304,11 +333,15 @@ function checkRulesetProtection(repository, expectSetting) {
     if (typeof id !== "number") {
       continue;
     }
-    const detail = api(`repos/${repository}/rulesets/${String(id)}`);
-    if (!targetsMainBranch(detail)) {
+    // `repos/{repo}/rulesets` includes rulesets inherited from the
+    // organization, and the repository-scoped detail endpoint 404s on those
+    // ids. Skipping them keeps the rest of the branch-protection group
+    // running instead of aborting it, which is the whole point of this file.
+    const detail = apiOrNotFound(`repos/${repository}/rulesets/${String(id)}`);
+    if (!detail.found || !targetsMainBranch(detail.body)) {
       continue;
     }
-    const detailRules = readKey(detail, "rules");
+    const detailRules = readKey(detail.body, "rules");
     if (Array.isArray(detailRules)) {
       /** @type {unknown[]} */
       const detailRulesArray = detailRules;
@@ -339,12 +372,11 @@ function checkBranchProtection(repository, expectSetting) {
 }
 
 /**
- * @param {string} repository
+ * @param {unknown} repositorySettings the `repos/{owner}/{repo}` body
  * @param {ExpectSetting} expectSetting
  * @returns {void}
  */
-function checkSecurityAnalysis(repository, expectSetting) {
-  const repositorySettings = api(`repos/${repository}`);
+function checkSecurityAnalysis(repositorySettings, expectSetting) {
   const security = readKey(repositorySettings, "security_and_analysis");
   expectSetting(
     "secret scanning is enabled",
@@ -375,16 +407,18 @@ function checkSecurityAnalysis(repository, expectSetting) {
 
 /**
  * Dependabot vulnerability alerts, which the API reports through presence
- * rather than a body: 204 when enabled, 404 when disabled — the same idiom
- * `checkPrivateVulnerabilityReporting` below uses.
+ * rather than a body: 204 when enabled, 404 when disabled.
  *
  * @param {string} repository
  * @param {ExpectSetting} expectSetting
  * @returns {void}
  */
 function checkVulnerabilityAlerts(repository, expectSetting) {
-  const result = gh(["api", `repos/${repository}/vulnerability-alerts`]);
-  expectSetting("Dependabot vulnerability alerts are enabled", 0, result.status);
+  expectSetting(
+    "Dependabot vulnerability alerts are enabled",
+    true,
+    apiPresence(`repos/${repository}/vulnerability-alerts`),
+  );
 }
 
 /**
@@ -399,12 +433,11 @@ function checkCodeScanningDefaultSetup(repository, expectSetting) {
 }
 
 /**
- * @param {string} repository
+ * @param {unknown} repositorySettings the `repos/{owner}/{repo}` body
  * @param {ExpectSetting} expectSetting
  * @returns {void}
  */
-function checkMergeButtons(repository, expectSetting) {
-  const repositorySettings = api(`repos/${repository}`);
+function checkMergeButtons(repositorySettings, expectSetting) {
   expectSetting(
     "main branch merges use squash or rebase only (no merge commits)",
     false,
@@ -482,13 +515,23 @@ function checkActionsPermissions(repository, expectSetting) {
 }
 
 /**
+ * Private vulnerability reporting, which — unlike the vulnerability-alerts
+ * endpoint above — answers 200 with `{"enabled": false}` when it is off. Its
+ * state is in the body, so exit status says nothing about it.
+ *
  * @param {string} repository
  * @param {ExpectSetting} expectSetting
  * @returns {void}
  */
 function checkPrivateVulnerabilityReporting(repository, expectSetting) {
-  const reporting = gh(["api", `repos/${repository}/private-vulnerability-reporting`]);
-  expectSetting("private vulnerability reporting is enabled", 0, reporting.status);
+  const reporting = apiOrNotFound(
+    `repos/${repository}/private-vulnerability-reporting`,
+  );
+  expectSetting(
+    "private vulnerability reporting is enabled",
+    true,
+    reporting.found ? readKey(reporting.body, "enabled") : false,
+  );
 }
 
 /**
@@ -547,6 +590,16 @@ export function main() {
     }
   };
 
+  // Two groups below read the same `repos/{owner}/{repo}` body. Fetching it
+  // once keeps a single outage a single reported failure rather than one per
+  // group, and halves the requests this makes against the API rate limit.
+  /** @type {{value: unknown} | undefined} */
+  let repositorySettings;
+  const readRepositorySettings = () => {
+    repositorySettings ??= { value: api(`repos/${repository}`) };
+    return repositorySettings.value;
+  };
+
   // Each group below owns its own try/catch and reports its own failure onto
   // `differences` instead of returning early: a repository that 404s on one
   // endpoint (branch protection replaced by a ruleset, code scanning never
@@ -564,7 +617,7 @@ export function main() {
     [
       "repository security-and-analysis settings",
       () => {
-        checkSecurityAnalysis(repository, expectSetting);
+        checkSecurityAnalysis(readRepositorySettings(), expectSetting);
       },
     ],
     [
@@ -582,7 +635,7 @@ export function main() {
     [
       "merge button settings",
       () => {
-        checkMergeButtons(repository, expectSetting);
+        checkMergeButtons(readRepositorySettings(), expectSetting);
       },
     ],
     [
