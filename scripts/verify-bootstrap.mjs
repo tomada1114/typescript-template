@@ -107,7 +107,11 @@ function assertGenerated(destination, packageName) {
   }
   if (readKey(manifest, "version") !== "0.0.0") {
     throw new Error(
-      `ERR_VERSION_REMAINING: generated ${packageName} does not start at version 0.0.0.`,
+      `ERR_VERSION_REMAINING: generated ${packageName} does not start at version 0.0.0.\n` +
+        `Expected: package.json#version === "0.0.0".\n` +
+        `Actual: ${JSON.stringify(readKey(manifest, "version"))}\n` +
+        "Next: set GENERATED_VERSION and apply it to package.json#version in " +
+        "transform(), then rerun bootstrap:e2e.",
     );
   }
   if (readKey(manifest, "bin") !== undefined) {

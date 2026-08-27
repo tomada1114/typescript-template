@@ -394,6 +394,47 @@ describe("bootstrap profiles", () => {
     ).toThrow(/AGENTS\.md: dangling reference `scripts\/does-not-exist\.mjs`/);
   });
 
+  it("leaves the repository untouched when a real (non-dry-run) bootstrap fails validation", () => {
+    // transform() removes its own script and rewrites package.json before any
+    // validation runs. If bootstrap() validated against the already-written
+    // result instead of a preview, a validation failure here would delete
+    // scripts/bootstrap.mjs and rename package.json with no way to recover.
+    const root = copyTemplate();
+    const agents = path.join(root, "AGENTS.md");
+    const before = readFileSync(agents, "utf8");
+    writeFileSync(
+      agents,
+      `${before}\nSee \`scripts/does-not-exist.mjs\` for details.\n`,
+    );
+    const packageJsonBefore = readFileSync(path.join(root, "package.json"), "utf8");
+
+    expect(() =>
+      bootstrap(root, options("untouched-on-failure", "node-library")),
+    ).toThrow(BootstrapError);
+
+    expect(existsSync(path.join(root, "scripts", "bootstrap.mjs"))).toBe(true);
+    expect(readFileSync(path.join(root, "package.json"), "utf8")).toBe(
+      packageJsonBefore,
+    );
+  });
+
+  it("does not scan a gitignored worktree checkout for dangling Markdown references", () => {
+    // .claude/worktrees/ holds full checkouts (see .gitignore); a bootstrap
+    // run against a real, non-fresh checkout must not fail because of
+    // unrelated content sitting in one.
+    const root = copyTemplate();
+    const worktreeDirectory = path.join(root, ".claude", "worktrees", "some-branch");
+    mkdirSync(worktreeDirectory, { recursive: true });
+    writeFileSync(
+      path.join(worktreeDirectory, "NOTES.md"),
+      "See `scripts/only-in-worktree.mjs` for details.\n",
+    );
+
+    expect(() =>
+      bootstrap(root, options("worktree-ignored", "node-library")),
+    ).not.toThrow();
+  });
+
   it("does not let a nested, unrelated file sharing an AI-layer basename affect the AI-layer check", () => {
     // AI_LAYER_TARGETS matches exact repository-relative paths, not a
     // basename at any depth (fixed in #71). A stray bootstrap marker in a

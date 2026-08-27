@@ -498,6 +498,31 @@ function extractPathTokens(text) {
 }
 
 /**
+ * Resolve the effective text of a repository-relative file for a generated-
+ * tree check: the dry-run preview's projected content when the caller is
+ * tracking one, otherwise the file's real on-disk content. Returns
+ * `undefined` when the path was removed (preview maps it to `null`), is
+ * absent, or is binary — callers skip such a path rather than treating it as
+ * empty text.
+ *
+ * @param {string} root
+ * @param {string} relative
+ * @param {Map<string, string | null>} [preview]
+ * @returns {string | undefined}
+ */
+function resolveGeneratedText(root, relative, preview) {
+  if (preview?.has(relative)) {
+    const projected = preview.get(relative);
+    return projected ?? undefined;
+  }
+  const buffer = readOptionalValidationFile(path.join(root, relative));
+  if (buffer === undefined || buffer.includes(0)) {
+    return undefined;
+  }
+  return buffer.toString("utf8");
+}
+
+/**
  * Find every backticked, repo-relative path token in the generated tree's own
  * Markdown files that does not resolve to a real file or directory in that
  * same tree — for example a reference to a file bootstrap itself just removed.
@@ -510,20 +535,9 @@ function findDanglingReferences(root, preview) {
   /** @type {string[]} */
   const problems = [];
   for (const relative of listMarkdownFiles(root)) {
-    /** @type {string} */
-    let text;
-    if (preview?.has(relative)) {
-      const projected = preview.get(relative);
-      if (projected === null || projected === undefined) {
-        continue;
-      }
-      text = projected;
-    } else {
-      const buffer = readOptionalValidationFile(path.join(root, relative));
-      if (buffer === undefined || buffer.includes(0)) {
-        continue;
-      }
-      text = buffer.toString("utf8");
+    const text = resolveGeneratedText(root, relative, preview);
+    if (text === undefined) {
+      continue;
     }
     for (const token of extractPathTokens(text)) {
       if (DANGLING_REFERENCE_EXEMPTIONS.has(token)) {
@@ -553,24 +567,9 @@ function assertGeneratedAiLayer(root, profile, preview) {
   /** @type {string[]} */
   const problems = [];
   for (const relative of AI_LAYER_TARGETS) {
-    const file = path.join(root, relative);
-    /** @type {string} */
-    let text;
-    if (preview?.has(relative)) {
-      const projected = preview.get(relative);
-      if (projected === null || projected === undefined) {
-        continue;
-      }
-      text = projected;
-    } else {
-      const buffer = readOptionalValidationFile(file);
-      if (buffer === undefined) {
-        continue;
-      }
-      if (buffer.includes(0)) {
-        continue;
-      }
-      text = buffer.toString("utf8");
+    const text = resolveGeneratedText(root, relative, preview);
+    if (text === undefined) {
+      continue;
     }
     if (text.includes("<!-- template-only:") || text.includes("<!-- profile:")) {
       problems.push(`${relative}: bootstrap marker`);
