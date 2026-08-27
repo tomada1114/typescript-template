@@ -152,7 +152,6 @@ describe("bootstrap validation", () => {
     expect(deriveNames("@acme/widgets")).toEqual({
       unscoped: "widgets",
       identifier: "widgets",
-      apiReport: "widgets.api.md",
       tarball: "acme-widgets",
     });
   });
@@ -381,13 +380,6 @@ describe("bootstrap profiles", () => {
       expect(buildConfig).toContain('"types": ["node"]');
       expect(manifest.engines).toEqual({ node: ">=22.14" });
     }
-
-    const report = path.join(
-      root,
-      "etc",
-      `${deriveNames(packageName).unscoped}.api.md`,
-    );
-    expect(existsSync(report)).toBe(true);
   });
 
   it("rewrites only explicit targets", () => {
@@ -429,14 +421,6 @@ describe("bootstrap profiles", () => {
       }),
     ).toThrow(/ERR_AI_LAYER_REFERENCE/);
     expect(readFileSync(agents, "utf8")).toBe(before);
-  });
-
-  it("refuses an existing API report destination", () => {
-    const root = copyTemplate();
-    writeFileSync(path.join(root, "etc", "widgets.api.md"), "occupied");
-    expect(() => bootstrap(root, options("widgets", "node-library"))).toThrow(
-      /ERR_RENAME_DESTINATION/,
-    );
   });
 
   it("does not depend on package-manager or staging processes", () => {

@@ -17,7 +17,7 @@ intentional hard error for normal development; use the documented override
 only for the minimum-Node compatibility check below.
 
 Useful focused commands are `pnpm check:quick`, `pnpm test`,
-`pnpm test:coverage`, `pnpm build`, `pnpm api:check`, and
+`pnpm test:coverage`, `pnpm build`, `pnpm docs:build`, and
 `pnpm package:smoke`.
 
 ## Bootstrap profiles
@@ -59,9 +59,9 @@ tests that assert on the manifest. `pnpm run` does not write the manifest.
 ## Pull requests
 
 Create a feature branch, keep commits focused, and use a Conventional Commit
-PR title. Update behavior tests, type tests, documentation, and the committed
-API report when the public contract changes. Run `pnpm check` before requesting
-review.
+PR title. Update behavior tests, type tests, and documentation when the public
+contract changes, and say in the PR what the change does to the version. Run
+`pnpm check` before requesting review.
 
 Every pull request explains whether it changes the published package and keeps
 the README, tests, and documentation in sync when it does. Documentation, test,

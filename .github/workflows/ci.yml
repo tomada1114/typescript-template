@@ -54,11 +54,8 @@ jobs:
       - name: Type check
         run: pnpm run typecheck
 
-      - name: Build declarations for API Extractor
+      - name: Build
         run: pnpm run build
-
-      - name: Check the API report
-        run: pnpm run api:check
 
       - name: Build the documentation
         run: pnpm run docs:build

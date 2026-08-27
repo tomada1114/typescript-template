@@ -312,7 +312,7 @@ describe("inspectPackageEntries", () => {
     [".github/workflows/ci.yml"],
     [".claude/settings.json"],
     ["scripts/clean.mjs"],
-    ["etc/my-package.api.md"],
+    ["etc/tooling-notes.md"],
     ["docs/api/index.html"],
   ])("flags %s as forbidden", (forbiddenPath) => {
     const problems = inspectPackageEntries([entry(forbiddenPath)], {});

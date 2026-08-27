@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Buffer } from "node:buffer";
 import console from "node:console";
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -15,7 +15,6 @@ const TEMPLATE_USAGE = "Usage: my-package";
 const TEMPLATE_AUTHOR = "Your Name";
 const TEMPLATE_EMAIL = "you@example.com";
 const TEMPLATE_DESCRIPTION = "A short description.";
-const TEMPLATE_REPORT = `etc/${TEMPLATE_PACKAGE}.api.md`;
 const DEFAULT_PROFILE = "node-library";
 const DEFAULT_LICENSE = "MIT";
 const DEFAULT_DESCRIPTION = "A TypeScript package.";
@@ -51,7 +50,6 @@ const PLACEHOLDER_TARGETS = [
   { file: "SECURITY.md", placeholder: TEMPLATE_PACKAGE },
   { file: "docs/getting-started.md", placeholder: TEMPLATE_PACKAGE },
   { file: "docs/reference.md", placeholder: TEMPLATE_PACKAGE },
-  { file: TEMPLATE_REPORT, placeholder: TEMPLATE_PACKAGE },
   { file: "package.json", placeholder: TEMPLATE_REPOSITORY },
   { file: "package.json", placeholder: TEMPLATE_PACKAGE },
   { file: "package.json", placeholder: TEMPLATE_AUTHOR },
@@ -191,7 +189,7 @@ export function validatePackageName(packageName) {
  * Derive names used outside package.json.
  *
  * @param {string} packageName
- * @returns {{unscoped: string, identifier: string, apiReport: string, tarball: string}}
+ * @returns {{unscoped: string, identifier: string, tarball: string}}
  */
 export function deriveNames(packageName) {
   validatePackageName(packageName);
@@ -208,7 +206,6 @@ export function deriveNames(packageName) {
   return {
     unscoped: safeUnscoped,
     identifier,
-    apiReport: `${safeUnscoped}.api.md`,
     tarball: scope === undefined ? safeUnscoped : `${scope}-${safeUnscoped}`,
   };
 }
@@ -550,16 +547,14 @@ PERFORMANCE OF THIS SOFTWARE.
  * @param {string} root
  * @param {Map<string, string>} replacements
  * @param {string} profile
- * @param {string} reportPath
  * @param {boolean} write
  * @param {Map<string, string | null>} [preview]
  * @returns {string[]}
  */
-function replaceTargets(root, replacements, profile, reportPath, write, preview) {
+function replaceTargets(root, replacements, profile, write, preview) {
   /** @type {Map<string, [string, string][]>} */
   const byFile = new Map();
-  for (const { file, placeholder } of PLACEHOLDER_TARGETS) {
-    const relative = file === TEMPLATE_REPORT ? reportPath : file;
+  for (const { file: relative, placeholder } of PLACEHOLDER_TARGETS) {
     // package.json is rewritten structurally below so quotes and control
     // characters in interactive metadata cannot make its JSON invalid.
     if (relative === "package.json") {
@@ -627,15 +622,6 @@ function transform(root, options, year, preview) {
   const changed = [];
   const write = !options.dryRun;
 
-  const reportFrom = path.join(root, TEMPLATE_REPORT);
-  const reportTo = path.join(root, "etc", names.apiReport);
-  if (reportFrom !== reportTo && existsSync(reportTo)) {
-    throw new BootstrapError(
-      "ERR_RENAME_DESTINATION",
-      `API report destination already exists: etc/${names.apiReport}`,
-    );
-  }
-
   for (const relative of REMOVED_TEMPLATE_PATHS) {
     const target = path.join(root, relative);
     if (existsSync(target)) {
@@ -647,23 +633,6 @@ function transform(root, options, year, preview) {
       }
       changed.push(`${relative}/ (removed)`);
     }
-  }
-
-  if (existsSync(reportFrom) && reportFrom !== reportTo) {
-    if (preview !== undefined) {
-      const report = replaceText(
-        reportFrom,
-        [[TEMPLATE_PACKAGE, options.packageName]],
-        options.profile,
-        false,
-      );
-      preview.set(TEMPLATE_REPORT, null);
-      preview.set(`etc/${names.apiReport}`, report.text);
-    }
-    if (write) {
-      renameSync(reportFrom, reportTo);
-    }
-    changed.push(`${TEMPLATE_REPORT} -> etc/${names.apiReport}`);
   }
 
   if (options.profile !== "node-cli") {
@@ -694,16 +663,7 @@ function transform(root, options, year, preview) {
     }
   }
 
-  changed.push(
-    ...replaceTargets(
-      root,
-      replacements,
-      options.profile,
-      `etc/${names.apiReport}`,
-      write,
-      preview,
-    ),
-  );
+  changed.push(...replaceTargets(root, replacements, options.profile, write, preview));
 
   const manifestPath = path.join(root, "package.json");
   const manifest = readObject(manifestPath);
@@ -819,26 +779,11 @@ function assertTemplate(root) {
  * Find any placeholder remaining in the explicit generated targets.
  *
  * @param {string} root
- * @param {string} [packageName]
  * @param {Map<string, string | null>} [preview]
  * @returns {string[]}
  */
-export function findPlaceholders(root, packageName, preview) {
-  let reportPath = TEMPLATE_REPORT;
-  if (packageName !== undefined) {
-    reportPath = `etc/${deriveNames(packageName).apiReport}`;
-  } else {
-    const manifestPath = path.join(root, "package.json");
-    if (existsSync(manifestPath)) {
-      const manifest = readObject(manifestPath);
-      const currentName = readString(manifest, "name");
-      if (currentName !== undefined) {
-        reportPath = `etc/${deriveNames(currentName).apiReport}`;
-      }
-    }
-  }
+export function findPlaceholders(root, preview) {
   const targets = new Set(PLACEHOLDER_TARGETS.map(({ file }) => file));
-  targets.add(reportPath);
 
   /** @type {string[]} */
   const found = [];
@@ -893,7 +838,7 @@ export function bootstrap(
   const preview = options.dryRun ? new Map() : undefined;
   const changed = transform(root, options, year, preview);
 
-  const placeholders = findPlaceholders(root, options.packageName, preview);
+  const placeholders = findPlaceholders(root, preview);
   if (placeholders.length > 0) {
     throw new BootstrapError(
       "ERR_PLACEHOLDER_REMAINING",

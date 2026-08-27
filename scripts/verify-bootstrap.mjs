@@ -54,7 +54,7 @@ const MARKER_FILES = ["AGENTS.md", "README.md", ".github/workflows/ci.yml"];
  * @param {string} packageName
  */
 function assertGenerated(destination, profile, packageName) {
-  const placeholders = findPlaceholders(destination, packageName);
+  const placeholders = findPlaceholders(destination);
   if (placeholders.length > 0) {
     throw new Error(
       `ERR_PLACEHOLDER_REMAINING: generated ${packageName} still contains placeholders.\n` +

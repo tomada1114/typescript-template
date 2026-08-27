@@ -12,4 +12,4 @@ for URLs and filenames across supported platforms.
 `ERR_INVALID_INPUT` code. `TimeoutError` uses `ERR_TIMEOUT`.
 
 Run `pnpm docs:build` for the declaration-derived TypeDoc reference. The public
-surface is also reviewed in `etc/my-package.api.md`.
+surface is exactly what `src/index.ts` re-exports.

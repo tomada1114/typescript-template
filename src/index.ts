@@ -8,8 +8,8 @@
  * it by deep import.
  *
  * Every symbol is exported by name on purpose: no `export *`, no default
- * export. Adding a line here is an API change and needs an API report update
- * (`pnpm api:update`) plus a release-impact note in the pull request.
+ * export. Adding a line here is an API change and needs a release-impact note
+ * in the pull request.
  *
  * @packageDocumentation
  */

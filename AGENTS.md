@@ -20,13 +20,11 @@ used through Corepack.
 
 ```sh
 pnpm check:quick   # format check, lint, typecheck, tests — the everyday gate
-pnpm check         # the full gate, including build, API report, and packaging
+pnpm check         # the full gate, including build, docs, and packaging
 pnpm fix           # ESLint autofix, then Prettier
 pnpm test          # tests only
 pnpm test:coverage # tests with the coverage thresholds enforced
 pnpm build         # emit dist/ from src/
-pnpm api:update    # regenerate etc/*.api.md after an intentional API change
-pnpm api:check     # fail when the API report is out of date
 pnpm package:check # build and pack once, then run every artifact check
 pnpm package:lint  # compatibility alias for package:check
 pnpm package:smoke # install the tarball into throwaway consumers and run it
@@ -85,10 +83,12 @@ src/
 - `src/internal/` is private. Exporting one of its symbols from `index.ts`
   publishes it, whatever the directory name suggests, and nothing outside
   `src/**` may import it directly.
-- Every public declaration carries a TSDoc release tag (`@public`). API
-  Extractor fails the build without one (`ae-missing-release-tag`); the
-  `etc/` directory must also already exist for `api-extractor run` to write
-  its report at all.
+- Every public declaration carries a TSDoc release tag (`@public`). Nothing
+  fails a build over a missing one — this is a convention for readers, so a
+  symbol reachable from `index.ts` says out loud that it is part of the
+  contract rather than something re-exported by accident. TypeDoc's
+  `validation.notDocumented` is what still fails on a public symbol with no
+  TSDoc at all.
 - `scripts/*.mjs` is repository automation and never ships.
 
 <!-- profile:node-cli:start -->
@@ -113,12 +113,12 @@ Everything it touches lands in the **same pull request**:
 1. the implementation in `src/`
 2. behavior tests in `tests/`
 3. type tests (`expectTypeOf`) for the new or changed signatures
-4. the regenerated API report — `pnpm api:update`, with `etc/*.api.md` committed
-5. the README example and any affected page under `docs/`
-6. a release-impact note describing the change and its semver impact
+4. the README example and any affected page under `docs/`
+5. a release-impact note describing the change and its semver impact
 
-A PR that adds an export without the report update fails `pnpm api:check`. That
-failure is the design working, not an obstacle to route around.
+No gate reconstructs this list for you. `pnpm check` proves the new surface
+builds, is documented, and packs; that the change was _meant_, and what it
+does to the version, is what the release-impact note has to say.
 
 Every other PR explicitly states whether a release is required, so reviewers
 can distinguish an intentional no-release change from a forgotten decision.
