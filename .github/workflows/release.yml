@@ -62,8 +62,15 @@ jobs:
           # `next`) becomes the npm dist-tag it publishes to, so a release
           # candidate never moves `latest`. A version with no prerelease
           # component publishes to `latest`, written out explicitly rather
-          # than left as npm's implicit default.
-          PRERELEASE_ID="$(printf '%s' "${VERSION}" | sed -n 's/^[0-9]\+\.[0-9]\+\.[0-9]\+-\([^.]\+\).*$/\1/p')"
+          # than left as npm's implicit default. Extracted with the same
+          # `node --input-type=module` reader used for VERSION above, so the
+          # version string is parsed once, by one interpreter, instead of a
+          # second time by a hand-rolled shell regex.
+          PRERELEASE_ID="$(VERSION="${VERSION}" node --input-type=module -e 'import process from "node:process"; const match = process.env.VERSION.match(/^\d+\.\d+\.\d+-([^.]+)/); process.stdout.write(match ? match[1] : "")')"
+          if [ "${PRERELEASE_ID}" = "latest" ]; then
+            echo "::error::Prerelease identifier \"latest\" in version ${VERSION} would publish over npm's latest dist-tag. Choose a different identifier."
+            exit 1
+          fi
           if [ -n "${PRERELEASE_ID}" ]; then
             echo "dist_tag=${PRERELEASE_ID}" >> "${GITHUB_OUTPUT}"
             echo "prerelease=true" >> "${GITHUB_OUTPUT}"
