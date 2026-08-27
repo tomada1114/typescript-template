@@ -17,9 +17,8 @@ attacks, and publishing another person's private information are unacceptable.
 
 ## Enforcement
 
-Report unacceptable behavior privately using this repository's GitHub private
-vulnerability reporting flow (Security tab → Report a vulnerability), or by
-otherwise contacting a maintainer directly. Project maintainers will
+Report unacceptable behavior privately by contacting a maintainer directly
+(for example, through their GitHub profile). Project maintainers will
 investigate and respond fairly and consistently, while respecting the
 reporter's privacy.
 
