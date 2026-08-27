@@ -63,18 +63,16 @@ PR title. Update behavior tests, type tests, documentation, and the committed
 API report when the public contract changes. Run `pnpm check` before requesting
 review.
 
-Every pull request records release intent. Add a release Changeset with
-`pnpm changeset` whenever consumers can observe the change. For documentation,
-test, CI, or tooling changes with no release impact, run `pnpm changeset --empty`
-instead. CI validates this decision with `pnpm changeset:check`. Changesets'
-generated version PR is the only exception because it consumes the pending
-Changesets. During the 0.x period, a breaking change uses a minor bump and must
-include migration instructions; after 1.0 it uses a major bump.
+Every pull request explains whether it changes the published package and keeps
+the README, tests, and documentation in sync when it does. Documentation, test,
+CI, and tooling changes with no release impact need no release record. During
+the 0.x period, a breaking change uses a minor bump and must include migration
+instructions; after 1.0 it uses a major bump.
 
 ## Release recovery
 
-Releases are driven by a reviewed Changesets version PR and an annotated
-`vX.Y.Z` tag matching `package.json`. If a workflow fails before npm publish,
+Releases are driven by a reviewed release PR and an annotated `vX.Y.Z` tag
+matching `package.json`. If a workflow fails before npm publish,
 fix the cause and rerun it. If npm already contains the version, never publish
 that version again: verify it with `npm view my-package@X.Y.Z version`, then
 repair only the GitHub Release by rerunning the release attachment job or

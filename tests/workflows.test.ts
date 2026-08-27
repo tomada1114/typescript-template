@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -993,7 +993,6 @@ describe("the workflows in .github/workflows", () => {
       "scorecard.yml",
       "security-audit.yml",
       "typos.yml",
-      "version.yml",
     ]);
   });
 
@@ -1074,7 +1073,6 @@ describe("the workflows in .github/workflows", () => {
       "pr-label.yml",
       "release.yml",
       "scorecard.yml",
-      "version.yml",
     ]);
   });
 });
@@ -1269,22 +1267,16 @@ describe("the Dependabot cooldown agrees with the pnpm install cooldown", () => 
 });
 
 describe("workflow regression checks for repository automation", () => {
-  it("runs lightweight bootstrap and Changeset intent checks in CI", () => {
+  it("runs the lightweight bootstrap check in CI", () => {
     const source = workflowSource("ci.yml");
-    if (existsSync(path.join(repoRoot, "docs", "template-implementation"))) {
-      const bootstrapStart = source.indexOf("  bootstrap:");
-      const changesetStart = source.indexOf("  changeset:", bootstrapStart);
-      const bootstrapJob = source.slice(bootstrapStart, changesetStart);
-      expect(bootstrapJob).toContain("node scripts/verify-bootstrap.mjs");
-      expect(bootstrapJob).not.toContain("pnpm install");
-      expect(bootstrapJob).not.toContain("pnpm run check");
-      expect(source).not.toContain("pnpm run bootstrap:e2e");
-    } else {
-      expect(source).not.toContain("node scripts/verify-bootstrap.mjs");
-    }
-    expect(source).toContain("pnpm run changeset:check");
-    expect(source).toContain("git branch --force main origin/main");
-    expect(source).toContain("github.head_ref != 'changeset-release/main'");
+    const bootstrapStart = source.indexOf("  bootstrap:");
+    const nextJobStart = source.indexOf("  platform-smoke:", bootstrapStart);
+    const bootstrapJob = source.slice(bootstrapStart, nextJobStart);
+    expect(bootstrapJob).toContain("node scripts/verify-bootstrap.mjs");
+    expect(bootstrapJob).not.toContain("pnpm install");
+    expect(bootstrapJob).not.toContain("pnpm run check");
+    expect(source).not.toContain("pnpm run bootstrap:e2e");
+    expect(source.toLowerCase()).not.toContain("change" + "set");
   });
 
   it("keeps the dependency-review severity gate", () => {

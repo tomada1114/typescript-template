@@ -4,7 +4,6 @@ import console from "node:console";
 import {
   existsSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -653,18 +652,6 @@ function transform(root, options, year, preview) {
         preview.set(relative, null);
       }
       changed.push(`${relative}/ (removed)`);
-    }
-  }
-
-  const changesetDirectory = path.join(root, ".changeset");
-  if (existsSync(changesetDirectory)) {
-    for (const entry of readdirSync(changesetDirectory, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        if (write) {
-          rmSync(path.join(changesetDirectory, entry.name));
-        }
-        changed.push(`.changeset/${entry.name} (removed)`);
-      }
     }
   }
 

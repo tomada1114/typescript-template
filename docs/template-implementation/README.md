@@ -14,7 +14,7 @@
 | [phase-1-publish-artifact-quality.md](phase-1-publish-artifact-quality.md) | API Extractor / publint / attw / tarball smoke / TypeDoc                       |
 | [phase-2-ci-and-supply-chain.md](phase-2-ci-and-supply-chain.md)           | CI matrix / CodeQL / audit / Scorecard / zizmor / Dependabot                   |
 | [phase-3-ai-native-workflow.md](phase-3-ai-native-workflow.md)             | AGENTS.md / path-scoped rules / hooks / Lefthook                               |
-| [phase-4-bootstrap-and-release.md](phase-4-bootstrap-and-release.md)       | bootstrap / OSS 文書 / Changesets / OIDC release / 生成 E2E                    |
+| [phase-4-bootstrap-and-release.md](phase-4-bootstrap-and-release.md)       | bootstrap / OSS 文書 / release / OIDC release / 生成 E2E                       |
 | [phase-5-generated-repo-ai-layer.md](phase-5-generated-repo-ai-layer.md)   | 生成物の AGENTS.md / `.claude/**` を bootstrap と整合させる                    |
 
 > **重要**: `decisions.md` は Phase 0 の実装中に一次資料（npm registry、nodejs.org、各 CLI の
@@ -57,7 +57,6 @@ typescript-template/
 │   ├── rules/                     #   source / testing / docs / package-json
 │   ├── skills/merge-dependabot/   #   唯一同梱する workflow skill
 │   └── settings.json              #   permission allowlist / denylist（§20 で hooks は廃止）
-├── .changeset/                    # Phase 4: SemVer intent と version PR 設定
 ├── .github/                       # Phase 2 + 4
 │   ├── ISSUE_TEMPLATE/            #   bug / feature / security report 導線
 │   ├── workflows/                 #   CI / security / version / OIDC release
@@ -98,7 +97,7 @@ typescript-template/
 │   ├── types.test.ts              # expectTypeOf による型テスト
 │   └── workflows.test.ts          # Phase 2: workflow の構造 assert
 ├── AGENTS.md                      # Phase 3: 全エージェント共通の正本
-├── CHANGELOG.md                   # Phase 4: Changesets が更新
+├── CHANGELOG.md                   # Phase 4: release process が更新
 ├── CLAUDE.md                      # Phase 3: @AGENTS.md + Claude 固有の差分だけ
 ├── CODE_OF_CONDUCT.md
 ├── CONTRIBUTING.md
@@ -209,18 +208,18 @@ export PATH="$TMPDIR/tstmpl:$PATH"
 「実装済み＋fresh な検証結果」または「外部サービス上で人間が行う設定＋ローカル proxy 検証と手順」
 を示します。
 
-| DoD   | 内容                                                                             | 担当 Phase                                |
-| ----- | -------------------------------------------------------------------------------- | ----------------------------------------- |
-| **A** | テンプレートとしての再利用性（3 profile、bootstrap、placeholder ゼロ）           | 4 + 5（指示文書と `.claude/**` の整合）   |
-| **B** | package 契約（ESM-only、exports/files allowlist、deep import 拒否、API report）  | 0（契約）+ 1（report / deep import 検証） |
-| **C** | 型・lint・format（strict、typed lint、非破壊 `pnpm check`）                      | 0（実装）+ 1（`pnpm check` フル green）   |
-| **D** | テスト（正常/異常/境界、async cleanup、型テスト、branch 80%）                    | 0                                         |
-| **E** | build と tarball（publint / attw / allowlist / size / consumer / CLI）           | 1                                         |
-| **F** | dependency と security（frozen install、release age、audit、CodeQL、Dependabot） | 0（pnpm policy）+ 2（CI 側）              |
-| **G** | CI（Node 2版、OS 3種、最小権限、SHA pin、timeout、concurrency、zizmor）          | 2                                         |
-| **H** | release（Changeset、tag/version 照合、単一 tarball、OIDC、attestation）          | 4                                         |
-| **I** | AI ネイティブ（AGENTS.md、path-scoped rules、hooks、fixture test）               | 3 + 5（生成物側でも成立させる）           |
-| **J** | OSS の見え方（README / CONTRIBUTING / SECURITY / LICENSE / CoC / templates）     | 4                                         |
+| DoD   | 内容                                                                              | 担当 Phase                                |
+| ----- | --------------------------------------------------------------------------------- | ----------------------------------------- |
+| **A** | テンプレートとしての再利用性（3 profile、bootstrap、placeholder ゼロ）            | 4 + 5（指示文書と `.claude/**` の整合）   |
+| **B** | package 契約（ESM-only、exports/files allowlist、deep import 拒否、API report）   | 0（契約）+ 1（report / deep import 検証） |
+| **C** | 型・lint・format（strict、typed lint、非破壊 `pnpm check`）                       | 0（実装）+ 1（`pnpm check` フル green）   |
+| **D** | テスト（正常/異常/境界、async cleanup、型テスト、branch 80%）                     | 0                                         |
+| **E** | build と tarball（publint / attw / allowlist / size / consumer / CLI）            | 1                                         |
+| **F** | dependency と security（frozen install、release age、audit、CodeQL、Dependabot）  | 0（pnpm policy）+ 2（CI 側）              |
+| **G** | CI（Node 2版、OS 3種、最小権限、SHA pin、timeout、concurrency、zizmor）           | 2                                         |
+| **H** | release（release-impact note、tag/version 照合、単一 tarball、OIDC、attestation） | 4                                         |
+| **I** | AI ネイティブ（AGENTS.md、path-scoped rules、hooks、fixture test）                | 3 + 5（生成物側でも成立させる）           |
+| **J** | OSS の見え方（README / CONTRIBUTING / SECURITY / LICENSE / CoC / templates）      | 4                                         |
 
 ### ローカルで完結しない項目の扱い
 

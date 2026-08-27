@@ -49,21 +49,21 @@ GitHub 上での実行はこのセッションではできません。**ロー�
 
 ### 1. workflow（仕様 02 §5.2 の必須表）
 
-| ファイル                                  | job / trigger         | 内容                                                               |
-| ----------------------------------------- | --------------------- | ------------------------------------------------------------------ |
-| `.github/workflows/ci.yml`                | `static`（PR, main）  | `format:check` / `lint` / `typecheck` / `api:check` / `docs:build` |
-|                                           | `test`（PR, main）    | Node **22.14** と **24** の matrix、unit/integration + coverage    |
-|                                           | `package`（PR, main） | `build` / `publint` / `attw` / tarball smoke                       |
-|                                           | `bootstrap`           | 3 profile + `zukai` の生成 repository full gate                    |
-|                                           | `changeset`（PR）     | Changeset または empty Changeset による release intent             |
-|                                           | `platform-smoke`      | Ubuntu / macOS / Windows で package import・CLI                    |
-| `.github/workflows/codeql.yml`            | PR, push, schedule    | JavaScript/TypeScript security analysis                            |
-| `.github/workflows/dependency-review.yml` | PR                    | 新規依存の脆弱性と license                                         |
-| `.github/workflows/security-audit.yml`    | weekly, manual        | production dependency の audit（有限 retry 後 fail closed）        |
-| `.github/workflows/scorecard.yml`         | weekly, manual        | OpenSSF Scorecard + SARIF                                          |
-| `.github/workflows/typos.yml`             | PR, main              | code/docs の typo                                                  |
-| `.github/workflows/check-pr-title.yml`    | PR                    | Conventional Commit 形式                                           |
-| `.github/workflows/pr-label.yml`          | PR                    | type による best-effort label                                      |
+| ファイル                                  | job / trigger          | 内容                                                               |
+| ----------------------------------------- | ---------------------- | ------------------------------------------------------------------ |
+| `.github/workflows/ci.yml`                | `static`（PR, main）   | `format:check` / `lint` / `typecheck` / `api:check` / `docs:build` |
+|                                           | `test`（PR, main）     | Node **22.14** と **24** の matrix、unit/integration + coverage    |
+|                                           | `package`（PR, main）  | `build` / `publint` / `attw` / tarball smoke                       |
+|                                           | `bootstrap`            | 3 profile + `zukai` の生成 repository full gate                    |
+|                                           | `release impact`（PR） | release impact による release intent                               |
+|                                           | `platform-smoke`       | Ubuntu / macOS / Windows で package import・CLI                    |
+| `.github/workflows/codeql.yml`            | PR, push, schedule     | JavaScript/TypeScript security analysis                            |
+| `.github/workflows/dependency-review.yml` | PR                     | 新規依存の脆弱性と license                                         |
+| `.github/workflows/security-audit.yml`    | weekly, manual         | production dependency の audit（有限 retry 後 fail closed）        |
+| `.github/workflows/scorecard.yml`         | weekly, manual         | OpenSSF Scorecard + SARIF                                          |
+| `.github/workflows/typos.yml`             | PR, main               | code/docs の typo                                                  |
+| `.github/workflows/check-pr-title.yml`    | PR                     | Conventional Commit 形式                                           |
+| `.github/workflows/pr-label.yml`          | PR                     | type による best-effort label                                      |
 
 `release.yml` は **Phase 4**。
 

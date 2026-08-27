@@ -205,5 +205,5 @@ pn24 run check && git status --short
 
 - CI workflow（Phase 2）
 - AGENTS.md / hooks（Phase 3）
-- bootstrap / community 文書 / Changesets / release workflow（Phase 4）
+- bootstrap / community 文書 / release / release workflow（Phase 4）
 - bundler（`tsdown` 等）の導入。仕様 01 §5 の導入条件を満たしていない

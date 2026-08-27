@@ -61,7 +61,7 @@ stop_hook_active による再帰防止）は積極的に流用する。Python �
 - Quick reference（`pnpm check:quick` / `pnpm check` / `pnpm fix` / `pnpm api:update` など）
 - アーキテクチャ（`src/index.ts` が公開契約の唯一の起点、`src/internal/` は非公開）
 - 公開 API を変える PR は実装・振る舞いテスト・型テスト・API report・
-  README/API docs・Changeset を**同じ PR で**更新する（仕様 01 §8 末尾）
+  README/API docs・release-impact note を**同じ PR で**更新する（仕様 01 §8 末尾）
 - 最小 Node での検証時は `pnpm --config.runtime-on-fail=ignore …`（decisions.md §3）
 - `.mjs` の規約（Node グローバルの明示 import、JSDoc 型、`is-main` ガード）
 - property-based test（`fast-check`）の**適用条件**。placeholder には依存を入れない
@@ -226,7 +226,7 @@ git status --short
 
 ## やらないこと
 
-- bootstrap / community 文書 / Changesets / release（Phase 4）
+- bootstrap / community 文書 / release / release（Phase 4）
 - `.claude/skills/`。uv-template は `create-pr` / `smart-commit` / `merge-dependabot` を
   持つが、仕様のファイル構成（01 §2）には含まれていない。**入れない**か、
   入れるなら理由を報告して判断を仰ぐ
