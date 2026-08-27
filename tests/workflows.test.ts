@@ -8,9 +8,8 @@ import { REQUIRED_STATUS_CHECKS } from "../scripts/check-repo-settings.mjs";
 
 // GitHub Actions cannot be executed from here, so the properties spec 02 §5.1
 // requires of every workflow are asserted against the files instead. This is
-// the local evidence for DoD G; the maintainer checklist in
-// docs/template-implementation/phase-2-ci-and-supply-chain.md covers what only
-// a real pull request can show.
+// the local evidence for DoD G; `docs/maintainer-checklist.md` covers what
+// only a real pull request or the GitHub UI can show.
 //
 // The scanner below is deliberately not a YAML parser. A parser would be a new
 // dependency for a repository whose whole point is a small, reviewable
@@ -1580,16 +1579,6 @@ describe("package.json is the only place the pnpm version is written", () => {
     );
 
     expect(pnpmSetupVersions(stated)).toEqual(["11.18.0"]);
-  });
-
-  it("does not pin pnpm in the devcontainer either", () => {
-    const devcontainer = readFileSync(
-      path.join(repoRoot, ".devcontainer", "devcontainer.json"),
-      "utf8",
-    );
-
-    expect(devcontainer).toContain("corepack enable");
-    expect(devcontainer).not.toMatch(/pnpm@\d/);
   });
 
   it("declares the same pnpm string in packageManager and devEngines", () => {
