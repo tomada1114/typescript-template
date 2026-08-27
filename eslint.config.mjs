@@ -24,7 +24,7 @@ const NO_EXPORT_STAR = {
 
 /** What `src/internal/**` is, in the words of the rule that made it private. */
 const INTERNAL_IS_PRIVATE =
-  'src/internal/ is private: see "Architecture" in AGENTS.md. Tests reach it through the public surface in src/index.ts ("What to Test" in tests/AGENTS.md), and repository automation must not depend on package internals at all.';
+  'src/internal/ is private: see "Architecture" in AGENTS.md. Tests reach it through the public surface in src/index.ts (see "Testing" in AGENTS.md), and repository automation must not depend on package internals at all.';
 
 /**
  * Read one property off a value of unknown shape.
@@ -83,17 +83,17 @@ const universalSourceRestrictions = isUniversalProfile()
 
 export default defineConfig([
   // Only generated trees are ignored; everything hand-written is linted,
-  // including repository automation and config files. The explicit
-  // `.agents/skills/merge-dependabot` entry is the symlink bridge into
-  // `.claude/skills/**`, already linted at its real path — naming the bridge
-  // rather than the directory keeps a real file added elsewhere under
-  // `.agents/skills/` linted. `.claude/worktrees/` holds full working copies
-  // created by agent sessions, linted in their own checkout.
+  // including repository automation and config files. `.claude/skills/` is a
+  // generated mirror of `.agents/skills/` (`pnpm agents:sync`), where the real
+  // files are linted at their real path — linting the copy too would report
+  // the same violation twice, at a path nobody may edit.
+  // `.claude/worktrees/` holds full working copies created by agent sessions,
+  // linted in their own checkout.
   globalIgnores([
     "dist/",
     "coverage/",
     "docs/api/",
-    ".agents/skills/merge-dependabot",
+    ".claude/skills/",
     ".claude/worktrees/",
   ]),
   {
@@ -208,7 +208,7 @@ export default defineConfig([
   },
   {
     name: "automation/node-scripts",
-    files: ["scripts/**/*.mjs", ".claude/skills/**/*.mjs"],
+    files: ["scripts/**/*.mjs", ".agents/skills/**/*.mjs"],
     rules: {
       // These files are the CLI surface of repository automation.
       "no-console": "off",
@@ -222,7 +222,7 @@ export default defineConfig([
     },
   },
   {
-    // tests/AGENTS.md states these rules in prose; this is what enforces the
+    // AGENTS.md's "Testing" section states these rules in prose; this is what enforces the
     // ones a linter can see. The recommended set is taken as published and the
     // escalations below are the entries this repository will not run on
     // "warn", starting with the two that quietly shrink the suite.
@@ -257,7 +257,7 @@ export default defineConfig([
       // in an extra describe for no gain in what the tests assert.
       //
       // `vitest/no-conditional-expect` comes from the recommended set and is
-      // turned off for the same kind of reason: tests/AGENTS.md prescribes
+      // turned off for the same kind of reason: AGENTS.md prescribes
       // asserting on a caught error inside `catch`, and the workflow and
       // bootstrap suites branch on what the repository actually contains
       // before asserting against it.

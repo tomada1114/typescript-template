@@ -571,3 +571,59 @@ Enforcement を4層に整理した(詳細は `AGENTS.md` の「Enforcement layer
 変更で生じた乖離は書き換えず、ここに記録する。この判断はテンプレート自身の
 運用実績にもとづくものであり、仕様書が要求する「AI ネイティブ層」の設計を
 否定するものではない。
+
+---
+
+## 21. skills の正本を `.agents/skills/` に反転し、`tests/AGENTS.md` を root に統合(2026-08-26 追記)
+
+§17 で決めた「`.claude/skills/` が正本、`.agents/skills/` から相対 symlink で
+Codex CLI にブリッジ」という方向を反転した。§17 自体は書き換えず(§20 と同じ扱い)、
+ここに追記する。
+
+判断の理由:
+
+- **Claude Code はプロジェクトスキルを `.claude/skills/` からしか発見しない**。
+  `.agents/skills/` のネイティブサポートは無い。
+- **Codex CLI のプロジェクトスキルの公式パスは `.agents/skills/`**。symlink は
+  follow するが、リンク先を再帰的に走査して `references/` 配下の入れ子 SKILL.md まで
+  独立したスキルとして登録してしまう既知バグがある。実ファイルのコピーならこれを
+  踏まない。
+- テンプレートとして **clone 直後から全環境で動くこと**を優先し、symlink は採らない
+  (Windows の開発者権限、`core.symlinks=false` の checkout、symlink を展開しない
+  アーカイブ配布のいずれでも壊れる)。
+
+したがって **`.agents/skills/` を正本、`.claude/skills/` を生成物**とし、後者も
+コミット済みの実ファイルとして持つ。二重管理の危険は次の3点で機械的に潰した。
+
+- `scripts/sync-agents.mjs` — 既定実行で `.agents/skills/` を `.claude/skills/` へ
+  完全ミラー(orphan の削除を含む byte-identical コピー)。`--check` は書き込まずに
+  missing / extra / differs をファイル単位で報告し、`ERR_AGENTS_DRIFT` と
+  ``Next: run `pnpm agents:sync`.`` を出して非ゼロ終了する。package script は
+  `pnpm agents:sync` / `pnpm agents:check`。
+- `tests/sync-agents.test.ts` — diff ロジックを直接 import し、コミット済みの2本の
+  ツリーが一致していることを assert する。`pnpm test` 経由なので `check:quick`・
+  `check:source`・CI のテスト leg すべてがこのゲートを通る。サブプロセス起動を
+  避けたのは §15 と同じ理由(exit code では「drift 検出」と「そもそも起動できない」を
+  区別できない)。
+- `lefthook.yml` の pre-commit `checks` グループに、`.agents/skills/**` と
+  `.claude/skills/**` に glob を絞った `pnpm agents:check` ジョブを追加。
+
+lint / format も反転した。実ファイルのある `.agents/skills/**` を ESLint・Prettier・
+`tsconfig.json` の `include` の対象とし、生成コピーである `.claude/skills/` を
+`globalIgnores` と `.prettierignore` に入れた(同じ指摘が2箇所で出るのと、編集できない
+パスを Prettier が書き換えて drift させるのを防ぐため)。
+
+symlink 機構は撤去した: `scripts/lib/symlinks.mjs`、`tests/symlinks.test.ts`、
+`scripts/bootstrap.mjs` の symlink スキップ分岐、`scripts/verify-bootstrap.mjs` の
+dangling 判定と symlink 再作成分岐。リポジトリに symlink が1本も無くなったため、
+`ERR_BROKEN_SYMLINK` を出す層も不要になった。
+
+あわせて **`tests/AGENTS.md`(14節・194行)を root `AGENTS.md` の `## Testing` 節に
+圧縮統合し、`tests/AGENTS.md` と `tests/CLAUDE.md` を削除した**。Codex は
+root → cwd 経路上の `AGENTS.md` しか読まないため、リポジトリルートで起動した
+セッションからはこれまで testing rules が不可視だった。統合後の root `AGENTS.md` は
+約 29 KB で、Codex の連結上限(既定 32 KiB)の内側に収まっている — これ以上ルールを
+足すときは、まずこのサイズを確認すること。`scripts/bootstrap.mjs` の
+`MARKER_TARGETS` / `AI_LAYER_TARGETS` と `scripts/verify-bootstrap.mjs` の
+`MARKER_FILES` からも削除した2ファイルを外し、AI レイヤー検査の対象を新しい
+skills の2本のパスに差し替えた。

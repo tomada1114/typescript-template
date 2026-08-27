@@ -1,14 +1,12 @@
 import { execFileSync } from "node:child_process";
 import {
-  cpSync,
+  copyFileSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,18 +63,7 @@ function copyTemplate(): string {
     }
     const destination = path.join(workspace, relative);
     mkdirSync(path.dirname(destination), { recursive: true });
-    // `recursive: true` is required for `cpSync` to accept a symlink whose
-    // target is a directory (`.agents/skills/merge-dependabot`) at all, even
-    // though `dereference: false` means it copies the symlink itself rather
-    // than descending into what it points at. `verbatimSymlinks: true` keeps
-    // that symlink's relative target relative — without it `cpSync` rewrites
-    // the target to an absolute path back into this checkout, which would
-    // make the copied workspace's bridge point outside itself.
-    cpSync(source, destination, {
-      dereference: false,
-      recursive: true,
-      verbatimSymlinks: true,
-    });
+    copyFileSync(source, destination);
   }
   const binary = path.join(workspace, "tests", "fixtures", "binary.dat");
   mkdirSync(path.dirname(binary), { recursive: true });
@@ -92,12 +79,6 @@ function relativeFiles(root: string, directory: string): string[] {
   const files: string[] = [];
   const visit = (current: string): void => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
-      // A symlink (`.agents/skills/merge-dependabot` bridges into
-      // `.claude/skills/**`, already covered by that walk) is not followed:
-      // reading it here would resolve to a directory and throw.
-      if (entry.isSymbolicLink()) {
-        continue;
-      }
       const absolute = path.join(current, entry.name);
       if (entry.isDirectory()) {
         visit(absolute);
@@ -110,31 +91,19 @@ function relativeFiles(root: string, directory: string): string[] {
   return files.sort();
 }
 
-/**
- * Subdirectory AI-layer masters. This list mirrors the explicit AI-layer
- * targets in `bootstrap.mjs` and must be extended when a new master is added.
- */
-const AI_LAYER_SUBDIR_FILES = ["tests/AGENTS.md", "tests/CLAUDE.md"];
-
-function generatedAiLayer(root: string): string {
-  const files = [
-    "AGENTS.md",
-    "CLAUDE.md",
-    ...AI_LAYER_SUBDIR_FILES,
-    ...relativeFiles(root, ".claude"),
-    ...relativeFiles(root, ".agents"),
-  ];
-  return files.map((file) => readFileSync(path.join(root, file), "utf8")).join("\n");
-}
-
 function aiLayerFiles(root: string): string[] {
   return [
     "AGENTS.md",
     "CLAUDE.md",
-    ...AI_LAYER_SUBDIR_FILES,
     ...relativeFiles(root, ".claude"),
     ...relativeFiles(root, ".agents"),
   ];
+}
+
+function generatedAiLayer(root: string): string {
+  return aiLayerFiles(root)
+    .map((file) => readFileSync(path.join(root, file), "utf8"))
+    .join("\n");
 }
 
 function options(
@@ -297,7 +266,10 @@ describe("bootstrap profiles", () => {
       path.join(root, "tests", "fixtures", "binary.dat"),
     );
     const stableAiFiles = aiLayerFiles(root)
-      .filter((file) => file.startsWith(".claude/skills/"))
+      .filter(
+        (file) =>
+          file.startsWith(".claude/skills/") || file.startsWith(".agents/skills/"),
+      )
       .map((file) => [file, readFileSync(path.join(root, file), "utf8")] as const);
     bootstrap(
       root,
@@ -354,13 +326,20 @@ describe("bootstrap profiles", () => {
     for (const [file, contents] of stableAiFiles) {
       expect(readFileSync(path.join(root, file), "utf8")).toBe(contents);
     }
-    const dependabotBridge = path.join(root, ".agents", "skills", "merge-dependabot");
-    expect(lstatSync(dependabotBridge).isSymbolicLink()).toBe(true);
-    expect(existsSync(dependabotBridge)).toBe(true);
-    const dependabotSkill = readFileSync(
-      path.join(root, ".claude", "skills", "merge-dependabot", "SKILL.md"),
-      "utf8",
+    // Both copies are real files in a generated repository: Claude Code reads
+    // only `.claude/skills/`, Codex CLI only `.agents/skills/`, and a clone on
+    // any platform has to get both without a link to resolve.
+    const skillCopies = [".agents", ".claude"].map((directory) =>
+      path.join(root, directory, "skills", "merge-dependabot", "SKILL.md"),
     );
+    for (const copy of skillCopies) {
+      expect(existsSync(copy)).toBe(true);
+    }
+    const [agentsSkill, claudeSkill] = skillCopies.map((copy) =>
+      readFileSync(copy, "utf8"),
+    );
+    expect(claudeSkill).toBe(agentsSkill);
+    const dependabotSkill = claudeSkill ?? "";
     expect(dependabotSkill).toContain(".github/PULL_REQUEST_TEMPLATE.md");
     expect(existsSync(path.join(root, ".github", "PULL_REQUEST_TEMPLATE.md"))).toBe(
       true,
@@ -414,14 +393,11 @@ describe("bootstrap profiles", () => {
   it("rewrites only explicit targets", () => {
     const root = copyTemplate();
     const untouched = path.join(root, "unlisted-placeholder.txt");
-    const dangling = path.join(root, "unlisted-dangling-link");
     writeFileSync(untouched, "my-package");
-    symlinkSync("missing-target", dangling);
 
     bootstrap(root, options("explicit-library", "node-library"));
 
     expect(readFileSync(untouched, "utf8")).toBe("my-package");
-    expect(lstatSync(dangling).isSymbolicLink()).toBe(true);
     expect(findPlaceholders(root)).toEqual([]);
   });
 

@@ -11,7 +11,7 @@ export default defineConfig({
     // Cleanup is the runner's job, not each test's. A spy, a stubbed env var or
     // a stubbed global that outlives the test that created it turns a later
     // failure into a mystery whose cause is in a different file, and makes the
-    // "each test passes when run alone" rule in tests/AGENTS.md unenforceable.
+    // "each test passes when run alone" rule in AGENTS.md unenforceable.
     restoreMocks: true,
     clearMocks: true,
     unstubEnvs: true,

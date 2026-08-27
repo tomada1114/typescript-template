@@ -32,6 +32,10 @@
       "Bash(pnpm run package:verify)",
       "Bash(pnpm test:related)",
       "Bash(pnpm run test:related)",
+      "Bash(pnpm agents:sync)",
+      "Bash(pnpm run agents:sync)",
+      "Bash(pnpm agents:check)",
+      "Bash(pnpm run agents:check)",
       "Bash(pnpm check:staged)",
       "Bash(pnpm run check:staged)",
       "Bash(pnpm check:source)",
@@ -65,8 +69,8 @@
       "Bash(gh pr view:*)",
       "Bash(gh pr checks:*)",
       "Bash(gh pr diff:*)",
-      "Bash(node .claude/skills/merge-dependabot/scripts/survey-prs.mjs)",
-      "Bash(node .claude/skills/merge-dependabot/scripts/survey-prs.mjs:*)"
+      "Bash(node .agents/skills/merge-dependabot/scripts/survey-prs.mjs)",
+      "Bash(node .agents/skills/merge-dependabot/scripts/survey-prs.mjs:*)"
     ],
     "deny": [
       "Read(/.env)",
