@@ -140,8 +140,8 @@ export default defineConfig([
     files: ["src/**/*.ts"],
     rules: {
       // The published contract is named exports from src/index.ts. A default
-      // export has no stable name for consumers to import or for API reports
-      // to track.
+      // export has no stable name for consumers to import, or for a reviewer
+      // to read a diff of.
       "no-restricted-exports": [
         "error",
         {
