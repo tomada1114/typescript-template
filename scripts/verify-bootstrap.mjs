@@ -15,7 +15,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { findPlaceholders } from "./bootstrap.mjs";
+import { MARKER_TARGETS, findPlaceholders } from "./bootstrap.mjs";
 import { isolatedGitEnv } from "./lib/git-env.mjs";
 import { isMain } from "./lib/is-main.mjs";
 import { parseJson, readKey } from "./lib/json.mjs";
@@ -45,8 +45,6 @@ function run(command, args, cwd) {
   }
 }
 
-const MARKER_FILES = ["AGENTS.md", "README.md", ".github/workflows/ci.yml"];
-
 /**
  * Check the lightweight, observable output of one bootstrap run.
  *
@@ -62,7 +60,7 @@ function assertGenerated(destination, packageName) {
     );
   }
 
-  for (const relative of MARKER_FILES) {
+  for (const relative of MARKER_TARGETS) {
     const file = path.join(destination, relative);
     if (
       /(?:template-only|profile:[a-z0-9-]+:)/.exec(readFileSync(file, "utf8")) !== null
@@ -79,6 +77,23 @@ function assertGenerated(destination, packageName) {
     );
   }
 
+  if (existsSync(path.join(destination, "scripts", "bootstrap.mjs"))) {
+    throw new Error(
+      `ERR_BOOTSTRAP_SCRIPT_REMAINING: generated ${packageName} retains scripts/bootstrap.mjs.\n` +
+        "Expected: bootstrap removes its own script from the generated repository.\n" +
+        "Next: add scripts/bootstrap.mjs to transform()'s removal list, then rerun bootstrap:e2e.",
+    );
+  }
+
+  const changelog = readFileSync(path.join(destination, "CHANGELOG.md"), "utf8");
+  if (/^## /m.test(changelog)) {
+    throw new Error(
+      `ERR_CHANGELOG_ENTRY_REMAINING: generated ${packageName} retains a template changelog entry.\n` +
+        "Expected: a bare Keep a Changelog skeleton with no version headings.\n" +
+        "Next: update the generated CHANGELOG.md skeleton, then rerun bootstrap:e2e.",
+    );
+  }
+
   const manifest = parseJson(
     readFileSync(path.join(destination, "package.json"), "utf8"),
   );
@@ -89,6 +104,11 @@ function assertGenerated(destination, packageName) {
   }
   if (readKey(manifest, "name") !== packageName) {
     throw new Error(`ERR_PACKAGE_NAME: generated package name is not ${packageName}.`);
+  }
+  if (readKey(manifest, "version") !== "0.0.0") {
+    throw new Error(
+      `ERR_VERSION_REMAINING: generated ${packageName} does not start at version 0.0.0.`,
+    );
   }
   if (readKey(manifest, "bin") !== undefined) {
     throw new Error(

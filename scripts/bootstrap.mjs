@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Buffer } from "node:buffer";
 import console from "node:console";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -26,12 +26,16 @@ const PLACEHOLDERS = [
   TEMPLATE_EMAIL,
   TEMPLATE_DESCRIPTION,
 ];
-const SCRIPT_STRING_PLACEHOLDERS = new Set([
-  TEMPLATE_AUTHOR,
-  TEMPLATE_EMAIL,
-  TEMPLATE_DESCRIPTION,
-]);
 const RESERVED_NAMES = new Set(["node_modules", "favicon.ico"]);
+const GENERATED_VERSION = "0.0.0";
+const GENERATED_CHANGELOG = `# Changelog
+
+All notable changes to this project are documented here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Release pull requests update this file as part of the reviewed release process.
+`;
 
 // Keep this list explicit. Bootstrap is a one-time rewrite of known template
 // targets, not a repository-wide search-and-replace. Add a target here when a
@@ -49,11 +53,6 @@ const PLACEHOLDER_TARGETS = [
   { file: "package.json", placeholder: TEMPLATE_AUTHOR },
   { file: "package.json", placeholder: TEMPLATE_EMAIL },
   { file: "package.json", placeholder: TEMPLATE_DESCRIPTION },
-  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_REPOSITORY },
-  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_PACKAGE },
-  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_AUTHOR },
-  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_EMAIL },
-  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_DESCRIPTION },
   { file: "tests/docs.test.ts", placeholder: TEMPLATE_PACKAGE },
   { file: "tests/package.test.ts", placeholder: TEMPLATE_PACKAGE },
   { file: "typedoc.json", placeholder: TEMPLATE_REPOSITORY },
@@ -61,7 +60,14 @@ const PLACEHOLDER_TARGETS = [
 
 // These files carry bootstrap-only blocks. They are deliberately enumerated so
 // adding an unrelated tracked file cannot make bootstrap rewrite it.
-const MARKER_TARGETS = ["AGENTS.md", "README.md", ".github/workflows/ci.yml"];
+// Exported so scripts/verify-bootstrap.mjs's own post-bootstrap marker-residue
+// check reads the same list instead of keeping a second, driftable copy.
+export const MARKER_TARGETS = [
+  "AGENTS.md",
+  "README.md",
+  "CONTRIBUTING.md",
+  ".github/workflows/ci.yml",
+];
 
 // The AI-layer assertion retains the profile/reference guard without walking
 // the repository. Extend this list when a new AI-layer file becomes part of
@@ -88,6 +94,37 @@ const TEMPLATE_ONLY_YAML_BLOCK =
   /^[ \t]*# template-only:start\s*$[\s\S]*?^[ \t]*# template-only:end\s*$\n?/gm;
 const PROFILE_BLOCK =
   /<!-- profile:([a-z0-9-]+):start -->([\s\S]*?)<!-- profile:\1:end -->/g;
+
+// Directories a Markdown-reference scan has no business reading: version
+// control internals, and (defensively) a dependency tree that should not
+// exist yet at bootstrap time.
+const MARKDOWN_SCAN_SKIP_DIRECTORIES = new Set(["node_modules", ".git"]);
+
+// A single-backtick inline code span, e.g. the `scripts/foo.mjs` in prose.
+// Deliberately excludes a fenced code block: the character class excludes
+// newlines, so it cannot match across the lines a fence's contents sit on.
+const MARKDOWN_INLINE_CODE = /`([^`\n]+)`/g;
+
+// A conservative repo-relative path shape: letters, digits, `.`, `_`, `-`,
+// and `/` only. This must reject a shell command line, a glob, a URL, and an
+// npm scope, none of which name a real path in the generated tree — see the
+// call site for how each is filtered out before this pattern is even tried.
+const REPO_RELATIVE_PATH_TOKEN = /^[A-Za-z0-9._](?:[A-Za-z0-9._/-]*[A-Za-z0-9_/-])?$/;
+
+// Paths that a Markdown file may legitimately name without the path existing
+// in the generated tree. `dist/` and `docs/api/` are gitignored build output;
+// `docs/` itself has no hand-written page yet, so `git ls-files` — which
+// creates a directory only for a file it copies — never creates it either;
+// `.claude/settings.local.json` is gitignored personal config; and `secrets/`
+// documents a directory *pattern* this template guards against rather than a
+// directory it ships.
+const DANGLING_REFERENCE_EXEMPTIONS = new Set([
+  "dist/",
+  "docs/",
+  "docs/api/",
+  ".claude/settings.local.json",
+  "secrets/",
+]);
 
 const USAGE = `Usage: node scripts/bootstrap.mjs
 
@@ -323,16 +360,6 @@ export async function promptArguments(question) {
 }
 
 /**
- * Escape a value that will be inserted inside a JavaScript string literal.
- *
- * @param {string} value
- * @returns {string}
- */
-function escapeJavaScriptString(value) {
-  return JSON.stringify(value).slice(1, -1);
-}
-
-/**
  * Replace placeholders in UTF-8 text and leave binary files unchanged.
  *
  * @param {string} file
@@ -393,8 +420,112 @@ function readOptionalValidationFile(file) {
 }
 
 /**
+ * List every non-symlink Markdown file under `root`, skipping directories a
+ * documentation-reference scan has no business reading.
+ *
+ * @param {string} root
+ * @returns {string[]} Repository-relative, forward-slash-separated paths.
+ */
+function listMarkdownFiles(root) {
+  /** @type {string[]} */
+  const found = [];
+  /** @param {string} directory */
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (MARKDOWN_SCAN_SKIP_DIRECTORIES.has(entry.name)) {
+          continue;
+        }
+        visit(absolute);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        found.push(normalizeRelativePath(path.relative(root, absolute)));
+      }
+    }
+  };
+  visit(root);
+  return found;
+}
+
+/**
+ * Extract inline-code tokens from Markdown prose that are shaped like a
+ * repository-relative path. A shell command line, a glob, a URL, and an npm
+ * scope are all excluded before the character-class check even runs, because
+ * each of those is common in this template's own prose and none of them
+ * names a real path to verify.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+function extractPathTokens(text) {
+  /** @type {Set<string>} */
+  const tokens = new Set();
+  for (const match of text.matchAll(MARKDOWN_INLINE_CODE)) {
+    const token = match[1] ?? "";
+    if (
+      token.includes("/") &&
+      !/\s/.test(token) &&
+      !token.includes("..") &&
+      !token.includes("://") &&
+      !token.startsWith("@") &&
+      REPO_RELATIVE_PATH_TOKEN.test(token)
+    ) {
+      tokens.add(token);
+    }
+  }
+  return [...tokens];
+}
+
+/**
+ * Find every backticked, repo-relative path token in the generated tree's own
+ * Markdown files that does not resolve to a real file or directory in that
+ * same tree — for example a reference to a file bootstrap itself just removed.
+ *
+ * @param {string} root
+ * @param {Map<string, string | null>} [preview]
+ * @returns {string[]}
+ */
+function findDanglingReferences(root, preview) {
+  /** @type {string[]} */
+  const problems = [];
+  for (const relative of listMarkdownFiles(root)) {
+    /** @type {string} */
+    let text;
+    if (preview?.has(relative)) {
+      const projected = preview.get(relative);
+      if (projected === null || projected === undefined) {
+        continue;
+      }
+      text = projected;
+    } else {
+      const buffer = readOptionalValidationFile(path.join(root, relative));
+      if (buffer === undefined || buffer.includes(0)) {
+        continue;
+      }
+      text = buffer.toString("utf8");
+    }
+    for (const token of extractPathTokens(text)) {
+      if (DANGLING_REFERENCE_EXEMPTIONS.has(token)) {
+        continue;
+      }
+      const targetExists = preview?.has(token)
+        ? preview.get(token) !== null
+        : existsSync(path.join(root, token));
+      if (!targetExists) {
+        problems.push(`${relative}: dangling reference \`${token}\``);
+      }
+    }
+  }
+  return problems;
+}
+
+/**
  * Verify that generated instructions do not describe template-only or
- * profile-incompatible paths.
+ * profile-incompatible paths, and that no Markdown file in the generated
+ * tree references a path that tree does not actually contain.
  *
  * @param {string} root
  * @param {string} profile
@@ -439,6 +570,8 @@ function assertGeneratedAiLayer(root, profile, preview) {
       problems.push(`missing ${relative}`);
     }
   }
+
+  problems.push(...findDanglingReferences(root, preview));
 
   if (problems.length > 0) {
     throw new BootstrapError(
@@ -515,13 +648,8 @@ function replaceTargets(root, replacements, profile, write, preview) {
     if (replacement === undefined) {
       continue;
     }
-    const safeReplacement =
-      relative === "scripts/bootstrap.mjs" &&
-      SCRIPT_STRING_PLACEHOLDERS.has(placeholder)
-        ? escapeJavaScriptString(replacement)
-        : replacement;
     const fileReplacements = byFile.get(relative) ?? [];
-    fileReplacements.push([placeholder, safeReplacement]);
+    fileReplacements.push([placeholder, replacement]);
     byFile.set(relative, fileReplacements);
   }
   for (const relative of MARKER_TARGETS) {
@@ -576,6 +704,7 @@ function transform(root, options, year, preview) {
     "tests/bootstrap.test.ts",
     "tests/verify-bootstrap.test.ts",
     "scripts/verify-bootstrap.mjs",
+    "scripts/bootstrap.mjs",
   ]) {
     const target = path.join(root, relative);
     if (existsSync(target)) {
@@ -594,6 +723,7 @@ function transform(root, options, year, preview) {
   const manifestPath = path.join(root, "package.json");
   const manifest = readObject(manifestPath);
   manifest["name"] = options.packageName;
+  manifest["version"] = GENERATED_VERSION;
   manifest["description"] = options.description;
   manifest["license"] = options.license;
   manifest["author"] = `${options.author} <${options.email}>`;
@@ -670,6 +800,18 @@ function transform(root, options, year, preview) {
     }
     changed.push("LICENSE");
   }
+
+  // A generated repository starts its own release history at 0.0.0; the
+  // template's own dated entries describe this repository's history, not
+  // the one being generated.
+  const changelogPath = path.join(root, "CHANGELOG.md");
+  if (write) {
+    writeFileSync(changelogPath, GENERATED_CHANGELOG);
+  }
+  if (preview !== undefined) {
+    preview.set("CHANGELOG.md", GENERATED_CHANGELOG);
+  }
+  changed.push("CHANGELOG.md");
 
   return [...new Set(changed)].sort();
 }

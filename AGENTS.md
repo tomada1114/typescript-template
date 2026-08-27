@@ -162,7 +162,7 @@ time through `resolveDependencyBin` instead of importing it.
   `isolatedGitEnv` from `scripts/lib/git-env.mjs`. The exception is
   `scripts/check-staged.mjs`, which is the pre-commit layer and must read the
   index that hook was given; its tests clear the variables from their own
-  process with `vi.stubEnv` instead, and so do `tests/bootstrap.test.ts`'s.
+  process with `vi.stubEnv` instead.
 - An error raised by automation is read by an agent, so it says what failed, the
   path or export involved, expected versus actual, an error code, and the next
   safe command to run — and never a secret or an absolute home path.

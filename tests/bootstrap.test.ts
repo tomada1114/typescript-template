@@ -250,6 +250,7 @@ describe("bootstrap profiles", () => {
       readFileSync(path.join(root, "package.json"), "utf8"),
     ) as {
       name: string;
+      version: string;
       packageManager?: string;
       dependencies?: Record<string, string>;
       bin?: Record<string, string>;
@@ -259,6 +260,7 @@ describe("bootstrap profiles", () => {
       repository: { url: string };
     };
     expect(manifest.name).toBe(packageName);
+    expect(manifest.version).toBe("0.0.0");
     // Corepack and Dependabot read this field and both need an exact version.
     expect(manifest.packageManager).toBe("pnpm@11.18.0");
     expect(manifest.devEngines.runtime.onFail).toBe("error");
@@ -272,6 +274,16 @@ describe("bootstrap profiles", () => {
     expect(readFileSync(path.join(root, "README.md"), "utf8")).not.toContain(
       "Use this template",
     );
+    // Bootstrap's own script has nothing left to do in a generated repository
+    // and is never referenced again, so it removes itself.
+    expect(existsSync(path.join(root, "scripts", "bootstrap.mjs"))).toBe(false);
+    expect(readFileSync(path.join(root, "CONTRIBUTING.md"), "utf8")).not.toContain(
+      "Bootstrap profiles",
+    );
+    const changelog = readFileSync(path.join(root, "CHANGELOG.md"), "utf8");
+    expect(changelog).not.toMatch(/^## /m);
+    expect(changelog).not.toContain("0.1.1");
+    expect(changelog).toContain("Keep a Changelog");
 
     for (const [file, contents] of stableAiFiles) {
       expect(readFileSync(path.join(root, file), "utf8")).toBe(contents);
@@ -369,6 +381,41 @@ describe("bootstrap profiles", () => {
     expect(readFileSync(agents, "utf8")).toBe(before);
   });
 
+  it("rejects a Markdown reference to a path the generated tree does not contain", () => {
+    const root = copyTemplate();
+    const agents = path.join(root, "AGENTS.md");
+    writeFileSync(
+      agents,
+      `${readFileSync(agents, "utf8")}\nSee \`scripts/does-not-exist.mjs\` for details.\n`,
+    );
+
+    expect(() =>
+      bootstrap(root, options("dangling-reference", "node-library")),
+    ).toThrow(/AGENTS\.md: dangling reference `scripts\/does-not-exist\.mjs`/);
+  });
+
+  it("does not let a nested, unrelated file sharing an AI-layer basename affect the AI-layer check", () => {
+    // AI_LAYER_TARGETS matches exact repository-relative paths, not a
+    // basename at any depth (fixed in #71). A stray bootstrap marker in a
+    // nested file that happens to share the top-level AGENTS.md's name must
+    // not fail bootstrap, because that nested file is never a generated
+    // repository's AI-layer instructions.
+    const root = copyTemplate();
+    const nestedDirectory = path.join(root, "docs", "guides");
+    mkdirSync(nestedDirectory, { recursive: true });
+    writeFileSync(
+      path.join(nestedDirectory, "AGENTS.md"),
+      "# Unrelated guide\n\n" +
+        "<!-- template-only:start -->\n" +
+        "A stale marker a basename-only match would have wrongly flagged.\n" +
+        "<!-- template-only:end -->\n",
+    );
+
+    expect(() =>
+      bootstrap(root, options("nested-basename", "node-library")),
+    ).not.toThrow();
+  });
+
   it("does not depend on package-manager or staging processes", () => {
     const source = readFileSync(
       path.join(repoRoot, "scripts", "bootstrap.mjs"),
@@ -382,7 +429,7 @@ describe("bootstrap profiles", () => {
     expect(source).not.toContain("corepack");
   });
 
-  it("preserves interactive metadata in generated JSON and JavaScript", () => {
+  it("preserves interactive metadata in generated JSON", () => {
     const root = copyTemplate();
     const description = 'A $& "quoted" package.\nWith a second line.';
     const parsed = parseArguments([
@@ -411,11 +458,6 @@ describe("bootstrap profiles", () => {
       description,
     });
     expect(readFileSync(path.join(root, "README.md"), "utf8")).toContain(description);
-    expect(() =>
-      execFileSync(process.execPath, ["--check", "scripts/bootstrap.mjs"], {
-        cwd: root,
-      }),
-    ).not.toThrow();
   });
 
   it("keeps package metadata and the license text in sync", () => {

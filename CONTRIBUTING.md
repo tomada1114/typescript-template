@@ -20,6 +20,8 @@ Useful focused commands are `pnpm check:quick`, `pnpm test`,
 `pnpm test:coverage`, `pnpm build`, `pnpm docs:build`, and
 `pnpm package:smoke`.
 
+<!-- template-only:start -->
+
 ## Bootstrap profiles
 
 The template starts as the `node-library` profile. Bootstrap makes one
@@ -33,6 +35,9 @@ irreversible choice for the generated repository:
 The universal profile omits `engines.node`, sets build `types` to an empty
 array, and is exercised by the bundler-resolution smoke consumer. The
 node-library profile retains Node types.
+<!-- template-only:end -->
+
+## Dependency cooldown
 
 The seven-day dependency cooldown in `pnpm-workspace.yaml` is fail-closed. If
 an urgent security fix is younger than seven days, a maintainer may add the
