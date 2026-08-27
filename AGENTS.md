@@ -268,12 +268,33 @@ Test files live in `tests/<module>.test.ts` — no co-location with `src/`.
   dependency, no dependence on timezone, locale, CPU count, or wall-clock time.
   Nothing is left as `it.skip`/`it.todo` on `main`, and a flaky test is fixed
   rather than retried.
-- Coverage thresholds are a floor of 80% (lines, functions, statements,
-  branches), never lowered, and no file is added to the coverage exclude list
-  to make a number move. `coverage.include` is `src/**/*.ts`, so an untested
-  file counts as 0% instead of vanishing from the denominator. Branch coverage
-  is the one that matters — cover both sides of a conditional rather than
-  writing a trivial test to move the percentage.
+- Coverage thresholds are never lowered, and no file is added to the coverage
+  exclude list to make a number move. `coverage.include` is
+  `["src/**/*.ts", "scripts/**/*.mjs"]`, so an untested file counts as 0%
+  instead of vanishing from the denominator. Branch coverage is the one that
+  matters — cover both sides of a conditional rather than writing a trivial
+  test to move the percentage. `src/**` keeps its 80% floor
+  (lines/functions/statements/branches). `scripts/**` was never measured
+  before it was added to `coverage.include`, so its floor is that first
+  measurement (62/55/65/60% lines/branches/functions/statements) rounded down
+  to a clean value, not a guessed default — raise it as real coverage grows,
+  never lower it to make a run pass. `scripts/lib/guard/**` — the
+  credential/path-detection rule engine, the most security-critical code in
+  the repository — gets its own higher floor (90/80/100/90%) for the same
+  reason: it should not be able to regress just because it is dragged along by
+  whatever number the broader automation tree happens to start at. See
+  `vitest.config.ts`'s `coverage.thresholds` for the exact, current values;
+  this paragraph only explains why there are three floors instead of one.
+- `vitest.config.ts` splits the suite into two `test.projects`: `unit` for
+  tests that only import `src/**` (plus `scripts/lib/guard/**`'s own
+  pure-function tests) and touch no filesystem, subprocess, or git, and
+  `automation` for everything else. The two get different timeouts on
+  purpose: a `unit` test has no I/O, so if it hangs it can only be an infinite
+  loop or an unresolved promise, and the short timeout (5s) surfaces that in
+  seconds instead of the two minutes a hung repository-automation test
+  legitimately needs for a real subprocess or temp-directory operation. Adding
+  a test file means deciding which project it belongs to by what it actually
+  touches, not by guessing from its name.
 
 - Anti-patterns: testing trivial property access while skipping business-logic
   edge cases; `toBeDefined()`/`not.toBeNull()` where a specific value is
