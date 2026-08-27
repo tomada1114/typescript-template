@@ -102,8 +102,8 @@ jobs:
       # `devEngines.runtime` pins development to Node ^24 with `onFail: error`,
       # so pnpm refuses to run at all on the minimum supported runtime. Opting
       # out here is what makes the `engines.node` floor testable: removing the
-      # flag does not make CI stricter, it breaks the job. See
-      # docs/template-implementation/decisions.md §3.
+      # flag does not make CI stricter, it breaks the job. See AGENTS.md's
+      # "Verifying against the minimum supported Node" section.
       #
       # `pnpm install` materializes its effective settings back into
       # package.json, so the flag rewrites `devEngines.runtime.onFail` to

@@ -33,9 +33,8 @@ private and blocked by the package export map.
 - `withTimeout(operation, options)` runs an abortable operation with a deadline.
 - `InvalidInputError` and `TimeoutError` expose stable error codes.
 
-See [Getting started](docs/getting-started.md), the
-[API reference](docs/reference.md), and the generated TypeDoc documentation from
-`pnpm docs:build`.
+See the generated TypeDoc documentation from `pnpm docs:build` for the full API
+reference.
 
 <!-- template-only:start -->
 
@@ -53,8 +52,8 @@ license, and description. For automation, pass the package name together with
 the `--profile`, `--author`, `--email`, `--github-user`, and `--license` flags.
 
 Use `node-library` for a Node.js package, or `universal-library` for code that
-must build without Node APIs. Bootstrap removes this section and the template
-implementation documents from the generated repository.
+must build without Node APIs. Bootstrap removes this section from the
+generated repository.
 <!-- template-only:end -->
 
 ## Development
