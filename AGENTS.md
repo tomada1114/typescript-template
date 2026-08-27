@@ -68,10 +68,6 @@ install step after the rewrite.
 src/
 ├── index.ts      # the public contract: the only module consumers can import
 ├── internal/     # private; never re-exported from index.ts
-<!-- profile:node-cli:start -->
-├── cli.ts        # testable CLI logic — runCli(argv, io)
-├── bin.ts        # the executable shim that binds runCli to the process
-<!-- profile:node-cli:end -->
 └── *.ts          # implementation modules, re-exported by name from index.ts
 ```
 
@@ -90,20 +86,6 @@ src/
   `validation.notDocumented` is what still fails on a public symbol with no
   TSDoc at all.
 - `scripts/*.mjs` is repository automation and never ships.
-
-<!-- profile:node-cli:start -->
-
-- Inject I/O, environment, and the clock as parameters instead of touching
-  globals directly (`src/cli.ts`'s `CliIo` is the model: `stdout`/`stderr`
-  callbacks and `version` are passed in, so `runCli` is a pure function
-  testable without spawning a process). `src/bin.ts` is the only place that
-  binds these to the real process.
-- Keep the CLI split in mind when adding commands: business logic and
-  argument parsing live in `src/cli.ts` (unit-tested); `src/bin.ts` stays a
-  thin shim that binds `runCli` to the real process and argv, producing the
-  executable `dist/bin.js`.
-
-<!-- profile:node-cli:end -->
 
 ## Changing the public API
 
@@ -308,15 +290,6 @@ Test files live in `tests/<module>.test.ts` — no co-location with `src/`.
   file counts as 0% instead of vanishing from the denominator. Branch coverage
   is the one that matters — cover both sides of a conditional rather than
   writing a trivial test to move the percentage.
-
-<!-- profile:node-cli:start -->
-
-- `src/bin.ts` is deliberately at 0% unit coverage: it is a process-binding
-  shim, all its logic lives in `src/cli.ts` (which is unit-tested), and
-  `bin.ts` itself is exercised end-to-end by `tests/cli.test.ts` and the
-  tarball smoke test (`pnpm package:smoke`).
-
-<!-- profile:node-cli:end -->
 
 - Anti-patterns: testing trivial property access while skipping business-logic
   edge cases; `toBeDefined()`/`not.toBeNull()` where a specific value is

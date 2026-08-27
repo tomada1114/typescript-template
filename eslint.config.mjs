@@ -199,14 +199,6 @@ export default defineConfig([
   },
   ...universalSourceRestrictions,
   {
-    name: "cli/console-output",
-    files: ["src/cli.ts", "src/bin.ts"],
-    rules: {
-      // A CLI's stdout/stderr is its interface, not stray debugging.
-      "no-console": "off",
-    },
-  },
-  {
     name: "automation/node-scripts",
     files: ["scripts/**/*.mjs", ".agents/skills/**/*.mjs"],
     rules: {

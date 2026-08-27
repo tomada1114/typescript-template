@@ -10,14 +10,7 @@
 // Build and pack happen in the package.json script that calls this one, because
 // pnpm's own path is not discoverable from a `.mjs` under pnpm 11.
 import console from "node:console";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -50,15 +43,6 @@ Exit codes:
 
 /** Raised for a check failure whose message is already agent-readable. */
 class SmokeError extends Error {}
-
-/**
- * What a CLI invocation is required to produce.
- *
- * @typedef {object} CliExpectation
- * @property {number} status - Required exit code.
- * @property {"empty"} [stdout] - Require stdout to be empty.
- * @property {"nonempty"} [stderr] - Require stderr to carry an explanation.
- */
 
 /**
  * Fail the smoke test with a message shaped for spec 02 §7.3.
@@ -398,7 +382,7 @@ console.log("  require() resolved the ./package.json subpath");
 }
 
 /**
- * Step 12: a private module must not be reachable by deep import.
+ * Step 11: a private module must not be reachable by deep import.
  *
  * @param {string} consumer - Consumer directory.
  * @param {string} packageName - Installed package name.
@@ -612,174 +596,8 @@ function checkTypeScriptConsumers(consumer, packageName) {
   }
 }
 
-/**
- * Step 11: the CLI that a `bin` field promises.
- *
- * @param {string} consumer - Directory holding the installed package.
- * @param {string} packageName - Installed package name.
- * @param {unknown} manifest - The packed `package.json`.
- * @param {readonly import("./check-package.mjs").TarEntry[]} entries - Tarball entries.
- * @returns {void}
- */
-function checkCli(consumer, packageName, manifest, entries) {
-  const bin = readKey(manifest, "bin");
-  if (bin === undefined) {
-    step("skipping CLI checks: package.json declares no bin");
-    return;
-  }
-
-  /** @type {[string, unknown][]} */
-  const binEntries =
-    typeof bin === "string"
-      ? [[readString(manifest, "name") ?? packageName, bin]]
-      : Object.entries(/** @type {Record<string, unknown>} */ (bin));
-  const version = readString(manifest, "version");
-
-  for (const [binName, target] of binEntries) {
-    if (typeof target !== "string") {
-      continue;
-    }
-    const relative = target.startsWith("./") ? target.slice(2) : target;
-    step(`checking the ${binName} CLI (${relative})`);
-    const installed = path.join(consumer, "node_modules", packageName, relative);
-
-    // Without a shebang the file cannot be executed directly, only through the
-    // shim npm happens to create.
-    const firstLine = readFileSync(installed, "utf8").split("\n", 1)[0] ?? "";
-    if (!firstLine.startsWith("#!")) {
-      fail("ERR_SMOKE_CLI_NO_SHEBANG", {
-        what: "The published CLI entry has no shebang.",
-        subject: relative,
-        expected: "#!/usr/bin/env node on the first line",
-        actual: excerpt(firstLine),
-        next: "Keep the shebang as the first line of src/bin.ts.",
-      });
-    }
-
-    // The execute bit as recorded in the tarball, not as found on disk: npm sets
-    // the bit while linking, so an installed file would look fine either way.
-    const packed = entries.find((entry) => entry.path === relative);
-    if (packed === undefined || (packed.mode & 0o111) === 0) {
-      fail("ERR_SMOKE_CLI_NOT_EXECUTABLE", {
-        what: "The CLI entry is not marked executable inside the tarball.",
-        subject: relative,
-        expected: "a mode with at least one execute bit set",
-        actual:
-          packed === undefined
-            ? "the file is not in the tarball at all"
-            : `mode ${packed.mode.toString(8)}`,
-        next: "Confirm src/bin.ts starts with a shebang so `tsc` emits an executable file, then rebuild and pack.",
-      });
-    }
-
-    // The shim created from `bin`. Its extension differs per platform, so its
-    // existence is checked while the CLI itself is run through Node below.
-    const shimDir = path.join(consumer, "node_modules", ".bin");
-    const linked = [binName, `${binName}.cmd`, `${binName}.ps1`].some((shim) =>
-      existsSync(path.join(shimDir, shim)),
-    );
-    if (!linked) {
-      fail("ERR_SMOKE_CLI_NOT_LINKED", {
-        what: "Installing the package did not create the CLI shim.",
-        subject: `node_modules/.bin/${binName}`,
-        expected: "a shim generated from package.json#bin",
-        actual: "absent",
-        next: "Check that the `bin` key names the intended command and points at a packed file.",
-      });
-    }
-
-    /**
-     * Run the installed CLI and assert on its three observable outputs.
-     *
-     * @param {readonly string[]} args - CLI arguments.
-     * @param {CliExpectation} expected - Required outcome.
-     * @returns {import("./lib/node-tools.mjs").RunResult} The captured result.
-     */
-    const expectCli = (args, expected) => {
-      const result = runNode(installed, args, { cwd: consumer });
-      const label = `${binName} ${args.join(" ")}`.trim();
-      if (result.status !== expected.status) {
-        fail("ERR_SMOKE_CLI_EXIT_CODE", {
-          what: "The CLI returned the wrong exit code.",
-          subject: label,
-          expected: `exit ${String(expected.status)}`,
-          actual: `exit ${String(result.status)}\nstderr: ${excerpt(result.stderr)}`,
-          next: "Check the exit codes in src/cli.ts: 0 success, 1 rejected input, 2 usage error.",
-        });
-      }
-      if (expected.stdout === "empty" && result.stdout.trim() !== "") {
-        fail("ERR_SMOKE_CLI_STREAM", {
-          what: "The CLI wrote to stdout while failing, which corrupts a pipeline.",
-          subject: label,
-          expected: "empty stdout",
-          actual: excerpt(result.stdout),
-          next: "Route every diagnostic to stderr in src/cli.ts.",
-        });
-      }
-      if (expected.stderr === "nonempty" && result.stderr.trim() === "") {
-        fail("ERR_SMOKE_CLI_STREAM", {
-          what: "The CLI failed without explaining why.",
-          subject: label,
-          expected: "a message on stderr",
-          actual: "<empty>",
-          next: "Write the reason and the usage text to stderr in src/cli.ts.",
-        });
-      }
-      return result;
-    };
-
-    // `--version` must agree with the manifest, or a bug report names a release
-    // that does not contain the code it was filed against.
-    const reported = expectCli(["--version"], { status: 0 }).stdout.trim();
-    if (version !== undefined && reported !== version) {
-      fail("ERR_SMOKE_CLI_VERSION_MISMATCH", {
-        what: "The CLI reports a different version than package.json declares.",
-        subject: `${binName} --version`,
-        expected: version,
-        actual: reported === "" ? "<empty>" : reported,
-        next: "Check how src/bin.ts reads the installed package.json.",
-      });
-    }
-
-    const help = expectCli(["--help"], { status: 0 });
-    if (help.stdout.trim() === "") {
-      fail("ERR_SMOKE_CLI_STREAM", {
-        what: "`--help` printed nothing to stdout.",
-        subject: `${binName} --help`,
-        expected: "usage text on stdout",
-        actual: "<empty>",
-        next: "Print the usage text to stdout for an explicit help request.",
-      });
-    }
-
-    // A malformed command line is the caller's mistake: exit 2, nothing on
-    // stdout, an explanation on stderr.
-    expectCli(["--nonexistent-flag"], {
-      status: 2,
-      stdout: "empty",
-      stderr: "nonempty",
-    });
-    expectCli([], { status: 2, stdout: "empty", stderr: "nonempty" });
-
-    // Input that was understood but rejected is a different outcome: exit 1.
-    expectCli(["normalize", "   "], { status: 1, stdout: "empty", stderr: "nonempty" });
-
-    // And the success path still works.
-    const normalized = expectCli(["normalize", "Hello World"], { status: 0 });
-    if (normalized.stdout.trim() !== "hello-world") {
-      fail("ERR_SMOKE_CLI_OUTPUT", {
-        what: "The CLI produced unexpected output on the success path.",
-        subject: `${binName} normalize "Hello World"`,
-        expected: "hello-world",
-        actual: excerpt(normalized.stdout),
-        next: "Check the `normalize` command in src/cli.ts against normalizeIdentifier.",
-      });
-    }
-  }
-}
-
 // -----------------------------------------------------------------------------
-// CLI
+// Command-line entry point
 // -----------------------------------------------------------------------------
 
 /**
@@ -870,7 +688,6 @@ function main(argv) {
     checkRuntimeImports(consumer, packageName, publicSubpaths(installedManifest));
     checkRequireInterop(consumer, packageName);
     checkTypeScriptConsumers(consumer, packageName);
-    checkCli(consumer, packageName, installedManifest, entries);
     checkDeepImportBlocked(consumer, packageName);
 
     step("all checks passed");

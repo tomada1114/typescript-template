@@ -198,7 +198,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # Packs the tarball and installs it into a throwaway consumer that
-      # imports the package and runs the CLI. No coverage is collected here.
+      # imports the package and exercises its public API. No coverage is
+      # collected here.
       - name: Smoke test the packed tarball
         run: pnpm run package:smoke
 
