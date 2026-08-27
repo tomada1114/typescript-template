@@ -52,10 +52,9 @@ Answer the prompts for the package name, profile, author, email, GitHub user,
 license, and description. For automation, pass the package name together with
 the `--profile`, `--author`, `--email`, `--github-user`, and `--license` flags.
 
-Use `node-cli` for an importable library with a command-line executable, or
-`universal-library` for code that must build without Node APIs. Bootstrap removes
-this section and the template implementation documents from the generated
-repository.
+Use `node-library` for a Node.js package, or `universal-library` for code that
+must build without Node APIs. Bootstrap removes this section and the template
+implementation documents from the generated repository.
 <!-- template-only:end -->
 
 ## Development

@@ -50,10 +50,9 @@ const MARKER_FILES = ["AGENTS.md", "README.md", ".github/workflows/ci.yml"];
  * Check the lightweight, observable output of one bootstrap run.
  *
  * @param {string} destination
- * @param {string} profile
  * @param {string} packageName
  */
-function assertGenerated(destination, profile, packageName) {
+function assertGenerated(destination, packageName) {
   const placeholders = findPlaceholders(destination);
   if (placeholders.length > 0) {
     throw new Error(
@@ -101,11 +100,19 @@ function assertGenerated(destination, profile, packageName) {
   if (readKey(manifest, "name") !== packageName) {
     throw new Error(`ERR_PACKAGE_NAME: generated package name is not ${packageName}.`);
   }
-  if (profile === "node-cli" && readKey(manifest, "bin") === undefined) {
-    throw new Error(`ERR_CLI_PROFILE: generated ${packageName} has no bin entry.`);
+  if (readKey(manifest, "bin") !== undefined) {
+    throw new Error(
+      "ERR_BIN_REMAINING: generated package still declares package.json#bin.\n" +
+        "Expected: no bin entry in either remaining profile.\n" +
+        "Next: remove bin metadata from the template, then rerun bootstrap:e2e.",
+    );
   }
-  if (profile !== "node-cli" && readKey(manifest, "bin") !== undefined) {
-    throw new Error(`ERR_NON_CLI_PROFILE: generated ${packageName} has a bin entry.`);
+  if (readKey(manifest, "sideEffects") !== false) {
+    throw new Error(
+      "ERR_SIDE_EFFECTS_REMAINING: generated package does not declare sideEffects as false.\n" +
+        "Expected: sideEffects: false in both remaining profiles.\n" +
+        "Next: update the template manifest, then rerun bootstrap:e2e.",
+    );
   }
   if (packageName === "zukai" && readKey(manifest, "dependencies") !== undefined) {
     throw new Error(
@@ -147,9 +154,8 @@ export function main() {
   try {
     const cases = [
       ["node-library", "acme-node-library"],
-      ["node-cli", "acme-node-cli"],
       ["universal-library", "acme-universal-library"],
-      ["node-cli", "zukai"],
+      ["node-library", "zukai"],
     ];
     for (const [profile, packageName] of cases) {
       if (profile === undefined || packageName === undefined) {
@@ -176,7 +182,7 @@ export function main() {
         ],
         destination,
       );
-      assertGenerated(destination, profile, packageName);
+      assertGenerated(destination, packageName);
       console.log(`bootstrap-e2e: ${packageName} (${profile}) passed`);
     }
     return 0;

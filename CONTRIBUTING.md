@@ -22,19 +22,17 @@ Useful focused commands are `pnpm check:quick`, `pnpm test`,
 
 ## Bootstrap profiles
 
-The template starts as the superset `node-cli` profile. Bootstrap makes one
+The template starts as the `node-library` profile. Bootstrap makes one
 irreversible choice for the generated repository:
 
-| Profile             | Runtime contract                                   | CLI files and `bin` | `sideEffects`      |
-| ------------------- | -------------------------------------------------- | ------------------- | ------------------ |
-| `node-library`      | Node.js >= 22.14                                   | removed             | `false`            |
-| `node-cli`          | Node.js >= 22.14, importable API plus executable   | retained            | `dist/bin.js` only |
-| `universal-library` | ES and DOM APIs; Node built-ins fail the src build | removed             | `false`            |
+| Profile             | Runtime contract                                   | `sideEffects` |
+| ------------------- | -------------------------------------------------- | ------------- |
+| `node-library`      | Node.js >= 22.14                                   | `false`       |
+| `universal-library` | ES and DOM APIs; Node built-ins fail the src build | `false`       |
 
 The universal profile omits `engines.node`, sets build `types` to an empty
-array, and is exercised by the bundler-resolution smoke consumer. The other
-profiles retain Node types. Generated repositories never retain another
-profile's CLI files or package metadata.
+array, and is exercised by the bundler-resolution smoke consumer. The
+node-library profile retains Node types.
 
 The seven-day dependency cooldown in `pnpm-workspace.yaml` is fail-closed. If
 an urgent security fix is younger than seven days, a maintainer may add the

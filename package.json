@@ -33,12 +33,7 @@
   "files": [
     "dist"
   ],
-  "bin": {
-    "my-package": "./dist/bin.js"
-  },
-  "sideEffects": [
-    "./dist/bin.js"
-  ],
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

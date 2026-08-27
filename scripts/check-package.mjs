@@ -5,8 +5,8 @@
 // The tarball is parsed here rather than by shelling out to `tar` or adding a
 // dependency: one implementation behaves identically on every OS, and the
 // dependency review surface of a template stays at zero. Everything below the
-// CLI section is a pure function so `tests/package.test.ts` can exercise the
-// boundaries without packing anything.
+// command-line entry point is a pure function so `tests/package.test.ts` can
+// exercise the boundaries without packing anything.
 import console from "node:console";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -23,7 +23,6 @@ import { findSingleTarball } from "./lib/tarball.mjs";
  * @typedef {object} TarEntry
  * @property {string} path - Path with npm's leading `package/` removed.
  * @property {number} size - Size in bytes as recorded in the header.
- * @property {number} mode - Permission bits, so the CLI execute bit is checkable.
  * @property {"file" | "directory" | "symlink" | "other"} type - Entry kind.
  * @property {Buffer} [data] - Contents, present when the entry was parsed from
  * an archive rather than constructed in a test.
@@ -384,7 +383,6 @@ export function readTarEntries(buffer) {
     entries.push({
       path: stripped,
       size,
-      mode: readNumeric(block, 100, 8),
       type: entryType(flag),
       data,
     });

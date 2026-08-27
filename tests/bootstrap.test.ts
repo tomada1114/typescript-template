@@ -108,8 +108,7 @@ function generatedAiLayer(root: string): string {
 
 function options(
   packageName: string,
-  profile: "node-library" | "node-cli" | "universal-library",
-  extra: string[] = [],
+  profile: "node-library" | "universal-library",
 ): ReturnType<typeof parseArguments> {
   return parseArguments([
     packageName,
@@ -123,7 +122,6 @@ function options(
     "ada",
     "--license",
     "MIT",
-    ...extra,
   ]);
 }
 
@@ -161,22 +159,20 @@ describe("bootstrap validation", () => {
     expect(() => validatePackageName("..\\evil")).toThrow(BootstrapError);
   });
 
-  it("allows optional description and bin metadata to be omitted", () => {
+  it("uses the default description when it is omitted", () => {
     const parsed = options("acme-library", "node-library");
     expect(parsed.description).toBe("A TypeScript package.");
-    expect(parsed.binName).toBeUndefined();
   });
 
   it("collects package metadata through the interactive prompts", async () => {
     const answers = [
       "interactive-package",
-      "node-cli",
+      "universal-library",
       "Ada Lovelace",
       "ada@example.com",
       "ada",
       "ISC",
       "An interactive package.",
-      "interactive-command",
     ];
     const prompts: string[] = [];
     const parsed = await promptArguments((prompt) => {
@@ -186,13 +182,12 @@ describe("bootstrap validation", () => {
 
     expect(parsed).toMatchObject({
       packageName: "interactive-package",
-      profile: "node-cli",
+      profile: "universal-library",
       author: "Ada Lovelace",
       email: "ada@example.com",
       githubUser: "ada",
       license: "ISC",
       description: "An interactive package.",
-      binName: "interactive-command",
     });
     expect(prompts).toEqual([
       "Package name: ",
@@ -202,7 +197,6 @@ describe("bootstrap validation", () => {
       "GitHub user: ",
       "License [MIT]: ",
       "Description [A TypeScript package.]: ",
-      "Command name (blank for package name): ",
     ]);
   });
 
@@ -257,7 +251,6 @@ describe("bootstrap validation", () => {
 describe("bootstrap profiles", () => {
   it.each([
     ["acme-library", "node-library"],
-    ["@acme/widgets", "node-cli"],
     ["browser-kit", "universal-library"],
   ] as const)("generates %s as %s", (packageName, profile) => {
     const root = copyTemplate();
@@ -270,14 +263,7 @@ describe("bootstrap profiles", () => {
           file.startsWith(".claude/skills/") || file.startsWith(".agents/skills/"),
       )
       .map((file) => [file, readFileSync(path.join(root, file), "utf8")] as const);
-    bootstrap(
-      root,
-      options(
-        packageName,
-        profile,
-        profile === "node-cli" ? ["--bin-name", "widgets"] : [],
-      ),
-    );
+    bootstrap(root, options(packageName, profile));
 
     const manifest = JSON.parse(
       readFileSync(path.join(root, "package.json"), "utf8"),
@@ -309,18 +295,6 @@ describe("bootstrap profiles", () => {
 
     const aiText = generatedAiLayer(root);
     expect(aiText).not.toMatch(/docs\/template-(?:requirements|implementation)/);
-    if (profile === "node-cli") {
-      expect(aiText).toContain("src/cli.ts");
-      expect(aiText).toContain("src/bin.ts");
-      expect(aiText).toContain("tests/cli.test.ts");
-      expect(aiText).toContain("runCli");
-      expect(aiText).toContain("CliIo");
-      expect(aiText).toContain("dist/bin.js");
-    } else {
-      expect(aiText).not.toMatch(
-        /(?:cli\.ts|bin\.ts|runCli|CliIo|dist\/bin\.js|tests\/cli\.test\.ts)/,
-      );
-    }
 
     for (const [file, contents] of stableAiFiles) {
       expect(readFileSync(path.join(root, file), "utf8")).toBe(contents);
@@ -364,12 +338,8 @@ describe("bootstrap profiles", () => {
     expect(existsSync(path.join(root, "scripts", "lib", "is-main.mjs"))).toBe(true);
     expect(existsSync(path.join(root, "scripts", "lib", "json.mjs"))).toBe(true);
 
-    const hasCli = profile === "node-cli";
-    expect(existsSync(path.join(root, "src", "cli.ts"))).toBe(hasCli);
-    expect(existsSync(path.join(root, "src", "bin.ts"))).toBe(hasCli);
-    expect(existsSync(path.join(root, "tests", "cli.test.ts"))).toBe(hasCli);
-    expect(manifest.bin !== undefined).toBe(hasCli);
-    expect(manifest.sideEffects).toEqual(hasCli ? ["./dist/bin.js"] : false);
+    expect(manifest.bin).toBeUndefined();
+    expect(manifest.sideEffects).toBe(false);
 
     const buildConfig = readFileSync(path.join(root, "tsconfig.build.json"), "utf8");
     if (profile === "universal-library") {
@@ -442,7 +412,7 @@ describe("bootstrap profiles", () => {
     const parsed = parseArguments([
       "quoted-package",
       "--profile",
-      "node-cli",
+      "node-library",
       "--author",
       'Ada "The Great"',
       "--email",
@@ -453,8 +423,6 @@ describe("bootstrap profiles", () => {
       "MIT",
       "--description",
       description,
-      "--bin-name",
-      "quoted-command",
     ]);
 
     bootstrap(root, parsed);

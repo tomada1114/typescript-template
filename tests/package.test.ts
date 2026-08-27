@@ -38,14 +38,14 @@ import { resolveTarballArgument } from "../scripts/verify-package.mjs";
 function tarHeader(
   name: string,
   size: number,
-  options: { mode?: number; typeflag?: string; prefix?: string } = {},
+  options: { typeflag?: string; prefix?: string } = {},
 ): Buffer {
   const block = Buffer.alloc(512);
   const octal = (value: number, width: number): string =>
     `${value.toString(8).padStart(width - 1, "0")}\0`;
 
   block.write(name, 0, 100, "utf8");
-  block.write(octal(options.mode ?? 0o644, 8), 100, 8, "ascii");
+  block.write(octal(0o644, 8), 100, 8, "ascii");
   block.write(octal(0, 8), 108, 8, "ascii");
   block.write(octal(0, 8), 116, 8, "ascii");
   block.write(octal(size, 12), 124, 12, "ascii");
@@ -76,7 +76,7 @@ function tarBody(data: Buffer): Buffer {
 function tarFile(
   name: string,
   contents: string,
-  options: { mode?: number; typeflag?: string; prefix?: string } = {},
+  options: { typeflag?: string; prefix?: string } = {},
 ): Buffer[] {
   const data = Buffer.from(contents, "utf8");
   return [tarHeader(name, data.length, options), tarBody(data)];
@@ -92,13 +92,12 @@ function tarball(blocks: Buffer[]): Buffer {
 interface Entry {
   path: string;
   size: number;
-  mode: number;
   type: "file" | "directory" | "symlink" | "other";
   data?: Buffer;
 }
 
 function entry(entryPath: string, size = 10, overrides: Partial<Entry> = {}): Entry {
-  return { path: entryPath, size, mode: 0o644, type: "file", ...overrides };
+  return { path: entryPath, size, type: "file", ...overrides };
 }
 
 /** A minimal manifest whose declared entries all exist in `entries`. */
@@ -116,14 +115,13 @@ describe("readTarEntries", () => {
   it("parses a plain ustar archive and strips the leading package/ prefix", () => {
     const buffer = tarball([
       ...tarFile("package/package.json", '{"name":"x"}'),
-      ...tarFile("package/dist/bin.js", "#!/usr/bin/env node\n", { mode: 0o755 }),
+      ...tarFile("package/dist/index.js", "export const a = 1;\n"),
     ]);
 
     const entries = readTarEntries(buffer);
 
-    expect(entries.map((item) => item.path)).toEqual(["package.json", "dist/bin.js"]);
+    expect(entries.map((item) => item.path)).toEqual(["package.json", "dist/index.js"]);
     expect(entries[0]?.size).toBe(12);
-    expect(entries[1]?.mode).toBe(0o755);
     expect(entries.every((item) => item.type === "file")).toBe(true);
   });
 

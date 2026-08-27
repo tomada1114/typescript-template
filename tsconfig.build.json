@@ -23,9 +23,9 @@
     "allowJs": false,
     "checkJs": false,
 
-    // Node profiles may use `node:` builtins in src. The universal profile
-    // replaces this with `"types": []` so a Node-only import fails the build
-    // instead of silently narrowing where the package can run.
+    // The node-library profile may use `node:` builtins in src. The universal
+    // profile replaces this with `"types": []` so a Node-only import fails the
+    // build instead of silently narrowing where the package can run.
     "types": ["node"]
   },
   "include": ["src"],

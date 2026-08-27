@@ -11,14 +11,13 @@ import { parseJson, readKey, readString } from "./lib/json.mjs";
 
 const TEMPLATE_PACKAGE = "my-package";
 const TEMPLATE_REPOSITORY = "your-name/my-package";
-const TEMPLATE_USAGE = "Usage: my-package";
 const TEMPLATE_AUTHOR = "Your Name";
 const TEMPLATE_EMAIL = "you@example.com";
 const TEMPLATE_DESCRIPTION = "A short description.";
 const DEFAULT_PROFILE = "node-library";
 const DEFAULT_LICENSE = "MIT";
 const DEFAULT_DESCRIPTION = "A TypeScript package.";
-const PROFILES = new Set(["node-library", "node-cli", "universal-library"]);
+const PROFILES = new Set(["node-library", "universal-library"]);
 const LICENSES = new Set(["MIT", "ISC"]);
 const PLACEHOLDERS = [
   TEMPLATE_PACKAGE,
@@ -56,12 +55,10 @@ const PLACEHOLDER_TARGETS = [
   { file: "package.json", placeholder: TEMPLATE_EMAIL },
   { file: "package.json", placeholder: TEMPLATE_DESCRIPTION },
   { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_REPOSITORY },
-  { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_USAGE },
   { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_PACKAGE },
   { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_AUTHOR },
   { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_EMAIL },
   { file: "scripts/bootstrap.mjs", placeholder: TEMPLATE_DESCRIPTION },
-  { file: "src/cli.ts", placeholder: TEMPLATE_USAGE },
   { file: "tests/docs.test.ts", placeholder: TEMPLATE_PACKAGE },
   { file: "tests/package.test.ts", placeholder: TEMPLATE_PACKAGE },
   { file: "typedoc.json", placeholder: TEMPLATE_REPOSITORY },
@@ -100,8 +97,6 @@ const REMOVED_TEMPLATE_PATHS = [
   "docs/template-requirements",
   "docs/template-implementation",
 ];
-const REMOVED_CLI_REFERENCES =
-  /(?:src\/cli\.ts|src\/bin\.ts|tests\/cli\.test\.ts|cli\.ts|bin\.ts|runCli|CliIo|dist\/bin\.js)/;
 
 const USAGE = `Usage: node scripts/bootstrap.mjs
 
@@ -111,14 +106,13 @@ Non-interactive fallback:
   node scripts/bootstrap.mjs <package-name> [options]
 
 Required:
-  --profile <node-library|node-cli|universal-library>
+  --profile <node-library|universal-library>
   --author <name>
   --email <address>
   --github-user <owner>
   --license <MIT|ISC>
 
 Optional:
-  --bin-name <name>       Command name for node-cli (defaults to package name)
   --description <text>    Package description
   --dry-run               Validate and show the planned changes only`;
 
@@ -221,7 +215,6 @@ export function deriveNames(packageName) {
  *   email: string,
  *   githubUser: string,
  *   license: string,
- *   binName?: string,
  *   description: string,
  *   dryRun: boolean
  * }}
@@ -234,7 +227,6 @@ export function parseArguments(argv) {
     "--email",
     "--github-user",
     "--license",
-    "--bin-name",
     "--description",
   ]);
   /** @type {Map<string, string>} */
@@ -290,21 +282,6 @@ export function parseArguments(argv) {
     );
   }
 
-  const names = deriveNames(packageName);
-  const binName = values.get("--bin-name");
-  if (binName !== undefined && !/^[a-z0-9][a-z0-9._-]*$/.test(binName)) {
-    throw new BootstrapError(
-      "ERR_BIN_NAME_INVALID",
-      `invalid command name: ${binName}`,
-    );
-  }
-  if (profile !== "node-cli" && binName !== undefined) {
-    throw new BootstrapError(
-      "ERR_BIN_PROFILE",
-      "--bin-name is only valid with the node-cli profile.",
-    );
-  }
-
   return {
     packageName,
     profile,
@@ -312,7 +289,6 @@ export function parseArguments(argv) {
     email,
     githubUser,
     license,
-    ...(profile === "node-cli" ? { binName: binName ?? names.unscoped } : {}),
     description: values.get("--description") ?? DEFAULT_DESCRIPTION,
     dryRun,
   };
@@ -336,10 +312,6 @@ export async function promptArguments(question) {
   const description =
     (await question(`Description [${DEFAULT_DESCRIPTION}]: `)).trim() ||
     DEFAULT_DESCRIPTION;
-  const binName =
-    profile === "node-cli"
-      ? (await question("Command name (blank for package name): ")).trim()
-      : "";
 
   const argv = [
     packageName,
@@ -356,9 +328,6 @@ export async function promptArguments(question) {
     "--description",
     description,
   ];
-  if (binName !== "") {
-    argv.push("--bin-name", binName);
-  }
   return parseArguments(argv);
 }
 
@@ -471,9 +440,6 @@ function assertGeneratedAiLayer(root, profile, preview) {
     }
     if (text.includes("<!-- template-only:") || text.includes("<!-- profile:")) {
       problems.push(`${relative}: bootstrap marker`);
-    }
-    if (profile !== "node-cli" && REMOVED_CLI_REFERENCES.test(text)) {
-      problems.push(`${relative}: CLI-only path or symbol`);
     }
   }
 
@@ -612,7 +578,6 @@ function transform(root, options, year, preview) {
   /** @type {Map<string, string>} */
   const replacements = new Map([
     [TEMPLATE_REPOSITORY, repository],
-    [TEMPLATE_USAGE, `Usage: ${options.binName ?? names.unscoped}`],
     [TEMPLATE_PACKAGE, options.packageName],
     [TEMPLATE_AUTHOR, options.author],
     [TEMPLATE_EMAIL, options.email],
@@ -632,21 +597,6 @@ function transform(root, options, year, preview) {
         preview.set(relative, null);
       }
       changed.push(`${relative}/ (removed)`);
-    }
-  }
-
-  if (options.profile !== "node-cli") {
-    for (const relative of ["src/cli.ts", "src/bin.ts", "tests/cli.test.ts"]) {
-      const target = path.join(root, relative);
-      if (existsSync(target)) {
-        if (write) {
-          rmSync(target);
-        }
-        if (preview !== undefined) {
-          preview.set(relative, null);
-        }
-        changed.push(`${relative} (removed)`);
-      }
     }
   }
 
@@ -681,13 +631,8 @@ function transform(root, options, year, preview) {
   if (typeof scripts === "object" && scripts !== null && !Array.isArray(scripts)) {
     delete (/** @type {Record<string, unknown>} */ (scripts)["bootstrap:e2e"]);
   }
-  if (options.profile === "node-cli") {
-    manifest["bin"] = { [options.binName ?? names.unscoped]: "./dist/bin.js" };
-    manifest["sideEffects"] = ["./dist/bin.js"];
-  } else {
-    delete manifest["bin"];
-    manifest["sideEffects"] = false;
-  }
+  delete manifest["bin"];
+  manifest["sideEffects"] = false;
   if (options.profile === "universal-library") {
     delete manifest["engines"];
   } else {
