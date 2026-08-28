@@ -649,10 +649,29 @@ function listFilesRecursive(root, directory) {
 
 /**
  * Extract inline-code tokens from Markdown prose that are shaped like a
- * repository-relative path. A shell command line, a glob, a URL, and an npm
- * scope are all excluded before the character-class check even runs, because
- * each of those is common in this template's own prose and none of them
- * names a real path to verify.
+ * repository-relative path. A shell command line, a glob, a schemed or
+ * schemeless URL, and an npm scope are all excluded before the
+ * character-class check even runs, because each of those is common in this
+ * template's own prose and none of them names a real path to verify.
+ *
+ * A schemeless URL (`` `github.com/owner/repo/blob/main/README.md` ``, no
+ * `://`) is recognized the same way a browser address bar would: its first
+ * segment — everything before the first `/` — is hostname-shaped when its
+ * *first* dot sits at an interior position (not index 0). `github.com`
+ * qualifies; `.claude` (from `.claude/settings.local.json`) does not, because
+ * its only dot sits at index 0 — that token is unaffected and still becomes
+ * a path token, still governed by `DANGLING_REFERENCE_EXEMPTIONS` as before.
+ * A multi-dot dotfile such as `.prettierrc.json` also does not qualify: its
+ * first dot is still at index 0, even though a later dot (before `json`)
+ * sits at an interior position — checking the first dot, not the last, is
+ * what keeps a dotfile-shaped first segment out of the hostname test
+ * regardless of how many dots follow it. This is a
+ * shape test, not a TLD allowlist, so it also excludes an extensionless host
+ * (`example.com/path`) without a separate carve-out, and it never needs
+ * updating as new TLDs appear. A `namespace/rule-name` token such as
+ * `public-api/internal-stays-private` (#102/#105) keeps resolving to "not a
+ * path": its first segment has no dot at all, interior or otherwise, so this
+ * test does not touch it.
  *
  * @param {string} text
  * @returns {string[]}
@@ -663,12 +682,15 @@ function extractPathTokens(text) {
   const withoutFences = text.replace(MARKDOWN_FENCED_BLOCK, "");
   for (const match of withoutFences.matchAll(MARKDOWN_INLINE_CODE)) {
     const token = match[1] ?? "";
+    const firstSegment = token.slice(0, token.indexOf("/"));
+    const hostnameShaped = firstSegment.indexOf(".") > 0;
     if (
       token.includes("/") &&
       !/\s/.test(token) &&
       !token.includes("..") &&
       !token.includes("://") &&
       !token.startsWith("@") &&
+      !hostnameShaped &&
       REPO_RELATIVE_PATH_TOKEN.test(token)
     ) {
       tokens.add(token);

@@ -532,6 +532,81 @@ describe("bootstrap profiles", () => {
     );
   });
 
+  it("does not treat a backticked schemeless URL as a dangling path (#108)", () => {
+    // `github.com/owner/repo/blob/main/README.md` has no `://`, has a `/`,
+    // and its last segment (`README.md`) has a dot — so #106's shape rule 3
+    // would classify it as a repository path before the filesystem is ever
+    // consulted, and it would be reported as dangling even though it is
+    // ordinary Markdown prose naming a schemeless URL. The first segment
+    // (`github.com`) is hostname-shaped — a dot at an interior index — so it
+    // must be excluded from the token set entirely, in both a built checkout
+    // and a fresh `git ls-files` tree.
+    const root = copyTemplate();
+    const agents = path.join(root, "AGENTS.md");
+    writeFileSync(
+      agents,
+      `${readFileSync(agents, "utf8")}\nSee \`github.com/owner/repo/blob/main/README.md\` for details.\n`,
+    );
+
+    expect(() =>
+      bootstrap(root, options("schemeless-url", "node-library")),
+    ).not.toThrow();
+  });
+
+  it("does not treat a backticked bare extensionless hostname as a dangling path (#108)", () => {
+    // The interior-dot test on the first segment fires regardless of the
+    // last segment's extension, so `example.com/path` (no `://`, no dot in
+    // the last segment) is excluded by the same rule as the extensioned
+    // case above — no separate carve-out needed.
+    const root = copyTemplate();
+    const agents = path.join(root, "AGENTS.md");
+    writeFileSync(
+      agents,
+      `${readFileSync(agents, "utf8")}\nSee \`example.com/path\` for details.\n`,
+    );
+
+    expect(() =>
+      bootstrap(root, options("bare-hostname", "node-library")),
+    ).not.toThrow();
+  });
+
+  it("still classifies `.claude/settings.local.json` as a path, not as hostname-shaped (#108)", () => {
+    // The dot in `.claude` sits at index 0, not an interior index, so the
+    // hostname test must not exclude it: it stays a path token, and stays
+    // exempt via DANGLING_REFERENCE_EXEMPTIONS rather than being dropped from
+    // the token set outright. This pins the distinction between "excluded"
+    // (never becomes a token) and "exempt" (becomes a token, then allowed).
+    const root = copyTemplate();
+    const agents = path.join(root, "AGENTS.md");
+    writeFileSync(
+      agents,
+      `${readFileSync(agents, "utf8")}\nSee \`.claude/settings.local.json\` for details.\n`,
+    );
+
+    expect(() =>
+      bootstrap(root, options("dotfile-exempt", "node-library")),
+    ).not.toThrow();
+  });
+
+  it("still reports a dangling reference under a multi-dot dotfile first segment (#108)", () => {
+    // `.prettierrc.json` has two dots, and the first one sits at index 0 —
+    // a dotfile, not a hostname. A hostname test that inspects the *last*
+    // dot instead of the first would see the interior dot before `.json`,
+    // misclassify the first segment as hostname-shaped, and drop the token
+    // before the dangling-reference check ever runs — silently hiding an
+    // obviously bogus reference into a file that cannot have a subpath.
+    const root = copyTemplate();
+    const agents = path.join(root, "AGENTS.md");
+    writeFileSync(
+      agents,
+      `${readFileSync(agents, "utf8")}\nSee \`.prettierrc.json/overrides\` for details.\n`,
+    );
+
+    expect(() => bootstrap(root, options("multi-dot-dotfile", "node-library"))).toThrow(
+      /AGENTS\.md: dangling reference `\.prettierrc\.json\/overrides`/,
+    );
+  });
+
   it.each([
     ["absent", false],
     ["present", true],
