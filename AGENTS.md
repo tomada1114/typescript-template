@@ -38,6 +38,7 @@ pnpm docs:build    # TypeDoc into docs/api/
 pnpm agents:sync   # regenerate .claude/skills/ from .agents/skills/
 pnpm agents:check  # fail when the two skill trees have drifted apart
 pnpm repo:labels   # create/update GitHub labels from .github/labels.yml
+pnpm bootstrap:e2e # run scripts/bootstrap.mjs end to end for every profile
 ```
 
 Run a single test file with `pnpm exec vitest run tests/<name>.test.ts`.
@@ -87,22 +88,23 @@ change to it obliges, are the `public-api-contract` and `release-impact` skills.
 Each skill owns one kind of change. Load the one whose subject you are working on; each
 names its own boundary with its neighbours.
 
-| Skill                   | Load it when you are working on                                                       |
-| ----------------------- | ------------------------------------------------------------------------------------- |
-| `writing-typescript`    | a module under `src/**/*.ts`                                                          |
-| `designing-errors`      | an error type or an `ERR_*` code, in `src/` or `scripts/`                             |
-| `writing-tests`         | the body of a test under `tests/`                                                     |
-| `placing-tests`         | a new test file, a vitest project, or a coverage floor                                |
-| `type-testing`          | `tests/types.test.ts` and `expectTypeOf`                                              |
-| `public-api-contract`   | `src/index.ts`, `src/internal/`, or `exports`/`files`                                 |
-| `release-impact`        | a PR body, its semver consequence, a `CHANGELOG.md` entry                             |
-| `writing-repo-scripts`  | a `.mjs` under `scripts/`                                                             |
-| `authoring-skills`      | a skill under `.agents/skills/`                                                       |
-| `changing-gates`        | a CI workflow, `lefthook.yml`, a tool config, or a permissions entry                  |
-| `managing-dependencies` | adding, bumping, or removing a package by hand (an open bot PR is `merge-dependabot`) |
-| `merge-dependabot`      | landing open Dependabot or Renovate pull requests                                     |
-| `updating-docs`         | `README.md`, `CONTRIBUTING.md`, or `docs/`                                            |
-| `triaging-issues`       | filing, labelling, or ranking a GitHub issue                                          |
+| Skill                        | Load it when you are working on                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------- |
+| `writing-typescript`         | a module under `src/**/*.ts`                                                          |
+| `designing-errors`           | an error type or an `ERR_*` code, in `src/` or `scripts/`                             |
+| `writing-tests`              | the body of a test under `tests/`                                                     |
+| `placing-tests`              | a new test file, a vitest project, or a coverage floor                                |
+| `type-testing`               | `tests/types.test.ts` and `expectTypeOf`                                              |
+| `public-api-contract`        | `src/index.ts`, `src/internal/`, or `exports`/`files`                                 |
+| `release-impact`             | a PR body, its semver consequence, a `CHANGELOG.md` entry                             |
+| `writing-repo-scripts`       | a `.mjs` under `scripts/`                                                             |
+| `bootstrapping-the-template` | the bootstrap flow, its profiles, or `pnpm bootstrap:e2e`                             |
+| `authoring-skills`           | a skill under `.agents/skills/`                                                       |
+| `changing-gates`             | a CI workflow, `lefthook.yml`, a tool config, or a permissions entry                  |
+| `managing-dependencies`      | adding, bumping, or removing a package by hand (an open bot PR is `merge-dependabot`) |
+| `merge-dependabot`           | landing open Dependabot or Renovate pull requests                                     |
+| `updating-docs`              | `README.md`, `CONTRIBUTING.md`, or `docs/`                                            |
+| `triaging-issues`            | filing, labelling, or ranking a GitHub issue                                          |
 
 ## Security and human approval
 

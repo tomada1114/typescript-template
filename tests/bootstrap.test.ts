@@ -241,7 +241,11 @@ describe("bootstrap profiles", () => {
     const stableAiFiles = aiLayerFiles(root)
       .filter(
         (file) =>
-          file.startsWith(".claude/skills/") || file.startsWith(".agents/skills/"),
+          (file.startsWith(".claude/skills/") || file.startsWith(".agents/skills/")) &&
+          // bootstrapping-the-template documents the bootstrap flow itself, so
+          // it self-removes along with scripts/bootstrap.mjs (see
+          // SELF_REMOVED_PATHS) rather than staying stable across a run.
+          !file.includes("/skills/bootstrapping-the-template/"),
       )
       .map((file) => [file, readFileSync(path.join(root, file), "utf8")] as const);
     bootstrap(root, options(packageName, profile));
@@ -277,6 +281,14 @@ describe("bootstrap profiles", () => {
     // Bootstrap's own script has nothing left to do in a generated repository
     // and is never referenced again, so it removes itself.
     expect(existsSync(path.join(root, "scripts", "bootstrap.mjs"))).toBe(false);
+    // The skill documenting the bootstrap flow has nothing left to document
+    // once that flow's own files are gone, so it self-removes too.
+    expect(
+      existsSync(path.join(root, ".agents", "skills", "bootstrapping-the-template")),
+    ).toBe(false);
+    expect(
+      existsSync(path.join(root, ".claude", "skills", "bootstrapping-the-template")),
+    ).toBe(false);
     expect(readFileSync(path.join(root, "CONTRIBUTING.md"), "utf8")).not.toContain(
       "Bootstrap profiles",
     );

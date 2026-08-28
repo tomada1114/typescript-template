@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { Buffer } from "node:buffer";
 import console from "node:console";
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -67,6 +74,23 @@ export const MARKER_TARGETS = [
   "README.md",
   "CONTRIBUTING.md",
   ".github/workflows/ci.yml",
+];
+
+// Removed by transform() as part of a real bootstrap run: the bootstrap
+// tooling itself, and the skill that documents it. A generated repository
+// has no bootstrap flow left to run or to maintain, so both would otherwise
+// describe files that no longer exist — exactly the dangling-reference shape
+// `assertGeneratedAiLayer` rejects. A file entry is removed directly; a
+// directory entry is removed recursively, and every file beneath it is
+// pre-marked absent in `preview` so a dry run's dangling-reference scan does
+// not read its now-stale content from disk.
+const SELF_REMOVED_PATHS = [
+  "tests/bootstrap.test.ts",
+  "tests/verify-bootstrap.test.ts",
+  "scripts/verify-bootstrap.mjs",
+  "scripts/bootstrap.mjs",
+  ".agents/skills/bootstrapping-the-template",
+  ".claude/skills/bootstrapping-the-template",
 ];
 
 // The AI-layer assertion retains the profile/reference guard without walking
@@ -484,6 +508,31 @@ function listMarkdownFiles(root) {
 }
 
 /**
+ * List every non-symlink, non-directory file beneath `directory`, recursing
+ * into subdirectories.
+ *
+ * @param {string} root - Repository root, used to compute a relative path.
+ * @param {string} directory - Absolute directory to walk.
+ * @returns {string[]} Repository-relative, forward-slash-separated paths.
+ */
+function listFilesRecursive(root, directory) {
+  /** @type {string[]} */
+  const found = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...listFilesRecursive(root, absolute));
+    } else if (entry.isFile()) {
+      found.push(normalizeRelativePath(path.relative(root, absolute)));
+    }
+  }
+  return found;
+}
+
+/**
  * Extract inline-code tokens from Markdown prose that are shaped like a
  * repository-relative path. A shell command line, a glob, a URL, and an npm
  * scope are all excluded before the character-class check even runs, because
@@ -794,22 +843,27 @@ function transform(root, options, year, preview) {
   const changed = [];
   const write = !options.dryRun;
 
-  for (const relative of [
-    "tests/bootstrap.test.ts",
-    "tests/verify-bootstrap.test.ts",
-    "scripts/verify-bootstrap.mjs",
-    "scripts/bootstrap.mjs",
-  ]) {
+  for (const relative of SELF_REMOVED_PATHS) {
     const target = path.join(root, relative);
-    if (existsSync(target)) {
-      if (write) {
-        rmSync(target);
-      }
-      if (preview !== undefined) {
-        preview.set(relative, null);
-      }
-      changed.push(`${relative} (removed)`);
+    if (!existsSync(target)) {
+      continue;
     }
+    if (lstatSync(target).isDirectory()) {
+      if (preview !== undefined) {
+        for (const nested of listFilesRecursive(root, target)) {
+          preview.set(nested, null);
+        }
+      }
+      if (write) {
+        rmSync(target, { recursive: true });
+      }
+    } else if (write) {
+      rmSync(target);
+    }
+    if (preview !== undefined) {
+      preview.set(relative, null);
+    }
+    changed.push(`${relative} (removed)`);
   }
 
   changed.push(...replaceTargets(root, replacements, options.profile, write, preview));
