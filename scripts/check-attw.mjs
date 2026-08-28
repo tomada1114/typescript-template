@@ -30,8 +30,13 @@ Exit codes:
  * @param {readonly string[]} argv - Arguments after the script path.
  * @returns {string} Path to the tarball.
  * @throws Error when the arguments are unusable.
+ *
+ * @remarks
+ * Exported so `tests/check-attw.test.ts` can exercise argument handling
+ * directly, the same way `verify-package.mjs` exports its own
+ * `resolveTarballArgument`.
  */
-function resolveTarball(argv) {
+export function resolveTarball(argv) {
   /** @type {string | undefined} */
   let packDir;
   /** @type {string | undefined} */
@@ -65,8 +70,13 @@ function resolveTarball(argv) {
  *
  * @param {readonly string[]} argv - Arguments after the script path.
  * @returns {number} Process exit code.
+ *
+ * @remarks
+ * Exported so `tests/check-attw.test.ts` can drive the success and failure
+ * paths directly, mocking `runNode` at the subprocess boundary rather than
+ * spawning a real `attw` process.
  */
-function main(argv) {
+export function main(argv) {
   /** @type {string} */
   let tarball;
   /** @type {string} */

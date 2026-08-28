@@ -92,18 +92,22 @@ export default defineConfig({
           statements: 90,
           branches: 80,
         },
-        // The rest of scripts/**/*.mjs was never measured before this change,
-        // so there is no earlier floor to preserve — this is the measured
-        // baseline (62.39% statements, 56.41% branches, 66.42% functions,
-        // 62.16% lines), rounded down to the nearest multiple of 5. It exists
-        // so a new automation script can't ship with zero tests and nothing
-        // reporting the number moving; scripts/lib/guard/** also counts
-        // toward this aggregate, on top of its own stricter floor above.
+        // Raised by issue #88, which added dedicated coverage for
+        // check-attw.mjs, clean.mjs, smoke-package.mjs's remaining top-level
+        // checks, and node-tools.mjs's error paths — the files that had been
+        // dragging this aggregate down since it was first measured for #44.
+        // Measured baseline at the time of that raise: 76.06% statements,
+        // 69.02% branches, 84.47% functions, 75.96% lines, rounded down to
+        // the nearest multiple of 5, the same convention used to set the
+        // original floor. It exists so a new automation script can't ship
+        // with zero tests and nothing reporting the number moving;
+        // scripts/lib/guard/** also counts toward this aggregate, on top of
+        // its own stricter floor above.
         "scripts/**": {
-          lines: 60,
-          functions: 65,
-          statements: 60,
-          branches: 55,
+          lines: 75,
+          functions: 80,
+          statements: 75,
+          branches: 65,
         },
       },
     },
