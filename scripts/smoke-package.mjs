@@ -106,11 +106,13 @@ function excerpt(text) {
  * `tsconfig.build.json`'s `compilerOptions.types` is the single source of truth
  * for the profile — an empty array means `src/` may not use Node built-ins — so
  * the bundler-resolution check is driven by the same value that decides what
- * actually compiles, and cannot drift from it.
+ * actually compiles, and cannot drift from it. Exported so
+ * `tests/smoke-package.test.ts` can assert this repository's own profile
+ * matches what the rest of the suite assumes.
  *
  * @returns {boolean} True for the `universal-library` profile.
  */
-function isUniversalProfile() {
+export function isUniversalProfile() {
   const raw = readFileSync(path.join(repoRoot, "tsconfig.build.json"), "utf8");
   // The build config is JSONC; drop full-line comments before parsing.
   const parsed = parseJson(raw.replace(/^\s*\/\/.*$/gm, ""));
@@ -279,8 +281,13 @@ function runInConsumer(consumer, name, source) {
  * @param {string} packageName - Installed package name.
  * @param {readonly string[]} subpaths - From {@link publicSubpaths}.
  * @returns {void}
+ *
+ * @remarks
+ * Exported so `tests/smoke-package.test.ts` can exercise both outcomes
+ * directly, mocking `runNode` at the subprocess boundary rather than
+ * installing a real tarball for every case.
  */
-function checkRuntimeImports(consumer, packageName, subpaths) {
+export function checkRuntimeImports(consumer, packageName, subpaths) {
   step(
     `importing ${String(subpaths.length)} public entry point(s) and calling the API`,
   );
@@ -359,8 +366,13 @@ console.log("  root API behaved as documented");
  * @param {string} consumer - Consumer directory.
  * @param {string} packageName - Installed package name.
  * @returns {void}
+ *
+ * @remarks
+ * Exported so `tests/smoke-package.test.ts` can exercise both outcomes
+ * directly; see {@link checkRuntimeImports} for why `runNode` is the boundary
+ * mocked rather than a real tarball install.
  */
-function checkRequireInterop(consumer, packageName) {
+export function checkRequireInterop(consumer, packageName) {
   step("requiring the package from a CommonJS consumer");
   const result = runInConsumer(
     consumer,
@@ -401,8 +413,13 @@ console.log("  require() resolved the ./package.json subpath");
  * @param {string} consumer - Consumer directory.
  * @param {string} packageName - Installed package name.
  * @returns {void}
+ *
+ * @remarks
+ * Exported so `tests/smoke-package.test.ts` can exercise both outcomes
+ * directly; see {@link checkRuntimeImports} for why `runNode` is the boundary
+ * mocked rather than a real tarball install.
  */
-function checkDeepImportBlocked(consumer, packageName) {
+export function checkDeepImportBlocked(consumer, packageName) {
   const specifier = `${packageName}/dist/internal/assert.js`;
   step(`checking that ${specifier} is not reachable`);
   const result = runInConsumer(
@@ -451,8 +468,13 @@ console.log("  deep import correctly refused");
  * @param {string} packageName - Installed package name.
  * @param {"NodeNext" | "Bundler"} resolution - `moduleResolution` under test.
  * @returns {string} `tsc --listFiles` output.
+ *
+ * @remarks
+ * Exported so `tests/smoke-package.test.ts` can exercise both outcomes of
+ * {@link checkTypeScriptConsumers} directly, mocking `runNode` at the
+ * subprocess boundary rather than compiling a real project for every case.
  */
-function compileTypeScriptConsumer(consumer, packageName, resolution) {
+export function compileTypeScriptConsumer(consumer, packageName, resolution) {
   const project = path.join(consumer, `ts-${resolution.toLowerCase()}`);
   mkdirSync(project, { recursive: true });
 
@@ -567,8 +589,12 @@ export async function run(): Promise<string> {
  * @param {string} consumer - Directory holding the installed package.
  * @param {string} packageName - Installed package name.
  * @returns {void}
+ *
+ * @remarks
+ * Exported so `tests/smoke-package.test.ts` can exercise the
+ * repository-leak check directly.
  */
-function checkTypeScriptConsumers(consumer, packageName) {
+export function checkTypeScriptConsumers(consumer, packageName) {
   step("compiling a NodeNext TypeScript consumer");
   const listed = compileTypeScriptConsumer(consumer, packageName, "NodeNext");
 
