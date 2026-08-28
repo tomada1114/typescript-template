@@ -446,6 +446,26 @@ describe("bootstrap profiles", () => {
     await assertGeneratedTreeIsFormatted(root);
   });
 
+  // #113: bootstrap does a literal string substitution of the template's
+  // `my-package` placeholder, not a re-format, so a file that hand-wraps
+  // prose or hard-codes a `my-package`-length assumption can overflow
+  // Prettier's printWidth once the substituted name is long enough —
+  // regardless of which specific fixture name the rest of this suite happens
+  // to use. `acme-library`/`browser-kit` above only ever exercise short
+  // names; this exercises the actual boundary, an npm package name at its
+  // 214-character maximum (a scope counts toward that limit).
+  it.each(["node-library", "universal-library"] as const)(
+    "keeps the generated tree Prettier-clean for a package name at npm's 214-character limit (%s)",
+    async (profile) => {
+      const packageName = `@${"a".repeat(105)}/${"b".repeat(107)}`;
+      expect(packageName).toHaveLength(214);
+      const root = copyTemplate();
+      bootstrap(root, options(packageName, profile));
+      expect(findPlaceholders(root)).toEqual([]);
+      await assertGeneratedTreeIsFormatted(root);
+    },
+  );
+
   it("rewrites only explicit targets", () => {
     const root = copyTemplate();
     const untouched = path.join(root, "unlisted-placeholder.txt");

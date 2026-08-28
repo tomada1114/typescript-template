@@ -67,8 +67,13 @@ uses a major bump.
 package that already exists on the registry. The very first release has to get the
 package onto the registry a different way before trusted publishing can take over:
 
-1. Confirm the name is free: `npm view my-package` errors (404) when nobody has
-   published it yet. `package.json`'s own `name` field is the name this applies to.
+1. Confirm the name is free — `package.json`'s own `name` field is the name this applies
+   to. A 404 from the command below means nobody has published it yet:
+
+   ```sh
+   npm view my-package
+   ```
+
 2. Create the `release` GitHub Environment — the name `release.yml`'s
    `environment: release` targets — and add a required reviewer to it.
 3. Publish the first version once, outside `release.yml`: run `npm publish` locally with
@@ -90,21 +95,34 @@ package onto the registry a different way before trusted publishing can take ove
 
 Releases are driven by a reviewed release PR and an annotated `vX.Y.Z` tag matching
 `package.json`. If a workflow fails before npm publish, fix the cause and rerun it. If
-npm already contains the version, never publish that version again: verify it with
-`npm view my-package@X.Y.Z version`, then repair only the GitHub Release by rerunning
-the release attachment job or uploading the original workflow artifact.
+npm already contains the version, never publish that version again — verify it first:
+
+```sh
+npm view my-package@X.Y.Z version
+```
+
+Then repair only the GitHub Release by rerunning the release attachment job or uploading
+the original workflow artifact.
 
 A bad release that already reached npm is fixed forward, never by republishing the same
 version:
 
 - **Broken but harmless** (a bug, not a security issue): deprecate the bad version so it
-  still resolves but warns — `npm deprecate my-package@X.Y.Z "<reason>"` — then ship a
-  patch release with the fix.
+  still resolves but warns, then ship a patch release with the fix:
+
+  ```sh
+  npm deprecate my-package@X.Y.Z "<reason>"
+  ```
+
 - **Harmful or leaking** (a real vulnerability, a leaked secret, or actively broken
-  behavior): move `latest` back to the last good version first —
-  `npm dist-tag add my-package@GOOD.X.Y.Z latest` — deprecate the bad version —
-  `npm deprecate my-package@BAD.X.Y.Z "<reason>"` — file a GitHub Security Advisory,
-  then ship the fix.
+  behavior): move `latest` back to the last good version first, deprecate the bad
+  version, file a GitHub Security Advisory, then ship the fix:
+
+  ```sh
+  npm dist-tag add my-package@GOOD.X.Y.Z latest
+  npm deprecate my-package@BAD.X.Y.Z "<reason>"
+  ```
+
 - **Unpublish** only inside npm's 72-hour window, and only for a version that should
   never have existed. It is never a routine rollback; a corrected new version is.
 
@@ -118,9 +136,14 @@ To ship a release candidate without moving the `latest` npm dist-tag, set
 a matching annotated tag (`v1.0.0-rc.1`, `v1.0.0-next.3`). `release.yml` parses the
 prerelease identifier (`rc`, `next`, …) out of the version and:
 
-- publishes to the npm dist-tag named after that identifier instead of `latest`, so
-  `npm install my-package@rc` gets the release candidate while a plain
-  `npm install my-package` does not;
+- publishes to the npm dist-tag named after that identifier instead of `latest` — a
+  plain install still resolves to `latest`:
+
+  ```sh
+  npm install my-package@rc
+  npm install my-package
+  ```
+
 - creates the GitHub Release marked as a pre-release.
 
 A version with no prerelease identifier publishes to `latest` and creates an ordinary
