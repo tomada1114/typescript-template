@@ -30,6 +30,8 @@
       "Bash(pnpm run agents:sync)",
       "Bash(pnpm agents:check)",
       "Bash(pnpm run agents:check)",
+      "Bash(pnpm repo:labels)",
+      "Bash(pnpm run repo:labels)",
       "Bash(pnpm check:staged)",
       "Bash(pnpm run check:staged)",
       "Bash(pnpm check:source)",

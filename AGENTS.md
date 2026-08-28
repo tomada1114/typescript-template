@@ -30,6 +30,7 @@ pnpm package:smoke # install the tarball into throwaway consumers and run it
 pnpm docs:build    # TypeDoc into docs/api/
 pnpm agents:sync   # regenerate .claude/skills/ from .agents/skills/
 pnpm agents:check  # fail when the two skill trees have drifted apart
+pnpm repo:labels   # create/update GitHub labels from .github/labels.yml
 ```
 
 Run a single test file with `pnpm exec vitest run tests/<name>.test.ts`.

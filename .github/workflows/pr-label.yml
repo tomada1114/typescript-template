@@ -42,9 +42,10 @@ jobs:
             deps) label=dependencies ;;
             *) echo "No label mapping for type: $type"; exit 0 ;;
           esac
-          # A default repository has no "ci" label and `--add-label` fails on a
-          # missing one. `gh label create` is a no-op when it already exists.
-          gh label create "$label" >/dev/null 2>&1 || true
+          # Labels are declared in .github/labels.yml and created/updated ahead
+          # of time by `pnpm repo:labels` (scripts/sync-labels.mjs), run
+          # manually by a maintainer — this job only applies one, it never
+          # creates one.
           # Best effort: fork PRs get a read-only token, so the write below is
           # rejected there. Never fail the check over a label.
           gh pr edit "$PR_NUMBER" --add-label "$label" \
