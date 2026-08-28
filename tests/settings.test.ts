@@ -49,6 +49,12 @@ describe("shared settings", () => {
     // run unattended and gets both entries, or it is listed here with why.
     const exceptions = new Map([
       ["test:watch", "a watcher never exits, so an agent must not start one"],
+      [
+        "repo:labels",
+        "mutates the live GitHub repository (creates/updates labels); an " +
+          "external write needs human approval, like publish or a release " +
+          "(CLAUDE.md's scope for this allowlist is local build/lint/test)",
+      ],
     ]);
     const allow = new Set(readStringArray(readKey(settings, "permissions"), "allow"));
     const scripts = topLevelKeys(readKey(manifest, "scripts"));

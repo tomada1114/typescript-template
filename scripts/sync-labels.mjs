@@ -67,15 +67,17 @@ export function spawnGh(args) {
 }
 
 /**
- * Run a `gh … --json` command and parse its output.
+ * Check a `gh` result for a spawn failure or a non-zero exit, throwing the
+ * shared, stage-prefixed error in either case. Both {@link ghJson} and
+ * {@link ghRun} call this before doing anything specific to their own return
+ * shape, so the two error messages can't drift apart.
  *
- * @param {readonly string[]} args - Arguments passed to `gh`.
- * @param {GhRunner} run - The runner to use.
- * @returns {unknown} The decoded JSON payload.
- * @throws Error when `gh` is unavailable, unauthenticated, or the command fails.
+ * @param {GhResult} result - The result to check.
+ * @param {readonly string[]} args - Arguments passed to `gh`, for the message.
+ * @returns {void}
+ * @throws Error when `gh` is unavailable or the command fails.
  */
-export function ghJson(args, run) {
-  const result = run(args);
+function checkGhResult(result, args) {
   if (result.error !== undefined) {
     throw new Error(
       "ERR_GH_UNAVAILABLE: could not run the GitHub CLI.\n" +
@@ -90,6 +92,19 @@ export function ghJson(args, run) {
         "Next: run `gh auth status` and confirm this directory has a GitHub remote.",
     );
   }
+}
+
+/**
+ * Run a `gh … --json` command and parse its output.
+ *
+ * @param {readonly string[]} args - Arguments passed to `gh`.
+ * @param {GhRunner} run - The runner to use.
+ * @returns {unknown} The decoded JSON payload.
+ * @throws Error when `gh` is unavailable, unauthenticated, or the command fails.
+ */
+export function ghJson(args, run) {
+  const result = run(args);
+  checkGhResult(result, args);
   return parseJson(result.stdout === "" ? "null" : result.stdout);
 }
 
@@ -103,20 +118,7 @@ export function ghJson(args, run) {
  */
 export function ghRun(args, run) {
   const result = run(args);
-  if (result.error !== undefined) {
-    throw new Error(
-      "ERR_GH_UNAVAILABLE: could not run the GitHub CLI.\n" +
-        `Expected: \`gh\` on PATH. Actual: ${result.error.message}\n` +
-        "Next: install the GitHub CLI, then run `gh auth status`.",
-    );
-  }
-  if (result.status !== 0) {
-    throw new Error(
-      `ERR_GH_FAILED: \`gh ${args.join(" ")}\` exited with ${String(result.status)}.\n` +
-        `Actual: ${result.stderr.trim()}\n` +
-        "Next: run `gh auth status` and confirm this directory has a GitHub remote.",
-    );
-  }
+  checkGhResult(result, args);
 }
 
 /**
