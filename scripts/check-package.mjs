@@ -1000,7 +1000,7 @@ export function parsePackedManifest(entries) {
  * @param {unknown} packedManifest - The result of {@link parsePackedManifest}
  * for the same `entries`.
  * @returns {PackageProblem[]} One problem when `package.json` is present but
- * unparseable, otherwise empty.
+ * unparsable, otherwise empty.
  */
 export function findUnreadableManifest(entries, packedManifest) {
   if (
