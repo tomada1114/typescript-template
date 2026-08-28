@@ -964,8 +964,13 @@ export function findManifestMismatch(packedManifest, repositoryManifest) {
  * still finds the raw entry and reports it as unreadable, since
  * {@link findMissingRequiredPaths} only checks that a matching path exists,
  * never that its contents parse.
+ *
+ * @remarks
+ * Exported so `scripts/smoke-package.mjs` can read the same packed manifest
+ * before it installs the tarball, instead of checking tarball contents
+ * against the repository's own `package.json`.
  */
-function parsePackedManifest(entries) {
+export function parsePackedManifest(entries) {
   const manifestEntry = entries.findLast(
     (candidate) => candidate.path === "package.json" && candidate.type === "file",
   );
@@ -977,6 +982,45 @@ function parsePackedManifest(entries) {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * A problem for a packed `package.json` that is present but did not parse.
+ *
+ * @remarks
+ * `findMissingRequiredPaths` only checks that a path matching `package.json`
+ * exists, never that its contents parse, so without this an unreadable
+ * manifest would leave every manifest-driven check (entry points, install
+ * scripts, manifest mismatch) silently skipped instead of failing loudly.
+ * Shared by {@link inspectTarball} and `scripts/smoke-package.mjs`'s
+ * `checkTarballContents`, which both drive those checks off
+ * {@link parsePackedManifest}.
+ *
+ * @param {readonly TarEntry[]} entries - Entries from {@link readTarEntries}.
+ * @param {unknown} packedManifest - The result of {@link parsePackedManifest}
+ * for the same `entries`.
+ * @returns {PackageProblem[]} One problem when `package.json` is present but
+ * unparsable, otherwise empty.
+ */
+export function findUnreadableManifest(entries, packedManifest) {
+  if (
+    packedManifest !== undefined ||
+    !entries.some((entry) => entry.path === "package.json" && entry.type === "file")
+  ) {
+    return [];
+  }
+  return [
+    {
+      code: "ERR_PACKAGE_MANIFEST_UNREADABLE",
+      path: "package.json",
+      message:
+        "The tarball's package.json entry could not be parsed as JSON.\n" +
+        "Expected: a well-formed JSON manifest at the tarball root.\n" +
+        "Actual: package.json is present but its contents do not parse.\n" +
+        "Next: run `pnpm run build`, then check that `pnpm pack` produced a valid " +
+        "package.json before packing again.",
+    },
+  ];
 }
 
 /**
@@ -1007,23 +1051,8 @@ export function inspectTarball(tarballPath, repositoryManifest) {
   if (packedManifest !== undefined) {
     problems.push(...findInstallScripts(packedManifest));
     problems.push(...findManifestMismatch(packedManifest, repositoryManifest));
-  } else if (
-    entries.some((entry) => entry.path === "package.json" && entry.type === "file")
-  ) {
-    // The tarball has a package.json entry, but it did not parse as JSON.
-    // findMissingRequiredPaths only checks that the path exists, so without
-    // this, the entry-point, install-script and manifest-mismatch checks
-    // above would all be silently skipped instead of failing loudly.
-    problems.push({
-      code: "ERR_PACKAGE_MANIFEST_UNREADABLE",
-      path: "package.json",
-      message:
-        "The tarball's package.json entry could not be parsed as JSON.\n" +
-        "Expected: a well-formed JSON manifest at the tarball root.\n" +
-        "Actual: package.json is present but its contents do not parse.\n" +
-        "Next: run `pnpm run build`, then check that `pnpm pack` produced a valid " +
-        "package.json before packing again.",
-    });
+  } else {
+    problems.push(...findUnreadableManifest(entries, packedManifest));
   }
 
   for (const leak of findAbsoluteMapSources(entries)) {
