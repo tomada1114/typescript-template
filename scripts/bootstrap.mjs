@@ -128,19 +128,36 @@ const MARKDOWN_INLINE_CODE = /`([^`\n]+)`/g;
 const REPO_RELATIVE_PATH_TOKEN = /^[A-Za-z0-9._](?:[A-Za-z0-9._/-]*[A-Za-z0-9_/-])?$/;
 
 // Paths that a Markdown file may legitimately name without the path existing
-// in the generated tree. `dist/` and `docs/api/` are gitignored build output;
-// `docs/` itself has no hand-written page yet, so `git ls-files` — which
+// in the generated tree. `dist` and `docs/api` are gitignored build output;
+// `docs` itself has no hand-written page yet, so `git ls-files` — which
 // creates a directory only for a file it copies — never creates it either;
-// `.claude/settings.local.json` is gitignored personal config; and `secrets/`
+// `.claude/settings.local.json` is gitignored personal config; and `secrets`
 // documents a directory *pattern* this template guards against rather than a
-// directory it ships.
+// directory it ships. All five are load-bearing in a generated tree: with
+// `namesGeneratedTreeEntry` now classifying a token by shape as well as by
+// what exists on disk (see below), every one of these can be reported as
+// dangling even when its first segment is absent at the root. Entries are
+// stored without a trailing slash; a lookup normalizes the token the same
+// way, so `docs/api` and `docs/api/` are one entry rather than two spellings
+// of which only one is covered.
 const DANGLING_REFERENCE_EXEMPTIONS = new Set([
-  "dist/",
-  "docs/",
-  "docs/api/",
+  "dist",
+  "docs",
+  "docs/api",
   ".claude/settings.local.json",
-  "secrets/",
+  "secrets",
 ]);
+
+/**
+ * Strip a single trailing slash, so a directory reference and its bare form
+ * (`docs/api/` and `docs/api`) normalize to one spelling before a set lookup.
+ *
+ * @param {string} token
+ * @returns {string}
+ */
+function withoutTrailingSlash(token) {
+  return token.endsWith("/") ? token.slice(0, -1) : token;
+}
 
 const USAGE = `Usage: node scripts/bootstrap.mjs
 
@@ -522,19 +539,39 @@ function resolveGeneratedText(root, relative, preview) {
 }
 
 /**
- * Decide whether a path-shaped token is a repository path at all, by testing
- * only its *first* segment against the generated root. An ESLint flat-config
- * block name (`public-api/internal-stays-private`), a Vitest project name, and
- * any other `namespace/identifier` have exactly the shape this file accepts as
- * a path, and naming one in prose must not fail the build — no such top-level
- * entry exists, so the first segment is what tells the two apart.
+ * Decide whether a path-shaped token is a repository path at all. Shape is
+ * checked before the filesystem, because `docs/` and `dist/` are gitignored
+ * build output: they exist in a developer checkout that has run
+ * `pnpm docs:build` / `pnpm build` and do not exist in a freshly generated
+ * tree, so a first-segment-only test (the #102 rule) gives the same token two
+ * different verdicts depending on build state. Widening the test to "shape OR
+ * first segment" settles that on the strict side — a token that merely looks
+ * like a path is treated as one in both environments:
+ *
+ *   1. `preview` already knows it — a path bootstrap is itself removing.
+ *   2. It ends with `/` — an explicit directory reference.
+ *   3. Its *last* segment contains a `.` — a filename with an extension.
+ *   4. Its *first* segment exists at the generated root — the #102 rule,
+ *      kept as the fallback for extensionless tokens such as `docs/api`.
+ *
+ * An ESLint flat-config block name (`public-api/internal-stays-private`), a
+ * Vitest project name, and any other `namespace/identifier` have exactly the
+ * shape this file accepts as a path, and naming one in prose must not fail
+ * the build. None of rules 2–3 fire for such a token (no trailing slash, no
+ * dot in the last segment), so it still falls through to rule 4, where no
+ * top-level entry of that name exists — unchanged from #102.
  *
  * This cannot hide the case the dangling check exists for. A path bootstrap
  * removes lives inside a directory that survives the removal
- * (`scripts/bootstrap.mjs`, `tests/bootstrap.test.ts`), so its first segment
- * still resolves and it reaches the same check as before; and `preview` — which
- * is how a removed path is recognized — never introduces a new top-level
- * directory, so a token it already knows is admitted outright.
+ * (`scripts/bootstrap.mjs`, `tests/bootstrap.test.ts`), so it is still caught
+ * by shape or by its first segment; and `preview` — which is how a removed
+ * path is recognized — never introduces a new top-level directory, so a
+ * token it already knows is admitted outright.
+ *
+ * Residual, accepted: an extensionless, non-exempt token whose first segment
+ * is itself gitignored build output (`docs/some-guide`, say) still gets a
+ * build-state-dependent verdict, because rule 4 is the only rule that can
+ * classify it. That class is narrow enough to leave alone.
  *
  * @param {string} root
  * @param {string} token
@@ -545,6 +582,13 @@ function namesGeneratedTreeEntry(root, token, preview) {
   if (preview?.has(token)) {
     return true;
   }
+  if (token.endsWith("/")) {
+    return true;
+  }
+  const lastSegment = token.slice(token.lastIndexOf("/") + 1);
+  if (lastSegment.includes(".")) {
+    return true;
+  }
   const firstSegment = token.split("/")[0];
   return firstSegment !== undefined && existsSync(path.join(root, firstSegment));
 }
@@ -553,8 +597,9 @@ function namesGeneratedTreeEntry(root, token, preview) {
  * Find every backticked, repo-relative path token in the generated tree's own
  * Markdown files that does not resolve to a real file or directory in that
  * same tree — for example a reference to a file bootstrap itself just removed.
- * A token whose first segment names nothing at the root is not a path at all
- * (see `namesGeneratedTreeEntry`) and is passed over rather than reported.
+ * A token that neither has path shape nor names a real first-segment entry
+ * at the root is not a path at all (see `namesGeneratedTreeEntry`) and is
+ * passed over rather than reported.
  *
  * @param {string} root
  * @param {Map<string, string | null>} [preview]
@@ -569,7 +614,7 @@ function findDanglingReferences(root, preview) {
       continue;
     }
     for (const token of extractPathTokens(text)) {
-      if (DANGLING_REFERENCE_EXEMPTIONS.has(token)) {
+      if (DANGLING_REFERENCE_EXEMPTIONS.has(withoutTrailingSlash(token))) {
         continue;
       }
       if (!namesGeneratedTreeEntry(root, token, preview)) {

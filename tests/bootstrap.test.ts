@@ -427,6 +427,66 @@ describe("bootstrap profiles", () => {
     );
   });
 
+  it.each([
+    ["absent", false],
+    ["present", true],
+  ] as const)(
+    "reports a dangling reference under a gitignored build directory whether or not that directory is %s in the checkout (#106)",
+    (_label, createDocsDirectory) => {
+      // `docs/` is gitignored build output (`pnpm docs:build`): it exists in a
+      // developer checkout that has built it and does not exist in a fresh
+      // clone or the git-ls-files-based fixture this suite normally builds.
+      // A dangling reference under it must be reported either way — the
+      // filename has an extension, so shape (rule 3) classifies it as a path
+      // before the filesystem is ever consulted.
+      const root = copyTemplate();
+      if (createDocsDirectory) {
+        mkdirSync(path.join(root, "docs"), { recursive: true });
+      }
+      const agents = path.join(root, "AGENTS.md");
+      writeFileSync(
+        agents,
+        `${readFileSync(agents, "utf8")}\nSee \`docs/getting-started.md\` for details.\n`,
+      );
+
+      expect(() =>
+        bootstrap(
+          root,
+          options(`docs-dangling-${String(createDocsDirectory)}`, "node-library"),
+        ),
+      ).toThrow(
+        /ERR_AI_LAYER_REFERENCE[\s\S]*AGENTS\.md: dangling reference `docs\/getting-started\.md`/,
+      );
+    },
+  );
+
+  it.each([
+    ["absent", false],
+    ["present", true],
+  ] as const)(
+    "skips every dangling-reference exemption, under either trailing-slash spelling, whether the target directory is %s (#106)",
+    (_label, createDocsDirectory) => {
+      const root = copyTemplate();
+      if (createDocsDirectory) {
+        mkdirSync(path.join(root, "docs", "api"), { recursive: true });
+      }
+      const agents = path.join(root, "AGENTS.md");
+      writeFileSync(
+        agents,
+        `${readFileSync(agents, "utf8")}\n` +
+          "Exempt references: `dist/`, `docs/`, `docs/api`, `docs/api/`, " +
+          "`.claude/settings.local.json`, `secrets/`.\n",
+      );
+
+      expect(() =>
+        bootstrap(
+          root,
+          options(`docs-exempt-${String(createDocsDirectory)}`, "node-library"),
+        ),
+      ).not.toThrow();
+    },
+  );
+
   it("leaves the repository untouched when a real (non-dry-run) bootstrap fails validation", () => {
     // transform() removes its own script and rewrites package.json before any
     // validation runs. If bootstrap() validated against the already-written
