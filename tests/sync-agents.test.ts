@@ -1,16 +1,20 @@
+import consoleModule from "node:console";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   MIRROR_DIRECTORY,
   SOURCE_DIRECTORY,
   SyncAgentsError,
+  assertSourceDirectory,
   diffTrees,
   formatDrift,
+  listFiles,
+  main,
   syncTrees,
 } from "../scripts/sync-agents.mjs";
 
@@ -27,9 +31,14 @@ import {
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const workspaces: string[] = [];
 
-function makeTrees(): { source: string; mirror: string } {
-  const workspace = mkdtempSync(path.join(tmpdir(), "sync-agents-test-"));
+function makeWorkspace(prefix: string): string {
+  const workspace = mkdtempSync(path.join(tmpdir(), `${prefix}-`));
   workspaces.push(workspace);
+  return workspace;
+}
+
+function makeTrees(): { source: string; mirror: string } {
+  const workspace = makeWorkspace("sync-agents-test");
   const source = path.join(workspace, "source");
   const mirror = path.join(workspace, "mirror");
   mkdirSync(path.join(source, "skill", "scripts"), { recursive: true });
@@ -165,5 +174,153 @@ describe("formatDrift", () => {
     expect(message).toContain("ERR_AGENTS_DRIFT");
     expect(message).toContain(`${MIRROR_DIRECTORY}/skill/SKILL.md`);
     expect(message).toContain("Next: run `pnpm agents:sync`.");
+  });
+});
+
+describe("listFiles", () => {
+  it("lists every file recursively as sorted, forward-slash relative paths", () => {
+    const workspace = makeWorkspace("sync-agents-listfiles");
+    mkdirSync(path.join(workspace, "a", "b"), { recursive: true });
+    writeFileSync(path.join(workspace, "top.md"), "top\n");
+    writeFileSync(path.join(workspace, "a", "mid.md"), "mid\n");
+    writeFileSync(path.join(workspace, "a", "b", "deep.md"), "deep\n");
+
+    expect(listFiles(workspace, "label")).toEqual([
+      "a/b/deep.md",
+      "a/mid.md",
+      "top.md",
+    ]);
+  });
+
+  it("returns an empty array for a directory that does not exist", () => {
+    const workspace = makeWorkspace("sync-agents-listfiles");
+
+    expect(listFiles(path.join(workspace, "absent"), "label")).toEqual([]);
+  });
+
+  it("throws ERR_AGENTS_UNSUPPORTED_ENTRY for a symlink", () => {
+    const workspace = makeWorkspace("sync-agents-listfiles");
+    writeFileSync(path.join(workspace, "real.md"), "real\n");
+    symlinkSync("real.md", path.join(workspace, "link.md"));
+
+    expect(() => listFiles(workspace, "label")).toThrow(SyncAgentsError);
+    expect(() => listFiles(workspace, "label")).toThrow(/ERR_AGENTS_UNSUPPORTED_ENTRY/);
+  });
+});
+
+describe("assertSourceDirectory", () => {
+  it("does not throw when the directory exists", () => {
+    const workspace = makeWorkspace("sync-agents-source");
+    mkdirSync(path.join(workspace, "skills"));
+
+    expect(() => assertSourceDirectory(path.join(workspace, "skills"))).not.toThrow();
+  });
+
+  it("throws ERR_AGENTS_SOURCE_MISSING when the directory is absent", () => {
+    const workspace = makeWorkspace("sync-agents-source");
+
+    expect(() => assertSourceDirectory(path.join(workspace, "absent"))).toThrow(
+      SyncAgentsError,
+    );
+    expect(() => assertSourceDirectory(path.join(workspace, "absent"))).toThrow(
+      /ERR_AGENTS_SOURCE_MISSING/,
+    );
+  });
+
+  it("rethrows a non-ENOENT filesystem error instead of reporting it as missing", () => {
+    const workspace = makeWorkspace("sync-agents-source");
+    const notADirectory = path.join(workspace, "not-a-directory");
+    writeFileSync(notADirectory, "file, not a directory\n");
+
+    expect(() => assertSourceDirectory(path.join(notADirectory, "child"))).toThrow(
+      /ENOTDIR/,
+    );
+  });
+});
+
+describe("main", () => {
+  function makeRoot(): string {
+    return makeWorkspace("sync-agents-main");
+  }
+
+  function seedSource(root: string): void {
+    mkdirSync(path.join(root, SOURCE_DIRECTORY, "skill"), { recursive: true });
+    writeFileSync(path.join(root, SOURCE_DIRECTORY, "skill", "SKILL.md"), "# Skill\n");
+  }
+
+  it("returns 2 and reports an unknown option", () => {
+    const errorSpy = vi
+      .spyOn(consoleModule, "error")
+      .mockImplementation(() => undefined);
+    const root = makeRoot();
+
+    expect(main(["--bogus"], root)).toBe(2);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/ERR_AGENTS_ARGUMENT/));
+  });
+
+  it("returns 2 when the source tree is missing", () => {
+    vi.spyOn(consoleModule, "error").mockImplementation(() => undefined);
+    const root = makeRoot();
+
+    expect(main([], root)).toBe(2);
+  });
+
+  it("returns 0 and logs that the mirror is in sync when --check finds no drift", () => {
+    const logSpy = vi.spyOn(consoleModule, "log").mockImplementation(() => undefined);
+    const root = makeRoot();
+    seedSource(root);
+    syncTrees(path.join(root, SOURCE_DIRECTORY), path.join(root, MIRROR_DIRECTORY));
+
+    expect(main(["--check"], root)).toBe(0);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/is in sync/));
+  });
+
+  it("returns 1 and reports drift when --check finds differences", () => {
+    const errorSpy = vi
+      .spyOn(consoleModule, "error")
+      .mockImplementation(() => undefined);
+    const root = makeRoot();
+    seedSource(root);
+
+    expect(main(["--check"], root)).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/ERR_AGENTS_DRIFT/));
+  });
+
+  it("repairs drift and logs the repaired count when run without --check", () => {
+    const logSpy = vi.spyOn(consoleModule, "log").mockImplementation(() => undefined);
+    const root = makeRoot();
+    seedSource(root);
+
+    expect(main([], root)).toBe(0);
+    expect(
+      diffTrees(path.join(root, SOURCE_DIRECTORY), path.join(root, MIRROR_DIRECTORY)),
+    ).toEqual([]);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/updated 1 path\(s\)/));
+  });
+
+  it("logs that the mirror was already in sync when nothing drifted", () => {
+    const logSpy = vi.spyOn(consoleModule, "log").mockImplementation(() => undefined);
+    const root = makeRoot();
+    seedSource(root);
+    syncTrees(path.join(root, SOURCE_DIRECTORY), path.join(root, MIRROR_DIRECTORY));
+
+    expect(main([], root)).toBe(0);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/was already in sync/));
+  });
+
+  it("returns 1, not 2, when a plain filesystem error propagates instead of a SyncAgentsError", () => {
+    const errorSpy = vi
+      .spyOn(consoleModule, "error")
+      .mockImplementation(() => undefined);
+    const root = makeRoot();
+    seedSource(root);
+    mkdirSync(path.join(root, ".claude"), { recursive: true });
+    // The mirror's own path exists as a plain file, so readdirSync on it
+    // throws ENOTDIR rather than the ENOENT listFiles tolerates — the
+    // uncaught-by-SyncAgentsError branch main() distinguishes with exit 1.
+    writeFileSync(path.join(root, MIRROR_DIRECTORY), "not a directory\n");
+
+    expect(main([], root)).toBe(1);
+    expect(errorSpy).toHaveBeenCalled();
   });
 });

@@ -1,7 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import consoleModule from "node:console";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { gzipSync } from "node:zlib";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockInstance } from "vitest";
@@ -49,7 +51,10 @@ const {
   checkRuntimeImports,
   checkTypeScriptConsumers,
   compileTypeScriptConsumer,
+  installConsumer,
   isUniversalProfile,
+  main,
+  publicSubpaths,
 } = await import("../scripts/smoke-package.mjs");
 const { repoRoot } = await import("../scripts/lib/node-tools.mjs");
 
@@ -228,5 +233,224 @@ describe("checkTypeScriptConsumers", () => {
     expect(() => checkTypeScriptConsumers(consumer, "fixture-package")).toThrow(
       /ERR_SMOKE_CONSUMER_TSC_FAILED/,
     );
+  });
+});
+
+describe("publicSubpaths", () => {
+  it("returns the root only when the manifest declares no exports field", () => {
+    expect(publicSubpaths({ name: "fixture-package" })).toEqual([""]);
+  });
+
+  it("returns the root only when exports is not an object", () => {
+    expect(publicSubpaths({ exports: "./index.js" })).toEqual([""]);
+  });
+
+  it("returns the root only for a conditions-only exports map with no '.' key", () => {
+    expect(publicSubpaths({ exports: { import: "./index.js" } })).toEqual([""]);
+  });
+
+  it("maps '.' to the empty string and sorts additional subpaths", () => {
+    expect(
+      publicSubpaths({
+        exports: {
+          "./sub": "./dist/sub.js",
+          ".": "./dist/index.js",
+          "./a": "./dist/a.js",
+        },
+      }),
+    ).toEqual(["", "/a", "/sub"]);
+  });
+
+  it("excludes a wildcard pattern and a .json subpath", () => {
+    expect(
+      publicSubpaths({
+        exports: {
+          ".": "./dist/index.js",
+          "./*": "./dist/*.js",
+          "./package.json": "./package.json",
+        },
+      }),
+    ).toEqual([""]);
+  });
+});
+
+describe("installConsumer", () => {
+  it("writes a consumer manifest and installs the tarball, returning the consumer directory", () => {
+    runNodeMock.mockReturnValue({
+      status: 0,
+      stdout: "added 0 packages\n",
+      stderr: "",
+    });
+    const workspace = makeConsumer();
+
+    const consumer = installConsumer(workspace, "/pack/fixture-package-1.0.0.tgz");
+
+    expect(consumer).toBe(path.join(workspace, "consumer"));
+    expect(
+      JSON.parse(readFileSync(path.join(consumer, "package.json"), "utf8")) as unknown,
+    ).toMatchObject({ name: "smoke-consumer", type: "module" });
+    expect(runNodeMock).toHaveBeenCalledWith(
+      expect.stringContaining("npm"),
+      expect.arrayContaining([
+        "install",
+        "/pack/fixture-package-1.0.0.tgz",
+        "--ignore-scripts",
+        "--install-strategy=nested",
+      ]),
+      expect.objectContaining({ cwd: consumer }),
+    );
+  });
+
+  it("throws ERR_SMOKE_INSTALL_FAILED when npm install fails", () => {
+    runNodeMock.mockReturnValue({ status: 1, stdout: "", stderr: "network error" });
+    const workspace = makeConsumer();
+
+    expect(() => installConsumer(workspace, "/pack/fixture-package-1.0.0.tgz")).toThrow(
+      /ERR_SMOKE_INSTALL_FAILED/,
+    );
+  });
+});
+
+// --- main ---------------------------------------------------------------------
+//
+// main() reads its own repository's package.json for the name of the package
+// under test, then packs/installs/checks a tarball named on the command
+// line. Building a small, synthetic gzip tarball here (rather than a real
+// `npm pack`) keeps checkTarballContents' real, unmocked checks fast; the
+// install and every subsequent check still go through runNode, mocked at the
+// subprocess boundary exactly as the rest of this file does.
+
+/** Build one 512-byte ustar header block with a valid checksum. */
+function tarHeader(name: string, size: number): Buffer {
+  const block = Buffer.alloc(512);
+  const octal = (value: number, width: number): string =>
+    `${value.toString(8).padStart(width - 1, "0")}\0`;
+
+  block.write(name, 0, 100, "utf8");
+  block.write(octal(0o644, 8), 100, 8, "ascii");
+  block.write(octal(0, 8), 108, 8, "ascii");
+  block.write(octal(0, 8), 116, 8, "ascii");
+  block.write(octal(size, 12), 124, 12, "ascii");
+  block.write(octal(0, 12), 136, 12, "ascii");
+  block.write("        ", 148, 8, "ascii");
+  block.write("0", 156, 1, "ascii");
+  block.write("ustar\0", 257, 6, "ascii");
+  block.write("00", 263, 2, "ascii");
+
+  let sum = 0;
+  for (const byte of block) {
+    sum += byte;
+  }
+  block.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148, 8, "ascii");
+  return block;
+}
+
+/** Pad entry data out to the next 512-byte boundary. */
+function tarBody(data: Buffer): Buffer {
+  const padded = Buffer.alloc(Math.ceil(data.length / 512) * 512);
+  data.copy(padded);
+  return padded;
+}
+
+/** Header plus padded body for one regular file, `package/`-prefixed as npm packs. */
+function tarFile(name: string, contents: string): Buffer[] {
+  const data = Buffer.from(contents, "utf8");
+  return [tarHeader(`package/${name}`, data.length), tarBody(data)];
+}
+
+/** Write a minimal, valid gzip tarball satisfying checkTarballContents. */
+function writeFixtureTarball(destination: string, manifest: unknown): void {
+  const blocks = [
+    ...tarFile("package.json", JSON.stringify(manifest)),
+    ...tarFile("README.md", "# fixture\n"),
+    ...tarFile("LICENSE", "MIT\n"),
+    ...tarFile("dist/index.js", "export const a = 1;\n"),
+    ...tarFile("dist/index.d.ts", "export declare const a: 1;\n"),
+  ];
+  writeFileSync(destination, gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024)])));
+}
+
+describe("main", () => {
+  let workspace: string;
+  let errorSpy: MockInstance<typeof consoleModule.error>;
+
+  beforeEach(() => {
+    workspace = makeConsumer();
+    errorSpy = vi.spyOn(consoleModule, "error").mockImplementation(() => undefined);
+  });
+
+  it("returns 2 without touching runNode when the arguments are wrong", () => {
+    expect(main([])).toBe(2);
+    expect(runNodeMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 1 and reports ERR_SMOKE_UNEXPECTED when the tarball cannot be read", () => {
+    const missing = path.join(workspace, "never-packed.tgz");
+
+    expect(main(["--tarball", missing])).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("ERR_SMOKE_UNEXPECTED"),
+    );
+    expect(runNodeMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 1 and reports ERR_SMOKE_TARBALL_CONTENTS without ever installing a missing-LICENSE tarball", () => {
+    const tarball = path.join(workspace, "no-license.tgz");
+    writeFileSync(
+      tarball,
+      gzipSync(
+        Buffer.concat([
+          ...tarFile("package.json", JSON.stringify({ name: "fixture" })),
+          ...tarFile("README.md", "# fixture\n"),
+          ...tarFile("dist/index.js", "export const a = 1;\n"),
+          Buffer.alloc(1024),
+        ]),
+      ),
+    );
+
+    expect(main(["--tarball", tarball])).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("ERR_SMOKE_TARBALL_CONTENTS"),
+    );
+    expect(runNodeMock).not.toHaveBeenCalled();
+  });
+
+  it("installs, checks and returns 0 for a well-formed tarball", () => {
+    const packageName = JSON.parse(
+      readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+    ) as { name?: string };
+    const name = packageName.name;
+    if (name === undefined) {
+      throw new Error("this repository's own package.json has no name");
+    }
+
+    const tarball = path.join(workspace, "fixture-package-1.0.0.tgz");
+    writeFixtureTarball(tarball, {
+      name: "smoke-fixture-package",
+      version: "1.0.0",
+      exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
+    });
+
+    // Simulate npm install's one real side effect — the installed manifest at
+    // node_modules/<name>/package.json — since runNode never actually runs
+    // npm; every other check just needs to see exit 0.
+    runNodeMock.mockImplementation((_script, args, options) => {
+      if (args[0] === "install" && options?.cwd !== undefined) {
+        const installed = path.join(options.cwd, "node_modules", name);
+        mkdirSync(installed, { recursive: true });
+        writeFileSync(
+          path.join(installed, "package.json"),
+          JSON.stringify({ name, version: "0.0.0" }),
+        );
+      }
+      return { status: 0, stdout: "  ok\n", stderr: "" };
+    });
+
+    expect(main(["--tarball", tarball])).toBe(0);
+    expect(errorSpy).not.toHaveBeenCalled();
+    // install + runtime imports + require interop + one TypeScript consumer
+    // (this repository is the node-library profile, so no Bundler consumer)
+    // + the deep-import check.
+    expect(runNodeMock).toHaveBeenCalledTimes(5);
   });
 });

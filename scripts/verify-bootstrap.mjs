@@ -27,8 +27,13 @@ const LEGACY_RELEASE_DIRECTORY = ".change" + "set";
  * @param {string} command
  * @param {string[]} args
  * @param {string} cwd
+ *
+ * @remarks
+ * Exported so `tests/verify-bootstrap.test.ts` can exercise both outcomes
+ * directly with a cheap real subprocess (a bare `node -e`), instead of only
+ * through `main()`'s full bootstrap run.
  */
-function run(command, args, cwd) {
+export function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
@@ -50,8 +55,13 @@ function run(command, args, cwd) {
  *
  * @param {string} destination
  * @param {string} packageName
+ *
+ * @remarks
+ * Exported so `tests/verify-bootstrap.test.ts` can exercise each of its
+ * failure branches directly against a hand-built fixture tree, rather than
+ * only through a full, real `main()` bootstrap run.
  */
-function assertGenerated(destination, packageName) {
+export function assertGenerated(destination, packageName) {
   const placeholders = findPlaceholders(destination);
   if (placeholders.length > 0) {
     throw new Error(
