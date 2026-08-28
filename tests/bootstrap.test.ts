@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 
 import process from "node:process";
 
-import { format, resolveConfig } from "prettier";
+import { format, getFileInfo, resolveConfig } from "prettier";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -79,6 +79,57 @@ function relativeFiles(root: string, directory: string): string[] {
   };
   visit(path.join(root, directory));
   return files.sort();
+}
+
+function allFiles(root: string): string[] {
+  const files: string[] = [];
+  const visit = (current: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
+      const absolute = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolute);
+      } else {
+        files.push(absolute);
+      }
+    }
+  };
+  visit(root);
+  return files;
+}
+
+// Generalizes #103's single-file AGENTS.md byte-identity assertion: every
+// text file Prettier would touch in a real, generated repository must
+// already be in the shape `prettier --check .` expects, or a forker's first
+// `pnpm check:quick` fails on a file they never edited (see #111). Honors
+// the generated tree's own `.gitignore`/`.prettierignore` and Prettier's
+// parser inference exactly the way the `prettier` CLI does, so build output,
+// the generated `.claude/skills/` mirror, and binary fixtures are skipped
+// the same way `pnpm format:check` skips them.
+async function assertGeneratedTreeIsFormatted(root: string): Promise<void> {
+  const ignorePath = [".gitignore", ".prettierignore"]
+    .map((name) => path.join(root, name))
+    .filter((candidate) => existsSync(candidate));
+  for (const absolute of allFiles(root)) {
+    const info = await getFileInfo(absolute, { ignorePath });
+    if (info.ignored || info.inferredParser === null) {
+      continue;
+    }
+    const buffer = readFileSync(absolute);
+    if (buffer.includes(0)) {
+      continue;
+    }
+    const original = buffer.toString("utf8");
+    const formatted = await format(original, {
+      ...(await resolveConfig(absolute)),
+      filepath: absolute,
+    });
+    expect(formatted, `${path.relative(root, absolute)} is not Prettier-clean`).toBe(
+      original,
+    );
+  }
 }
 
 function aiLayerFiles(root: string): string[] {
@@ -325,17 +376,6 @@ describe("bootstrap profiles", () => {
     const generatedAgentsMd = readFileSync(path.join(root, "AGENTS.md"), "utf8");
     expect(generatedAgentsMd).not.toContain("bootstrapping-the-template");
     expect(generatedAgentsMd).not.toContain("bootstrap:e2e");
-    // Removing the routing table's widest row leaves every surviving row
-    // padded to a column width nothing occupies any more, which a forker's
-    // first `pnpm check:quick` reports as a formatting failure in a file they
-    // never touched. Assert the generated file against Prettier itself rather
-    // than against a hand-written expectation of the padding.
-    expect(
-      await format(generatedAgentsMd, {
-        ...(await resolveConfig(path.join(root, "AGENTS.md"))),
-        filepath: path.join(root, "AGENTS.md"),
-      }),
-    ).toBe(generatedAgentsMd);
     expect(readFileSync(path.join(root, "CONTRIBUTING.md"), "utf8")).not.toContain(
       "Bootstrap profiles",
     );
@@ -398,6 +438,12 @@ describe("bootstrap profiles", () => {
       expect(buildConfig).toContain('"types": ["node"]');
       expect(manifest.engines).toEqual({ node: ">=22.14" });
     }
+
+    // A `template-only` block at end of file (see #111) or a re-padded
+    // Markdown table (see #103) both leave the generated tree failing its
+    // own first `pnpm check:quick`. Check every generated text file against
+    // Prettier itself, not a hand-picked one.
+    await assertGeneratedTreeIsFormatted(root);
   });
 
   it("rewrites only explicit targets", () => {

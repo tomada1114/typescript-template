@@ -558,9 +558,9 @@ function replaceText(file, replacements, profile, write) {
     if (path.basename(file) === "AGENTS.md") {
       updated = removeSelfReferentialLines(updated);
     }
-    if (updated !== original) {
-      updated = updated.replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "\n");
-    }
+  }
+  if (updated !== original) {
+    updated = updated.replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "\n");
   }
   for (const [before, after] of replacements) {
     updated = updated.replaceAll(before, () => after);
