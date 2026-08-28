@@ -10,9 +10,8 @@ A short description.
 pnpm add my-package
 ```
 
-Requires Node.js 24 or newer. The package ships ESM only; on that range
-`require(esm)` is unflagged, so a CommonJS consumer can `require("my-package")`
-directly.
+Requires Node.js 24 or newer. The package ships ESM only; on that range `require(esm)`
+is unflagged, so a CommonJS consumer can `require("my-package")` directly.
 
 ## Quick start
 
@@ -23,8 +22,8 @@ console.log(normalizeIdentifier("Hello World"));
 // => "hello-world"
 ```
 
-All public symbols are named exports from the package root. Deep imports are
-private and blocked by the package export map.
+All public symbols are named exports from the package root. Deep imports are private and
+blocked by the package export map.
 
 ## API
 
@@ -40,20 +39,19 @@ reference.
 
 ## Use this template
 
-Create a repository with GitHub's **Use this template** button, then run the
-interactive bootstrap before installing dependencies:
+Create a repository with GitHub's **Use this template** button, then run the interactive
+bootstrap before installing dependencies:
 
 ```sh
 node scripts/bootstrap.mjs
 ```
 
-Answer the prompts for the package name, profile, author, email, GitHub user,
-license, and description. For automation, pass the package name together with
-the `--profile`, `--author`, `--email`, `--github-user`, and `--license` flags.
+Answer the prompts for the package name, profile, author, email, GitHub user, license,
+and description. For automation, pass the package name together with the `--profile`,
+`--author`, `--email`, `--github-user`, and `--license` flags.
 
-Use `node-library` for a Node.js package, or `universal-library` for code that
-must build without Node APIs. Bootstrap removes this section from the
-generated repository.
+Use `node-library` for a Node.js package, or `universal-library` for code that must
+build without Node APIs. Bootstrap removes this section from the generated repository.
 <!-- template-only:end -->
 
 ## Development

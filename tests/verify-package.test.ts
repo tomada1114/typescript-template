@@ -16,7 +16,7 @@ interface RunResult {
 // scripts/verify-package.mjs's `runCheck` and `main` run publint, attw and
 // the consumer smoke test as child scripts through runNode(), and resolve
 // publint's entry point through resolveDependencyBin(). Mocking both at the
-// scripts/lib/node-tools.mjs boundary (AGENTS.md's Testing conventions,
+// scripts/lib/node-tools.mjs boundary (the `writing-tests` skill's conventions,
 // following the pattern tests/check-attw.test.ts and
 // tests/smoke-package.test.ts already established for this same module)
 // exercises every outcome without spawning a real publint/attw/npm process.

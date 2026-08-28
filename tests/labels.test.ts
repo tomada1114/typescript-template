@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { parseLabelManifest } from "../scripts/lib/labels-manifest.mjs";
 
 // `.github/labels.yml` is the single declarative source for this
-// repository's label taxonomy (AGENTS.md's "Filing and triaging issues").
+// repository's label taxonomy (the `triaging-issues` skill).
 // This is a static, filesystem-only check: a form or the release manifest
 // must not be able to name a label the manifest does not declare, so GitHub
 // does not silently drop it (AGENTS.md warns about exactly that).
