@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { parseJson, readKey, readString } from "../scripts/lib/json.mjs";
 import { resolveDependencyBin, runNode } from "../scripts/lib/node-tools.mjs";
 import { normalizeIdentifier } from "../src/index.js";
 
@@ -45,9 +46,16 @@ function readmeSnippets(): Snippet[] {
 }
 
 function srcFiles(): string[] {
+  // src/internal/** is never re-exported from index.ts (see AGENTS.md), so a
+  // symbol documented there is not reachable as `import { x } from "my-package"`.
+  // Scanning it anyway would misreport a scope mistake as a docs-content bug.
+  const internalPrefix = `internal${path.sep}`;
   return readdirSync(path.join(repoRoot, "src"), { recursive: true })
     .filter(
-      (entry): entry is string => typeof entry === "string" && entry.endsWith(".ts"),
+      (entry): entry is string =>
+        typeof entry === "string" &&
+        entry.endsWith(".ts") &&
+        !entry.startsWith(internalPrefix),
     )
     .map((entry) => path.join("src", entry));
 }
@@ -59,7 +67,7 @@ function srcFiles(): string[] {
  * exported name the comment is attached to.
  */
 const JSDOC_THEN_EXPORT =
-  /\/\*\*([\s\S]*?)\*\/\s*\nexport\s+(?:async\s+)?(?:function|const|class)\s+(\w+)/g;
+  /\/\*\*([\s\S]*?)\*\/\s*\nexport\s+(?:async\s+)?(?:function|const|class|interface|type|enum)\s+(\w+)/g;
 
 /**
  * A fixture prepended to one specific documented example, for an identifier
@@ -171,24 +179,24 @@ describe("documented examples compile against the public API", () => {
 
 describe("README quick start", () => {
   it("matches runtime behavior", () => {
-    expect(normalizeIdentifier("Hello World")).toBe("hello-world");
+    const result = normalizeIdentifier("Hello World");
+    expect(result).toBe("hello-world");
+    // The "documented examples compile" suite above only type-checks this
+    // snippet — a `// => "..."` comment is inert to tsc. Compare the
+    // annotation against the real, current output here, so a stale or
+    // typo'd claimed result still fails loudly.
+    const readme = readFileSync(path.join(repoRoot, "README.md"), "utf8");
+    expect(readme).toContain(`// => ${JSON.stringify(result)}`);
   });
 });
 
 describe("README's Node.js floor", () => {
   it("matches package.json's engines.node", () => {
     const readme = readFileSync(path.join(repoRoot, "README.md"), "utf8");
-    const manifest: unknown = JSON.parse(
+    const manifest = parseJson(
       readFileSync(path.join(repoRoot, "package.json"), "utf8"),
     );
-    const engines =
-      typeof manifest === "object" && manifest !== null && "engines" in manifest
-        ? manifest.engines
-        : undefined;
-    const nodeRange =
-      typeof engines === "object" && engines !== null && "node" in engines
-        ? engines.node
-        : undefined;
+    const nodeRange = readString(readKey(manifest, "engines"), "node");
     expect(typeof nodeRange).toBe("string");
     const floor = /^>=(\d+)$/.exec(String(nodeRange))?.[1];
     if (floor === undefined) {
