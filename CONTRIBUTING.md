@@ -103,7 +103,7 @@ version:
 - **Harmful or leaking** (a real vulnerability, a leaked secret, or actively broken
   behavior): move `latest` back to the last good version first —
   `npm dist-tag add my-package@GOOD.X.Y.Z latest` — deprecate the bad version —
-  `npm deprecate my-package@BAD.X.Y.Z "<reason>"` — publish a GitHub Security Advisory,
+  `npm deprecate my-package@BAD.X.Y.Z "<reason>"` — file a GitHub Security Advisory,
   then ship the fix.
 - **Unpublish** only inside npm's 72-hour window, and only for a version that should
   never have existed. It is never a routine rollback; a corrected new version is.
