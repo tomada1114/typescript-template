@@ -588,6 +588,25 @@ describe("bootstrap profiles", () => {
     ).not.toThrow();
   });
 
+  it("still reports a dangling reference under a multi-dot dotfile first segment (#108)", () => {
+    // `.prettierrc.json` has two dots, and the first one sits at index 0 —
+    // a dotfile, not a hostname. A hostname test that inspects the *last*
+    // dot instead of the first would see the interior dot before `.json`,
+    // misclassify the first segment as hostname-shaped, and drop the token
+    // before the dangling-reference check ever runs — silently hiding an
+    // obviously bogus reference into a file that cannot have a subpath.
+    const root = copyTemplate();
+    const agents = path.join(root, "AGENTS.md");
+    writeFileSync(
+      agents,
+      `${readFileSync(agents, "utf8")}\nSee \`.prettierrc.json/overrides\` for details.\n`,
+    );
+
+    expect(() => bootstrap(root, options("multi-dot-dotfile", "node-library"))).toThrow(
+      /AGENTS\.md: dangling reference `\.prettierrc\.json\/overrides`/,
+    );
+  });
+
   it.each([
     ["absent", false],
     ["present", true],
