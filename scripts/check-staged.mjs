@@ -38,7 +38,7 @@ import console from "node:console";
 import process from "node:process";
 
 import { checkCredentials } from "./lib/guard/credentials.mjs";
-import { checkRead } from "./lib/guard/paths.mjs";
+import { checkRead, describePath } from "./lib/guard/paths.mjs";
 import { isMain } from "./lib/is-main.mjs";
 import { repoRoot } from "./lib/node-tools.mjs";
 
@@ -122,6 +122,49 @@ function readStaged(path, cwd) {
 }
 
 /**
+ * Suffixes and basenames that mark a private-key-shaped file, whatever its
+ * content looks like. A key file is refused on its path alone: a
+ * `.pem`/`.p12`/`.pfx`/`.key`/`.ppk` container or an OpenSSH key basename can
+ * be binary, encrypted, or otherwise not textually credential-shaped, so
+ * `checkCredentials`'s content patterns cannot be relied on to catch it.
+ * Matched case-insensitively (`.PEM` is exactly as real a container as
+ * `.pem`), against a lowercased basename.
+ *
+ * @type {readonly string[]}
+ */
+const KEY_FILE_SUFFIXES = [".pem", ".p12", ".pfx", ".key", ".ppk"];
+
+/**
+ * The OpenSSH default key basenames — every `-t` key type `ssh-keygen`
+ * produces, plus its FIDO/security-key (`_sk`) variants.
+ *
+ * @type {readonly string[]}
+ */
+const KEY_FILE_BASENAMES = [
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ecdsa_sk",
+  "id_ed25519",
+  "id_ed25519_sk",
+];
+
+/**
+ * Return whether a path's basename looks like a private key file.
+ *
+ * @param {string} filePath - Path relative to the repository root.
+ * @returns {boolean} True when the basename matches a key-file shape.
+ */
+function isKeyFilePath(filePath) {
+  const { name } = describePath(filePath);
+  const lowerName = name.toLowerCase();
+  return (
+    KEY_FILE_SUFFIXES.some((suffix) => lowerName.endsWith(suffix)) ||
+    KEY_FILE_BASENAMES.includes(lowerName)
+  );
+}
+
+/**
  * Check one staged change against every rule this script enforces.
  *
  * @param {StagedChange} change - One entry from {@link stagedChanges}.
@@ -144,6 +187,12 @@ export function checkStagedChange(change, cwd = repoRoot) {
   // verdict the path alone already gives.
   if (checkRead(change.path) !== null) {
     return `${change.path} looks like it holds secrets and must not be committed. Add it to .gitignore instead, or commit a .example/.sample/.template variant.`;
+  }
+
+  // A private-key file's path alone is enough to refuse it — its bytes may be
+  // binary or encrypted, so it cannot be relied on to trip checkCredentials.
+  if (isKeyFilePath(change.path)) {
+    return `${change.path} looks like a private key file and must not be committed. Keep it out of the repository entirely.`;
   }
 
   const after = readStaged(change.path, cwd);
