@@ -109,7 +109,6 @@ const MARKDOWN_SCAN_SKIP_DIRECTORIES = new Set([
   ".package",
   ".smoke",
   ".attw",
-  ".rehearsal",
 ]);
 
 // A fenced code block, stripped before scanning for inline code spans so a

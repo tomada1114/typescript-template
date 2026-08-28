@@ -9,12 +9,11 @@ dist/
 coverage/
 
 # Scratch directories used by the package gates. A successful full check
-# removes .package, while focused smoke and rehearsal failures retain their
-# exact tarball for inspection. `pnpm clean` removes them all.
+# removes .package, while a focused smoke failure retains its exact tarball
+# for inspection. `pnpm clean` removes them all.
 .package/
 .smoke/
 .attw/
-.rehearsal/
 
 # Generated API documentation. Anything else under docs/ is hand-written and
 # tracked.

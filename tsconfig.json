@@ -32,5 +32,23 @@
     "allowJs": true,
     "checkJs": true
   },
-  "include": ["src", "tests", "scripts", ".agents/skills", "*.ts", "*.mts", "*.mjs"]
+  "include": [
+    "src",
+    "tests",
+    "scripts",
+    ".agents/skills",
+    ".claude/skills",
+    "*.ts",
+    "*.mts",
+    "*.mjs"
+  ],
+  // `.claude/skills/` is a generated, committed mirror of `.agents/skills/`
+  // (`pnpm agents:sync`), and `merge-dependabot` is currently its only entry.
+  // Type-checking both copies of a byte-identical mirrored file reports the
+  // same diagnostic twice, at a path nobody may edit, so only the mirrored
+  // subdirectory is excluded here -- not all of `.claude/skills/` -- the same
+  // way eslint.config.mjs's globalIgnores and .prettierignore exclude the
+  // mirror while still linting/formatting a genuinely Codex-only file added
+  // directly under `.claude/skills/`.
+  "exclude": [".claude/skills/merge-dependabot"]
 }
