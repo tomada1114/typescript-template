@@ -106,13 +106,11 @@ function excerpt(text) {
  * `tsconfig.build.json`'s `compilerOptions.types` is the single source of truth
  * for the profile — an empty array means `src/` may not use Node built-ins — so
  * the bundler-resolution check is driven by the same value that decides what
- * actually compiles, and cannot drift from it.
+ * actually compiles, and cannot drift from it. Exported so
+ * `tests/smoke-package.test.ts` can assert this repository's own profile
+ * matches what the rest of the suite assumes.
  *
  * @returns {boolean} True for the `universal-library` profile.
- *
- * @remarks
- * Exported so `tests/smoke-package.test.ts` can assert this repository's own
- * profile matches what the rest of the suite assumes.
  */
 export function isUniversalProfile() {
   const raw = readFileSync(path.join(repoRoot, "tsconfig.build.json"), "utf8");
