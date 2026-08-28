@@ -158,11 +158,19 @@ describe("checkStagedChange", () => {
 
   it.each([
     ["id_rsa", "id_rsa"],
+    ["id_dsa", "id_dsa"],
+    ["id_ecdsa", "id_ecdsa"],
+    ["id_ecdsa_sk", "id_ecdsa_sk"],
     ["id_ed25519", "id_ed25519"],
+    ["id_ed25519_sk", "id_ed25519_sk"],
     [".pem file", "server.pem"],
     [".p12 file", "client.p12"],
     [".pfx file", "client.pfx"],
+    [".key file", "server.key"],
+    [".ppk file", "server.ppk"],
     ["a nested key file", ".ssh/id_rsa"],
+    ["a mixed-case extension", "server.PEM"],
+    ["a mixed-case basename", "ID_RSA"],
   ])("blocks staging a %s regardless of its content", (_label, relativePath) => {
     const dir = makeRepo();
     // The rule fires on the path alone, so content that would otherwise pass

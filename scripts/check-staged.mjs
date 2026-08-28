@@ -38,7 +38,7 @@ import console from "node:console";
 import process from "node:process";
 
 import { checkCredentials } from "./lib/guard/credentials.mjs";
-import { checkRead } from "./lib/guard/paths.mjs";
+import { checkRead, describePath } from "./lib/guard/paths.mjs";
 import { isMain } from "./lib/is-main.mjs";
 import { repoRoot } from "./lib/node-tools.mjs";
 
@@ -122,18 +122,32 @@ function readStaged(path, cwd) {
 }
 
 /**
- * Basenames and suffixes that mark a private-key-shaped file, whatever its
- * content looks like. A key file is refused on its path alone: an
- * `.pem`/`.p12`/`.pfx` container or an `id_rsa`/`id_ed25519` key can be
- * binary, encrypted, or otherwise not textually credential-shaped, so
+ * Suffixes and basenames that mark a private-key-shaped file, whatever its
+ * content looks like. A key file is refused on its path alone: a
+ * `.pem`/`.p12`/`.pfx`/`.key`/`.ppk` container or an OpenSSH key basename can
+ * be binary, encrypted, or otherwise not textually credential-shaped, so
  * `checkCredentials`'s content patterns cannot be relied on to catch it.
+ * Matched case-insensitively (`.PEM` is exactly as real a container as
+ * `.pem`), against a lowercased basename.
  *
  * @type {readonly string[]}
  */
-const KEY_FILE_SUFFIXES = [".pem", ".p12", ".pfx"];
+const KEY_FILE_SUFFIXES = [".pem", ".p12", ".pfx", ".key", ".ppk"];
 
-/** @type {readonly string[]} */
-const KEY_FILE_BASENAMES = ["id_rsa", "id_ed25519"];
+/**
+ * The OpenSSH default key basenames — every `-t` key type `ssh-keygen`
+ * produces, plus its FIDO/security-key (`_sk`) variants.
+ *
+ * @type {readonly string[]}
+ */
+const KEY_FILE_BASENAMES = [
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ecdsa_sk",
+  "id_ed25519",
+  "id_ed25519_sk",
+];
 
 /**
  * Return whether a path's basename looks like a private key file.
@@ -142,10 +156,11 @@ const KEY_FILE_BASENAMES = ["id_rsa", "id_ed25519"];
  * @returns {boolean} True when the basename matches a key-file shape.
  */
 function isKeyFilePath(filePath) {
-  const name = filePath.split("/").at(-1) ?? "";
+  const { name } = describePath(filePath);
+  const lowerName = name.toLowerCase();
   return (
-    KEY_FILE_SUFFIXES.some((suffix) => name.endsWith(suffix)) ||
-    KEY_FILE_BASENAMES.includes(name)
+    KEY_FILE_SUFFIXES.some((suffix) => lowerName.endsWith(suffix)) ||
+    KEY_FILE_BASENAMES.includes(lowerName)
   );
 }
 

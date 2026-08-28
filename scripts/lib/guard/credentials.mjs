@@ -17,13 +17,17 @@
  * `pnpm-lock.yaml` (base64 package integrity hashes happen to contain runs of
  * that length and character set), which would block an ordinary dependency
  * update. Anchoring to the assignment context is also what gitleaks' own
- * built-in AWS rule does, for the same reason.
+ * built-in AWS rule does, for the same reason. Both the AWS and password
+ * entries accept a hyphen or underscore between words and either a colon or
+ * an equals sign for the assignment, and match case-insensitively, since an
+ * env-style name is conventionally upper snake case and YAML/JSON prefer a
+ * colon over an equals sign.
  *
  * @type {{ pattern: RegExp, name: string }[]}
  */
 export const CREDENTIAL_PATTERNS = [
   { pattern: /_authToken\s*=\s*\S/, name: "an npm registry auth token" },
-  { pattern: /\bpassword\s*=\s*\S/, name: "a hardcoded password" },
+  { pattern: /password\s*[:=]\s*\S/i, name: "a hardcoded password" },
   { pattern: /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/, name: "a private key" },
   { pattern: /\bnpm_[A-Za-z0-9]{36,}\b/, name: "an npm access token" },
   { pattern: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/, name: "a GitHub token" },
@@ -37,10 +41,12 @@ export const CREDENTIAL_PATTERNS = [
   },
   { pattern: /\bAKIA[0-9A-Z]{16}\b/, name: "an AWS access key id" },
   {
-    pattern: /\baws_?secret_?access_?key\s*[:=]\s*['"]?[A-Za-z0-9/+]{40}\b/i,
+    pattern: /\baws[-_]?secret[-_]?access[-_]?key\s*[:=]\s*['"]?[A-Za-z0-9/+]{40}\b/i,
     name: "an AWS secret access key",
   },
-  { pattern: /\bsk-ant-[A-Za-z0-9]{20,}\b/, name: "an Anthropic API key" },
+  // Real Anthropic keys (`sk-ant-api03-…-AA`) are hyphen-segmented, not a
+  // single contiguous alphanumeric run, so the body must accept `-`/`_`.
+  { pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/, name: "an Anthropic API key" },
   {
     pattern: /\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9]{20,}\b/,
     name: "an OpenAI API key",
