@@ -43,12 +43,25 @@
     "*.mjs"
   ],
   // `.claude/skills/` is a generated, committed mirror of `.agents/skills/`
-  // (`pnpm agents:sync`), and `merge-dependabot` is currently its only entry.
-  // Type-checking both copies of a byte-identical mirrored file reports the
-  // same diagnostic twice, at a path nobody may edit, so only the mirrored
-  // subdirectory is excluded here -- not all of `.claude/skills/` -- the same
-  // way eslint.config.mjs's globalIgnores and .prettierignore exclude the
-  // mirror while still linting/formatting a genuinely Codex-only file added
-  // directly under `.claude/skills/`.
-  "exclude": [".claude/skills/merge-dependabot"]
+  // (`pnpm agents:sync`): every skill lives at `.claude/skills/<name>/...`,
+  // one full subdirectory per skill, with no hand-maintained list anywhere
+  // (scripts/sync-agents.mjs walks `.agents/skills/` dynamically). Type-
+  // checking both copies of a byte-identical mirrored file reports the same
+  // diagnostic twice, at a path nobody may edit, so this glob excludes
+  // anything *nested inside* an immediate subdirectory of `.claude/skills/`
+  // -- for every skill, present or future, without naming one -- while still
+  // type-checking a hypothetical Codex-only file added directly under
+  // `.claude/skills/` itself (outside any subdirectory) -- unlike
+  // eslint.config.mjs's globalIgnores and .prettierignore, which ignore the
+  // whole `.claude/skills/` tree and do not draw that distinction.
+  //
+  // The exact shape matters: `.claude/skills/*/**` (a single `*` segment
+  // followed by `/**`) was tried first and rejected -- empirically, via
+  // `tsc --showConfig`/`ts.parseJsonConfigFileContent`, it also swallows a
+  // bare top-level file directly under `.claude/skills/` (behaving like the
+  // bare `.claude/skills/**`), which would violate the invariant above.
+  // `.claude/skills/*/**/*` requires at least one path segment *after* the
+  // subdirectory name, so it only matches paths nested inside a subdirectory
+  // and never a file sitting directly in `.claude/skills/`.
+  "exclude": [".claude/skills/*/**/*"]
 }
