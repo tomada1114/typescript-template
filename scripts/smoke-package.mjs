@@ -19,6 +19,7 @@ import {
   findAbsoluteMapSources,
   findDanglingMapSources,
   findMissingRequiredPaths,
+  findUnreadableManifest,
   inspectPackageEntries,
   parsePackedManifest,
   readTarEntries,
@@ -171,10 +172,12 @@ function publicSubpaths(manifest) {
  */
 export function checkTarballContents(entries, label) {
   step("inspecting tarball paths, forbidden paths, size limits and required files");
+  const packedManifest = parsePackedManifest(entries);
   const problems = [
-    ...inspectPackageEntries(entries, { manifest: parsePackedManifest(entries) }),
+    ...inspectPackageEntries(entries, { manifest: packedManifest }),
     ...findMissingRequiredPaths(entries),
     ...findDanglingMapSources(entries),
+    ...findUnreadableManifest(entries, packedManifest),
   ];
   if (problems.length > 0) {
     fail("ERR_SMOKE_TARBALL_CONTENTS", {

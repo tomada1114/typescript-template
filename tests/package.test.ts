@@ -1101,6 +1101,20 @@ describe("checkTarballContents reads the packed manifest, not the repository's",
 
     expect(() => checkTarballContents(entries, "fixture.tgz")).not.toThrow();
   });
+
+  it("fails loudly instead of skipping the entry-point check when package.json does not parse", () => {
+    const entries = [
+      entry("package.json", 10, { data: Buffer.from("{not valid json", "utf8") }),
+      entry("README.md"),
+      entry("LICENSE"),
+      entry("dist/index.js"),
+      entry("dist/index.d.ts"),
+    ];
+
+    expect(() => checkTarballContents(entries, "fixture.tgz")).toThrow(
+      /ERR_SMOKE_TARBALL_CONTENTS[\s\S]*ERR_PACKAGE_MANIFEST_UNREADABLE/,
+    );
+  });
 });
 
 describe("verify-package artifact selection", () => {
