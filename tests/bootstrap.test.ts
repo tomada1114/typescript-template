@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 
 import process from "node:process";
 
+import { format, resolveConfig } from "prettier";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -24,6 +25,8 @@ import {
   normalizeRelativePath,
   parseArguments,
   promptArguments,
+  removeSelfReferentialLines,
+  repadMarkdownTable,
   validatePackageName,
 } from "../scripts/bootstrap.mjs";
 import { copyTemplate as copyTrackedFiles } from "../scripts/verify-bootstrap.mjs";
@@ -140,6 +143,33 @@ describe("bootstrap validation", () => {
     expect(() => validatePackageName("..\\evil")).toThrow(BootstrapError);
   });
 
+  it("re-pads a table after its widest row is removed", () => {
+    expect(
+      removeSelfReferentialLines(
+        [
+          "| Skill                        | Load it when |",
+          "| ---------------------------- | ------------ |",
+          "| `writing-tests`              | a test       |",
+          "| `bootstrapping-the-template` | the flow     |",
+          "",
+        ].join("\n"),
+      ),
+    ).toBe(
+      [
+        "| Skill           | Load it when |",
+        "| --------------- | ------------ |",
+        "| `writing-tests` | a test       |",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("keeps a delimiter row's alignment markers when re-padding", () => {
+    expect(repadMarkdownTable(["| a | bbbb |", "| :-: | ---: |", "| c | d |"])).toEqual(
+      ["|  a  | bbbb |", "| :-: | ---: |", "|  c  |    d |"],
+    );
+  });
+
   it("uses the default description when it is omitted", () => {
     const parsed = options("acme-library", "node-library");
     expect(parsed.description).toBe("A TypeScript package.");
@@ -233,7 +263,7 @@ describe("bootstrap profiles", () => {
   it.each([
     ["acme-library", "node-library"],
     ["browser-kit", "universal-library"],
-  ] as const)("generates %s as %s", (packageName, profile) => {
+  ] as const)("generates %s as %s", async (packageName, profile) => {
     const root = copyTemplate();
     const binaryBefore = readFileSync(
       path.join(root, "tests", "fixtures", "binary.dat"),
@@ -295,6 +325,17 @@ describe("bootstrap profiles", () => {
     const generatedAgentsMd = readFileSync(path.join(root, "AGENTS.md"), "utf8");
     expect(generatedAgentsMd).not.toContain("bootstrapping-the-template");
     expect(generatedAgentsMd).not.toContain("bootstrap:e2e");
+    // Removing the routing table's widest row leaves every surviving row
+    // padded to a column width nothing occupies any more, which a forker's
+    // first `pnpm check:quick` reports as a formatting failure in a file they
+    // never touched. Assert the generated file against Prettier itself rather
+    // than against a hand-written expectation of the padding.
+    expect(
+      await format(generatedAgentsMd, {
+        ...(await resolveConfig(path.join(root, "AGENTS.md"))),
+        filepath: path.join(root, "AGENTS.md"),
+      }),
+    ).toBe(generatedAgentsMd);
     expect(readFileSync(path.join(root, "CONTRIBUTING.md"), "utf8")).not.toContain(
       "Bootstrap profiles",
     );
