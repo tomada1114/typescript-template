@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Create or update this repository's GitHub labels from `.github/labels.yml`,
 // the single declarative source for the label taxonomy documented in
-// AGENTS.md's "Filing and triaging issues".
+// the `triaging-issues` skill.
 //
 // Usage:
 //   node scripts/sync-labels.mjs
@@ -40,7 +40,7 @@ const MANIFEST_PATH = ".github/labels.yml";
 
 /**
  * A function able to run `gh`. Tests pass an in-memory fake instead of
- * mocking `node:child_process`, following AGENTS.md's testing conventions
+ * mocking `node:child_process`, following the `writing-tests` skill
  * ("prefer a real in-memory fake to a mock").
  *
  * @typedef {(args: readonly string[]) => GhResult} GhRunner

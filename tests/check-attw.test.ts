@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as NodeTools from "../scripts/lib/node-tools.mjs";
 
 // scripts/check-attw.mjs's `main` runs a real `attw` process through
-// runNode(). Mocking runNode at the subprocess boundary (AGENTS.md's Testing
+// runNode(). Mocking runNode at the subprocess boundary (the `writing-tests` skill's
 // conventions) lets both outcomes be exercised deterministically, without
 // depending on attw's own output format or spawning a real packing step for
 // every case.

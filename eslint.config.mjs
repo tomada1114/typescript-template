@@ -24,7 +24,7 @@ const NO_EXPORT_STAR = {
 
 /** What `src/internal/**` is, in the words of the rule that made it private. */
 const INTERNAL_IS_PRIVATE =
-  'src/internal/ is private: see "Architecture" in AGENTS.md. Tests reach it through the public surface in src/index.ts (see "Testing" in AGENTS.md), and repository automation must not depend on package internals at all.';
+  'src/internal/ is private: see "Architecture" in AGENTS.md. Tests reach it through the public surface in src/index.ts (see the `writing-tests` skill), and repository automation must not depend on package internals at all.';
 
 /**
  * Read one property off a value of unknown shape.
@@ -214,7 +214,7 @@ export default defineConfig([
     },
   },
   {
-    // AGENTS.md's "Testing" section states these rules in prose; this is what enforces the
+    // The `writing-tests` skill states these rules in prose; this is what enforces the
     // ones a linter can see. The recommended set is taken as published and the
     // escalations below are the entries this repository will not run on
     // "warn", starting with the two that quietly shrink the suite.

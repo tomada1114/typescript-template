@@ -1,7 +1,7 @@
 # The single declarative source for this repository's labels: name, colour,
 # and description. `pnpm repo:labels` (scripts/sync-labels.mjs) creates or
 # updates each one on the live repository; it never deletes a label this file
-# does not mention. See AGENTS.md's "Filing and triaging issues" for what each
+# does not mention. See the `triaging-issues` skill for what each
 # label means and how triage uses it.
 #
 # Colours are 6 lowercase hex digits, no leading `#` — GitHub's label YAML

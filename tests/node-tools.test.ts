@@ -16,7 +16,7 @@ import {
 // ERR_DEPENDENCY_MISSING error-message convention, so its error paths are
 // exercised directly here rather than only incidentally through the scripts
 // that call it. Real installed dependencies (typescript, prettier, publint)
-// stand in for fixtures instead of mocking node:fs — AGENTS.md's Testing
+// stand in for fixtures instead of mocking node:fs — the `writing-tests` skill's
 // conventions prefer a real fake to a mock beyond a one-shot call, and these
 // three between them cover every bin shape resolveDependencyBin has to read
 // (a string bin, an object bin keyed by an explicit name, and an object bin
