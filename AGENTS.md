@@ -98,6 +98,7 @@ names its own boundary with its neighbours.
 | `release-impact`        | a PR body, its semver consequence, a `CHANGELOG.md` entry                             |
 | `writing-repo-scripts`  | a `.mjs` under `scripts/`                                                             |
 | `authoring-skills`      | a skill under `.agents/skills/`                                                       |
+| `changing-gates`        | a CI workflow, `lefthook.yml`, a tool config, or a permissions entry                  |
 | `managing-dependencies` | adding, bumping, or removing a package by hand (an open bot PR is `merge-dependabot`) |
 | `merge-dependabot`      | landing open Dependabot or Renovate pull requests                                     |
 | `updating-docs`         | `README.md`, `CONTRIBUTING.md`, or `docs/`                                            |
