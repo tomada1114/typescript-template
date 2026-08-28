@@ -24,6 +24,48 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const LEGACY_RELEASE_DIRECTORY = ".change" + "set";
 
 /**
+ * Read every backticked skill name in AGENTS.md's "## Skills" routing table.
+ *
+ * Mirrors `tests/skills-frontmatter.test.ts`'s own parse of this template's
+ * checkout AGENTS.md ("names %s after an existing skill directory"), so the
+ * same invariant it enforces there is checked against the generated tree
+ * too: a table row that survives a skill's own removal or rename would
+ * otherwise escape every check that only ever runs against the checkout.
+ *
+ * @param {string} source - AGENTS.md's full contents.
+ * @returns {string[]} Every backticked name in the table's first column, in
+ * document order. Empty when the file has no "## Skills" heading.
+ *
+ * @remarks
+ * Exported so `tests/verify-bootstrap.test.ts` can exercise the parse
+ * directly against a hand-built fixture string.
+ */
+export function listRoutingTableSkillNames(source) {
+  const lines = source.split("\n");
+  const headingIndex = lines.indexOf("## Skills");
+  if (headingIndex === -1) {
+    return [];
+  }
+  const nextHeadingIndex = lines.findIndex(
+    (line, index) => index > headingIndex && /^##[ \t]/.test(line),
+  );
+  const section = lines.slice(
+    headingIndex + 1,
+    nextHeadingIndex === -1 ? undefined : nextHeadingIndex,
+  );
+
+  /** @type {string[]} */
+  const names = [];
+  for (const line of section) {
+    const row = /^\|\s*`([^`]+)`\s*\|/.exec(line);
+    if (row?.[1] !== undefined) {
+      names.push(row[1]);
+    }
+  }
+  return names;
+}
+
+/**
  * @param {string} command
  * @param {string[]} args
  * @param {string} cwd
@@ -77,6 +119,19 @@ export function assertGenerated(destination, packageName) {
     ) {
       throw new Error(
         `ERR_BOOTSTRAP_MARKER: generated ${packageName} retains a bootstrap marker in ${relative}.`,
+      );
+    }
+  }
+
+  const agentsMd = readFileSync(path.join(destination, "AGENTS.md"), "utf8");
+  for (const name of listRoutingTableSkillNames(agentsMd)) {
+    if (!existsSync(path.join(destination, ".agents", "skills", name))) {
+      throw new Error(
+        `ERR_BOOTSTRAP_STALE_SKILL_ROUTE: generated ${packageName} routes to a missing skill.\n` +
+          `Expected: .agents/skills/${name} to exist, matching its AGENTS.md Skills row.\n` +
+          "Next: remove the stale row from AGENTS.md's Skills table, or make the skill " +
+          "self-remove alongside whatever it documents (see bootstrap.mjs's " +
+          "SELF_REMOVED_PATHS and SELF_REMOVED_AGENTS_LINES), then rerun bootstrap:e2e.",
       );
     }
   }

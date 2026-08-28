@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { Buffer } from "node:buffer";
 import console from "node:console";
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -69,6 +76,23 @@ export const MARKER_TARGETS = [
   ".github/workflows/ci.yml",
 ];
 
+// Removed by transform() as part of a real bootstrap run: the bootstrap
+// tooling itself, and the skill that documents it. A generated repository
+// has no bootstrap flow left to run or to maintain, so both would otherwise
+// describe files that no longer exist — exactly the dangling-reference shape
+// `assertGeneratedAiLayer` rejects. A file entry is removed directly; a
+// directory entry is removed recursively, and every file beneath it is
+// pre-marked absent in `preview` so a dry run's dangling-reference scan does
+// not read its now-stale content from disk.
+const SELF_REMOVED_PATHS = [
+  "tests/bootstrap.test.ts",
+  "tests/verify-bootstrap.test.ts",
+  "scripts/verify-bootstrap.mjs",
+  "scripts/bootstrap.mjs",
+  ".agents/skills/bootstrapping-the-template",
+  ".claude/skills/bootstrapping-the-template",
+];
+
 // The AI-layer assertion retains the profile/reference guard without walking
 // the repository. Extend this list when a new AI-layer file becomes part of
 // the template.
@@ -94,6 +118,19 @@ const TEMPLATE_ONLY_YAML_BLOCK =
   /^[ \t]*# template-only:start\s*$[\s\S]*?^[ \t]*# template-only:end\s*$\n?/gm;
 const PROFILE_BLOCK =
   /<!-- profile:([a-z0-9-]+):start -->([\s\S]*?)<!-- profile:\1:end -->/g;
+
+// Lines this template's own AGENTS.md carries only because the
+// `bootstrapping-the-template` skill and the bootstrap tooling it documents
+// still exist in this checkout (see SELF_REMOVED_PATHS above). Matched
+// against a whole line, so removal never leaves a table row blank in a
+// generated repository and is a no-op — not an error — on a tree where the
+// line is already gone (idempotent, matching the file's other marker-removal
+// regexes). The table row is matched with tolerant padding because Prettier
+// re-pads the routing table whenever its widest cell changes.
+const SELF_REMOVED_AGENTS_LINES = [
+  /^pnpm bootstrap:e2e\b/,
+  /^\|\s*`bootstrapping-the-template`\s*\|/,
+];
 
 // Directories a Markdown-reference scan has no business reading: version
 // control internals, a dependency tree that should not exist yet at
@@ -393,6 +430,105 @@ export async function promptArguments(question) {
 }
 
 /**
+ * Re-pad one GitHub-flavoured Markdown table so every column is exactly as
+ * wide as its widest cell — the layout Prettier writes, and therefore the
+ * only layout `pnpm format:check` accepts.
+ *
+ * @param {readonly string[]} rows - The table's lines, pipes included.
+ * @returns {string[]} The same rows, re-padded.
+ */
+export function repadMarkdownTable(rows) {
+  const cells = rows.map((row) =>
+    row
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => cell.trim()),
+  );
+  const isDelimiter = (/** @type {string[]} */ row) =>
+    row.length > 0 && row.every((cell) => /^:?-+:?$/.test(cell));
+  /** @type {number[]} */
+  const widths = [];
+  for (const row of cells) {
+    if (isDelimiter(row)) {
+      continue;
+    }
+    for (const [column, cell] of row.entries()) {
+      // Prettier never draws a column narrower than the three dashes its
+      // delimiter row needs.
+      widths[column] = Math.max(widths[column] ?? 3, cell.length);
+    }
+  }
+  const alignments = cells.find((row) => isDelimiter(row)) ?? [];
+  return cells.map((row) => {
+    const delimiter = isDelimiter(row);
+    const padded = row.map((cell, column) => {
+      const width = widths[column] ?? Math.max(3, cell.length);
+      const marker = alignments[column] ?? "---";
+      const left = marker.startsWith(":") ? ":" : "";
+      const right = marker.endsWith(":") ? ":" : "";
+      if (delimiter) {
+        return `${left}${"-".repeat(width - left.length - right.length)}${right}`;
+      }
+      // A column's alignment marker decides where Prettier puts the padding:
+      // right for `---:`, split for `:---:`, left for everything else.
+      const slack = width - cell.length;
+      if (left === "" && right === ":") {
+        return `${" ".repeat(slack)}${cell}`;
+      }
+      if (left === ":" && right === ":") {
+        const before = Math.floor(slack / 2);
+        return `${" ".repeat(before)}${cell}${" ".repeat(slack - before)}`;
+      }
+      return cell.padEnd(width);
+    });
+    return `| ${padded.join(" | ")} |`;
+  });
+}
+
+/**
+ * Drop the AGENTS.md lines that exist only while the bootstrap flow does, and
+ * re-pad any table a dropped row leaves behind.
+ *
+ * The routing table's removed row holds the widest cell in its first column,
+ * so deleting the line alone would leave every surviving row padded to a width
+ * nothing occupies any more — valid Markdown, but not what Prettier writes, so
+ * the generated repository would fail `pnpm format:check` on the forker's very
+ * first `pnpm check:quick`.
+ *
+ * @param {string} text - AGENTS.md's contents.
+ * @returns {string} The same text with those lines gone.
+ */
+export function removeSelfReferentialLines(text) {
+  const isSelfReferential = (/** @type {string} */ line) =>
+    SELF_REMOVED_AGENTS_LINES.some((pattern) => pattern.test(line));
+  const lines = text.split("\n");
+  /** @type {string[]} */
+  const kept = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (!line.startsWith("|")) {
+      if (!isSelfReferential(line)) {
+        kept.push(line);
+      }
+      continue;
+    }
+    let end = index;
+    while ((lines[end] ?? "").startsWith("|")) {
+      end += 1;
+    }
+    const table = lines.slice(index, end);
+    const remaining = table.filter((row) => !isSelfReferential(row));
+    kept.push(
+      ...(remaining.length === table.length ? table : repadMarkdownTable(remaining)),
+    );
+    index = end - 1;
+  }
+  return kept.join("\n");
+}
+
+/**
  * Replace placeholders in UTF-8 text and leave binary files unchanged.
  *
  * @param {string} file
@@ -419,6 +555,9 @@ function replaceText(file, replacements, profile, write) {
     const selectProfileBlock = (_match, markedProfile, contents) =>
       markedProfile === profile ? contents : "";
     updated = updated.replace(PROFILE_BLOCK, selectProfileBlock);
+    if (path.basename(file) === "AGENTS.md") {
+      updated = removeSelfReferentialLines(updated);
+    }
     if (updated !== original) {
       updated = updated.replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "\n");
     }
@@ -480,6 +619,31 @@ function listMarkdownFiles(root) {
     }
   };
   visit(root);
+  return found;
+}
+
+/**
+ * List every non-symlink, non-directory file beneath `directory`, recursing
+ * into subdirectories.
+ *
+ * @param {string} root - Repository root, used to compute a relative path.
+ * @param {string} directory - Absolute directory to walk.
+ * @returns {string[]} Repository-relative, forward-slash-separated paths.
+ */
+function listFilesRecursive(root, directory) {
+  /** @type {string[]} */
+  const found = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...listFilesRecursive(root, absolute));
+    } else if (entry.isFile()) {
+      found.push(normalizeRelativePath(path.relative(root, absolute)));
+    }
+  }
   return found;
 }
 
@@ -794,22 +958,27 @@ function transform(root, options, year, preview) {
   const changed = [];
   const write = !options.dryRun;
 
-  for (const relative of [
-    "tests/bootstrap.test.ts",
-    "tests/verify-bootstrap.test.ts",
-    "scripts/verify-bootstrap.mjs",
-    "scripts/bootstrap.mjs",
-  ]) {
+  for (const relative of SELF_REMOVED_PATHS) {
     const target = path.join(root, relative);
-    if (existsSync(target)) {
-      if (write) {
-        rmSync(target);
-      }
-      if (preview !== undefined) {
-        preview.set(relative, null);
-      }
-      changed.push(`${relative} (removed)`);
+    if (!existsSync(target)) {
+      continue;
     }
+    if (lstatSync(target).isDirectory()) {
+      if (preview !== undefined) {
+        for (const nested of listFilesRecursive(root, target)) {
+          preview.set(nested, null);
+        }
+      }
+      if (write) {
+        rmSync(target, { recursive: true });
+      }
+    } else if (write) {
+      rmSync(target);
+    }
+    if (preview !== undefined) {
+      preview.set(relative, null);
+    }
+    changed.push(`${relative} (removed)`);
   }
 
   changed.push(...replaceTargets(root, replacements, options.profile, write, preview));
