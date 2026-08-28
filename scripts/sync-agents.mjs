@@ -63,6 +63,11 @@ export class SyncAgentsError extends Error {
  * @param {string} directory - Absolute path to walk; may be absent.
  * @param {string} label - Repository-relative name used in error messages.
  * @returns {string[]} Sorted relative paths, using `/` separators.
+ *
+ * @remarks
+ * Exported so `tests/sync-agents.test.ts` can exercise its recursion, its
+ * missing-directory tolerance and its unsupported-entry error directly,
+ * rather than only indirectly through {@link diffTrees}.
  */
 export function listFiles(directory, label) {
   /** @type {string[]} */

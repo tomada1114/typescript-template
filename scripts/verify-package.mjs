@@ -69,8 +69,13 @@ export function resolveTarballArgument(argv) {
  * @param {string} script - JavaScript entry point.
  * @param {readonly string[]} args - Arguments for the entry point.
  * @returns {boolean} Whether the check passed.
+ *
+ * @remarks
+ * Exported so `tests/verify-package.test.ts` can exercise both outcomes
+ * directly, mocking `runNode` at the subprocess boundary rather than running
+ * a real publint/attw/smoke check for every case.
  */
-function runCheck(label, script, args) {
+export function runCheck(label, script, args) {
   console.log(`package-verify: ${label}`);
   const result = runNode(script, args, { cwd: repoRoot });
   process.stdout.write(result.stdout);

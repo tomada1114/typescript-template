@@ -131,8 +131,13 @@ export function isUniversalProfile() {
  *
  * @param {unknown} manifest - The packed `package.json`.
  * @returns {string[]} Specifier suffixes, `""` for the package root.
+ *
+ * @remarks
+ * Exported so `tests/smoke-package.test.ts` can exercise every branch
+ * directly against a synthetic manifest, rather than only through a real
+ * installed tarball.
  */
-function publicSubpaths(manifest) {
+export function publicSubpaths(manifest) {
   const exports = readKey(manifest, "exports");
   if (typeof exports !== "object" || exports === null) {
     return [""];
@@ -211,8 +216,14 @@ export function checkTarballContents(entries, label) {
  * @param {string} workspace - Temp directory to build inside.
  * @param {string} tarball - Path to the packed `.tgz`.
  * @returns {string} The consumer's directory.
+ *
+ * @remarks
+ * Exported so `tests/smoke-package.test.ts` can exercise both outcomes
+ * directly, mocking `runNode` at the subprocess boundary rather than
+ * installing a real tarball for every case; see {@link checkRuntimeImports}
+ * for why that boundary is the one mocked.
  */
-function installConsumer(workspace, tarball) {
+export function installConsumer(workspace, tarball) {
   step("installing the tarball into a throwaway consumer");
   const consumer = path.join(workspace, "consumer");
   mkdirSync(consumer, { recursive: true });
@@ -685,8 +696,14 @@ export function resolveTarballArgument(argv) {
  *
  * @param {readonly string[]} argv - Arguments after the script path.
  * @returns {number} Process exit code.
+ *
+ * @remarks
+ * Exported so `tests/smoke-package.test.ts` can exercise the argument-error,
+ * unreadable-tarball, tarball-content-failure and full-success paths
+ * directly, mocking `runNode` at the subprocess boundary and, for the
+ * success path, a synthetic tarball built without a real `npm pack`/install.
  */
-function main(argv) {
+export function main(argv) {
   /** @type {string} */
   let tarball;
   try {

@@ -16,7 +16,13 @@ import process from "node:process";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { isolatedGitEnv } from "../scripts/lib/git-env.mjs";
-import { assertCopyable, copyTemplate } from "../scripts/verify-bootstrap.mjs";
+import {
+  assertCopyable,
+  assertGenerated,
+  copyTemplate,
+  main,
+  run,
+} from "../scripts/verify-bootstrap.mjs";
 
 // This suite itself runs from a git hook (`lefthook.yml` runs `test:related`
 // on pre-commit), and git hands a hook GIT_DIR. `copyTemplate` already spawns
@@ -145,5 +151,202 @@ describe("assertCopyable", () => {
     const source = makeSourceRepo();
 
     expect(assertCopyable(path.join(source, "missing.txt"), "missing.txt")).toBe(false);
+  });
+});
+
+describe("run", () => {
+  it("does not throw when the command exits 0", () => {
+    const cwd = makeDestination();
+
+    expect(() => run(process.execPath, ["-e", "process.exit(0)"], cwd)).not.toThrow();
+  });
+
+  it("throws ERR_BOOTSTRAP_E2E naming the command and exit code when it fails", () => {
+    const cwd = makeDestination();
+
+    expect(() => run(process.execPath, ["-e", "process.exit(3)"], cwd)).toThrow(
+      /ERR_BOOTSTRAP_E2E:.*exit 3/,
+    );
+  });
+});
+
+describe("assertGenerated", () => {
+  /**
+   * A minimal fixture tree that satisfies every check `assertGenerated`
+   * makes: the four marker targets (with no residual marker text), a
+   * changelog with no version heading, and a manifest naming `packageName`
+   * at version 0.0.0 with no bin and sideEffects: false.
+   */
+  function writeValidFixture(destination: string, packageName: string): void {
+    for (const relative of [
+      "AGENTS.md",
+      "README.md",
+      "CONTRIBUTING.md",
+      ".github/workflows/ci.yml",
+    ]) {
+      const target = path.join(destination, relative);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, `# ${relative}\n`);
+    }
+    writeFileSync(
+      path.join(destination, "CHANGELOG.md"),
+      "# Changelog\n\nAll notable changes are documented here.\n",
+    );
+    writeFileSync(
+      path.join(destination, "package.json"),
+      `${JSON.stringify(
+        { name: packageName, version: "0.0.0", sideEffects: false },
+        null,
+        2,
+      )}\n`,
+    );
+  }
+
+  it("passes for a well-formed generated repository", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+
+    expect(() => assertGenerated(destination, "acme-node-library")).not.toThrow();
+  });
+
+  it("throws ERR_PLACEHOLDER_REMAINING when a placeholder target still holds a placeholder", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    // README.md is both a marker target and a placeholder target; "my-package"
+    // mirrors bootstrap.mjs's own TEMPLATE_PACKAGE constant.
+    writeFileSync(path.join(destination, "README.md"), "# my-package\n");
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_PLACEHOLDER_REMAINING/,
+    );
+  });
+
+  it("throws ERR_BOOTSTRAP_MARKER when a marker target retains a bootstrap marker", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    writeFileSync(
+      path.join(destination, ".github", "workflows", "ci.yml"),
+      "# template-only block\n",
+    );
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_BOOTSTRAP_MARKER/,
+    );
+  });
+
+  it("throws ERR_RELEASE_INTENT_PATH_REMAINING when the legacy .changeset directory remains", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    mkdirSync(path.join(destination, ".changeset"), { recursive: true });
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_RELEASE_INTENT_PATH_REMAINING/,
+    );
+  });
+
+  it("throws ERR_BOOTSTRAP_SCRIPT_REMAINING when scripts/bootstrap.mjs remains", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    mkdirSync(path.join(destination, "scripts"), { recursive: true });
+    writeFileSync(path.join(destination, "scripts", "bootstrap.mjs"), "export {};\n");
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_BOOTSTRAP_SCRIPT_REMAINING/,
+    );
+  });
+
+  it("throws ERR_CHANGELOG_ENTRY_REMAINING when the changelog retains a version heading", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    writeFileSync(
+      path.join(destination, "CHANGELOG.md"),
+      "# Changelog\n\n## 1.0.0 - 2024-01-01\n",
+    );
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_CHANGELOG_ENTRY_REMAINING/,
+    );
+  });
+
+  it("throws ERR_MANIFEST_SHAPE when package.json does not parse to an object", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    writeFileSync(path.join(destination, "package.json"), "null\n");
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_MANIFEST_SHAPE/,
+    );
+  });
+
+  it("throws ERR_PACKAGE_NAME when package.json#name does not match", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "some-other-name");
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_PACKAGE_NAME/,
+    );
+  });
+
+  it("throws ERR_VERSION_REMAINING when package.json#version is not 0.0.0", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    writeFileSync(
+      path.join(destination, "package.json"),
+      `${JSON.stringify(
+        { name: "acme-node-library", version: "1.0.0", sideEffects: false },
+        null,
+        2,
+      )}\n`,
+    );
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_VERSION_REMAINING/,
+    );
+  });
+
+  it("throws ERR_BIN_REMAINING when package.json still declares bin", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    writeFileSync(
+      path.join(destination, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "acme-node-library",
+          version: "0.0.0",
+          sideEffects: false,
+          bin: "./dist/cli.js",
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_BIN_REMAINING/,
+    );
+  });
+
+  it("throws ERR_SIDE_EFFECTS_REMAINING when package.json#sideEffects is not false", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    writeFileSync(
+      path.join(destination, "package.json"),
+      `${JSON.stringify({ name: "acme-node-library", version: "0.0.0" }, null, 2)}\n`,
+    );
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_SIDE_EFFECTS_REMAINING/,
+    );
+  });
+});
+
+describe("main", () => {
+  it("bootstraps both profiles into a disposable workspace and validates the result", () => {
+    // A real, fast (well under a second) end-to-end run: main() copies this
+    // repository's own tracked files, runs the real scripts/bootstrap.mjs
+    // subprocess against each profile, and validates the result with
+    // assertGenerated. This exercises main()'s full orchestration and both
+    // run()/assertGenerated() success paths without any mocking.
+    expect(main()).toBe(0);
   });
 });
