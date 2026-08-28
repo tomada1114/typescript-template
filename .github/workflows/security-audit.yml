@@ -64,6 +64,10 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      # From the release's own gitleaks_8.30.1_checksums.txt.
+      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,10 +78,21 @@ jobs:
           # already covers on every commit going forward.
           fetch-depth: 0
 
-      # `scripts/lib/guard/credentials.mjs` covers the staged diff at commit
-      # time; this job covers everything that landed before that check
-      # existed, or before a pattern was added. On workflow_dispatch/schedule
-      # (this job's only triggers) the action scans the full history of the
-      # checked-out ref rather than a commit range.
+      # Installed as a checksum-pinned binary rather than through a
+      # third-party Action: gitleaks/gitleaks-action wraps this same MIT
+      # core in a proprietary EULA, and trufflesecurity/trufflehog's own
+      # repository is AGPL-3.0 — both fail this repo's dependency-review
+      # `deny-licenses` gate. The gitleaks CLI itself is MIT-licensed and
+      # carries no such gate.
+      - name: Install gitleaks
+        run: |
+          curl -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | sha256sum --check --strict
+          tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+
+      # No commit range is passed: on workflow_dispatch/schedule (this job's
+      # only triggers) there is no meaningful before/after pair, so this
+      # scans the full history of the checked-out ref instead.
       - name: Scan git history for secrets
-        uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.0
+        run: gitleaks detect --source . --no-banner --redact
