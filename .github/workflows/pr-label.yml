@@ -38,14 +38,17 @@ jobs:
             feat) label=enhancement ;;
             fix) label=bug ;;
             docs) label=documentation ;;
+            chore) label=chore ;;
             ci) label=ci ;;
             deps) label=dependencies ;;
             *) echo "No label mapping for type: $type"; exit 0 ;;
           esac
-          # A default repository has no "ci" label and `--add-label` fails on a
-          # missing one. `gh label create` is a no-op when it already exists.
-          gh label create "$label" >/dev/null 2>&1 || true
-          # Best effort: fork PRs get a read-only token, so the write below is
-          # rejected there. Never fail the check over a label.
+          # Labels are declared in .github/labels.yml and created/updated ahead
+          # of time by `pnpm repo:labels` (scripts/sync-labels.mjs), run
+          # manually by a maintainer — this job only applies one, it never
+          # creates one.
+          # Best effort: never fail the check over a label. A fork PR's
+          # read-only token is one reason this can fail; a label that has not
+          # been synced yet (`pnpm repo:labels`) is another.
           gh pr edit "$PR_NUMBER" --add-label "$label" \
-            || echo "::notice::Could not apply label '$label' (fork PRs have a read-only token)."
+            || echo "::notice::Could not apply label '$label' (missing on the repository, or a fork PR's read-only token)."
