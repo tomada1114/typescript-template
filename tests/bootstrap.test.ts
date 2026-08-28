@@ -394,6 +394,39 @@ describe("bootstrap profiles", () => {
     ).toThrow(/AGENTS\.md: dangling reference `scripts\/does-not-exist\.mjs`/);
   });
 
+  it("does not treat an ESLint config block name in inline code as a path", () => {
+    // A flat-config block name has exactly the shape of a repo-relative path,
+    // so naming the gate that enforces a rule used to fail the build (#102).
+    // The first segment is what separates the two: the generated root has no
+    // `public-api` entry, so the token is not a path to resolve at all.
+    const root = copyTemplate();
+    const agents = path.join(root, "AGENTS.md");
+    writeFileSync(
+      agents,
+      `${readFileSync(agents, "utf8")}\nThe \`public-api/internal-stays-private\` block enforces it.\n`,
+    );
+
+    expect(() =>
+      bootstrap(root, options("eslint-block-name", "node-library")),
+    ).not.toThrow();
+  });
+
+  it("still rejects a Markdown reference to a path bootstrap itself removes", () => {
+    // The narrowing above must not cost the check the case it exists for. A
+    // removed file sits inside a directory that survives the removal, so its
+    // first segment still resolves and the dry-run preview still reports it.
+    const root = copyTemplate();
+    const agents = path.join(root, "AGENTS.md");
+    writeFileSync(
+      agents,
+      `${readFileSync(agents, "utf8")}\nSee \`scripts/bootstrap.mjs\` for details.\n`,
+    );
+
+    expect(() => bootstrap(root, options("removed-reference", "node-library"))).toThrow(
+      /AGENTS\.md: dangling reference `scripts\/bootstrap\.mjs`/,
+    );
+  });
+
   it("leaves the repository untouched when a real (non-dry-run) bootstrap fails validation", () => {
     // transform() removes its own script and rewrites package.json before any
     // validation runs. If bootstrap() validated against the already-written
