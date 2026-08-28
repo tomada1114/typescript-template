@@ -3,6 +3,15 @@ extend-exclude = [
   # Generated file. A typo in a package name is upstream's, and rewriting it
   # here would invalidate the lockfile.
   "pnpm-lock.yaml",
+  # Generated build/doc output, matching the same paths in .gitignore,
+  # eslint.config.mjs's globalIgnores, and .prettierignore.
+  "dist/",
+  "coverage/",
+  "docs/api/",
+  # Generated mirror of .agents/skills/ (`pnpm agents:sync`); the real files
+  # are spell-checked at their real path, and checking the copy too would
+  # report the same typo twice, at a path nobody may edit.
+  ".claude/skills/",
 ]
 
 # Each entry below is a word that is spelled the way it is on purpose. Prefer
