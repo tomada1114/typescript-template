@@ -20,6 +20,7 @@ import {
   assertCopyable,
   assertGenerated,
   copyTemplate,
+  listRoutingTableSkillNames,
   main,
   run,
 } from "../scripts/verify-bootstrap.mjs";
@@ -170,6 +171,28 @@ describe("run", () => {
   });
 });
 
+describe("listRoutingTableSkillNames", () => {
+  it("reads every backticked name in the first column under the Skills heading", () => {
+    const source =
+      "## Skills\n\n" +
+      "| Skill | Load it when you are working on |\n" +
+      "| --- | --- |\n" +
+      "| `writing-typescript` | a module under `src/**/*.ts` |\n" +
+      "| `writing-tests` | the body of a test under `tests/` |\n" +
+      "\n## Security\n\n" +
+      "| `not-a-skill` | this row is outside the Skills section |\n";
+
+    expect(listRoutingTableSkillNames(source)).toEqual([
+      "writing-typescript",
+      "writing-tests",
+    ]);
+  });
+
+  it("returns an empty list when the file has no Skills heading", () => {
+    expect(listRoutingTableSkillNames("# AGENTS.md\n")).toEqual([]);
+  });
+});
+
 describe("assertGenerated", () => {
   /**
    * A minimal fixture tree that satisfies every check `assertGenerated`
@@ -263,6 +286,41 @@ describe("assertGenerated", () => {
 
     expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
       /ERR_BOOTSTRAP_SCRIPT_REMAINING/,
+    );
+  });
+
+  it("passes when every routed skill in AGENTS.md's Skills table has a directory", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    writeFileSync(
+      path.join(destination, "AGENTS.md"),
+      "## Skills\n\n" +
+        "| Skill | Load it when you are working on |\n" +
+        "| --- | --- |\n" +
+        "| `writing-typescript` | a module under `src/**/*.ts` |\n",
+    );
+    mkdirSync(path.join(destination, ".agents", "skills", "writing-typescript"), {
+      recursive: true,
+    });
+
+    expect(() => assertGenerated(destination, "acme-node-library")).not.toThrow();
+  });
+
+  it("throws ERR_BOOTSTRAP_STALE_SKILL_ROUTE when a routed skill has no directory", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library");
+    // Same shape as an unremoved SELF_REMOVED_PATHS entry would leave behind:
+    // a row naming a skill whose directory bootstrap already removed.
+    writeFileSync(
+      path.join(destination, "AGENTS.md"),
+      "## Skills\n\n" +
+        "| Skill | Load it when you are working on |\n" +
+        "| --- | --- |\n" +
+        "| `bootstrapping-the-template` | the bootstrap flow |\n",
+    );
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_BOOTSTRAP_STALE_SKILL_ROUTE/,
     );
   });
 

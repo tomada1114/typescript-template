@@ -119,6 +119,18 @@ const TEMPLATE_ONLY_YAML_BLOCK =
 const PROFILE_BLOCK =
   /<!-- profile:([a-z0-9-]+):start -->([\s\S]*?)<!-- profile:\1:end -->/g;
 
+// Lines this template's own AGENTS.md carries only because the
+// `bootstrapping-the-template` skill and the bootstrap tooling it documents
+// still exist in this checkout (see SELF_REMOVED_PATHS above). Matched by
+// full line, trailing newline included, so removal never leaves a table row
+// blank in a generated repository and is a no-op — not an error — on a tree
+// where the line is already gone (idempotent, matching the file's other
+// marker-removal regexes).
+const SELF_REMOVED_AGENTS_LINES = [
+  /^pnpm bootstrap:e2e\b.*\n/m,
+  /^\| `bootstrapping-the-template` \|.*\|\n/m,
+];
+
 // Directories a Markdown-reference scan has no business reading: version
 // control internals, a dependency tree that should not exist yet at
 // bootstrap time, and the gitignored scratch/worktree directories this
@@ -443,6 +455,11 @@ function replaceText(file, replacements, profile, write) {
     const selectProfileBlock = (_match, markedProfile, contents) =>
       markedProfile === profile ? contents : "";
     updated = updated.replace(PROFILE_BLOCK, selectProfileBlock);
+    if (path.basename(file) === "AGENTS.md") {
+      for (const pattern of SELF_REMOVED_AGENTS_LINES) {
+        updated = updated.replace(pattern, "");
+      }
+    }
     if (updated !== original) {
       updated = updated.replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "\n");
     }

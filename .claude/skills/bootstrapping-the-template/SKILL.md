@@ -89,6 +89,28 @@ against a freshly generated tree (where they don't). `namesGeneratedTreeEntry` i
 specifically — read its doc comment for the exact three-part shape test and the accepted
 residual it documents; this was the actual defect behind issue #106.
 
+This skill itself is part of `SELF_REMOVED_PATHS`, alongside the four files above: a
+generated repository has no bootstrap flow left to run or maintain, so a skill
+documenting that flow would otherwise survive with nothing left to describe. Removing a
+directory entry recursively marks every nested file absent in the dry-run `preview` map
+before the real removal runs, so the dangling-reference scan never reads its now-stale
+content from disk. AGENTS.md's own Quick reference line and Skills-table row for this
+skill are removed the same way, by a small `SELF_REMOVED_AGENTS_LINES` regex list
+applied inside `replaceText` — a GFM table row can't be wrapped in the
+`<!-- template-only:-->` block markers used elsewhere (an HTML comment or a resulting
+blank line both terminate a table early), so the whole line, trailing newline included,
+is matched and dropped directly instead.
+
+`scripts/verify-bootstrap.mjs`'s `assertGenerated` closes the loop this is really for:
+it re-parses the generated tree's own AGENTS.md Skills table
+(`listRoutingTableSkillNames`) and throws `ERR_BOOTSTRAP_STALE_SKILL_ROUTE` if any row
+names a skill directory the generated tree does not have — the same invariant
+`tests/skills-frontmatter.test.ts` checks in this checkout, checked again in the tree
+that actually ships. This is the second time a bootstrap check has been weaker in one
+environment than the other (the first was #106's `namesGeneratedTreeEntry`), so a change
+that adds a self-removed path or an AGENTS.md line tied to it owes both sides: the
+removal itself, and, if it changes what AGENTS.md's Skills table can say, this check.
+
 ## The dangling-reference check
 
 `assertGeneratedAiLayer` (called from `bootstrap()`, raising `ERR_AI_LAYER_REFERENCE`)

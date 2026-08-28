@@ -289,6 +289,12 @@ describe("bootstrap profiles", () => {
     expect(
       existsSync(path.join(root, ".claude", "skills", "bootstrapping-the-template")),
     ).toBe(false);
+    // AGENTS.md's own routing row and Quick reference line must go with the
+    // skill and script they name, or a forker's first `pnpm check` sees a
+    // Skills table row pointing at a directory that no longer exists.
+    const generatedAgentsMd = readFileSync(path.join(root, "AGENTS.md"), "utf8");
+    expect(generatedAgentsMd).not.toContain("bootstrapping-the-template");
+    expect(generatedAgentsMd).not.toContain("bootstrap:e2e");
     expect(readFileSync(path.join(root, "CONTRIBUTING.md"), "utf8")).not.toContain(
       "Bootstrap profiles",
     );
