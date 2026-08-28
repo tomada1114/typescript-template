@@ -57,3 +57,27 @@ jobs:
           done
           echo "::error::Production dependency audit failed after 3 attempts."
           exit 1
+
+  secret-scan:
+    name: Scan history for leaked credentials
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The whole point of this job is to catch what predates the
+          # staged-content pre-commit check — a shallow checkout would only
+          # ever see the latest commit, which `scripts/check-staged.mjs`
+          # already covers on every commit going forward.
+          fetch-depth: 0
+
+      # `scripts/lib/guard/credentials.mjs` covers the staged diff at commit
+      # time; this job covers everything that landed before that check
+      # existed, or before a pattern was added. On workflow_dispatch/schedule
+      # (this job's only triggers) the action scans the full history of the
+      # checked-out ref rather than a commit range.
+      - name: Scan git history for secrets
+        uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.1
