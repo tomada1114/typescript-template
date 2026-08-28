@@ -175,9 +175,15 @@ describe("assertGenerated", () => {
    * A minimal fixture tree that satisfies every check `assertGenerated`
    * makes: the four marker targets (with no residual marker text), a
    * changelog with no version heading, and a manifest naming `packageName`
-   * at version 0.0.0 with no bin and sideEffects: false.
+   * at version 0.0.0 with no bin and sideEffects: false. `manifestOverrides`
+   * is merged onto that base manifest so a test can deviate a single field
+   * without duplicating the whole shape.
    */
-  function writeValidFixture(destination: string, packageName: string): void {
+  function writeValidFixture(
+    destination: string,
+    packageName: string,
+    manifestOverrides: Record<string, unknown> = {},
+  ): void {
     for (const relative of [
       "AGENTS.md",
       "README.md",
@@ -195,7 +201,12 @@ describe("assertGenerated", () => {
     writeFileSync(
       path.join(destination, "package.json"),
       `${JSON.stringify(
-        { name: packageName, version: "0.0.0", sideEffects: false },
+        {
+          name: packageName,
+          version: "0.0.0",
+          sideEffects: false,
+          ...manifestOverrides,
+        },
         null,
         2,
       )}\n`,
@@ -289,15 +300,7 @@ describe("assertGenerated", () => {
 
   it("throws ERR_VERSION_REMAINING when package.json#version is not 0.0.0", () => {
     const destination = makeDestination();
-    writeValidFixture(destination, "acme-node-library");
-    writeFileSync(
-      path.join(destination, "package.json"),
-      `${JSON.stringify(
-        { name: "acme-node-library", version: "1.0.0", sideEffects: false },
-        null,
-        2,
-      )}\n`,
-    );
+    writeValidFixture(destination, "acme-node-library", { version: "1.0.0" });
 
     expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
       /ERR_VERSION_REMAINING/,
@@ -306,20 +309,7 @@ describe("assertGenerated", () => {
 
   it("throws ERR_BIN_REMAINING when package.json still declares bin", () => {
     const destination = makeDestination();
-    writeValidFixture(destination, "acme-node-library");
-    writeFileSync(
-      path.join(destination, "package.json"),
-      `${JSON.stringify(
-        {
-          name: "acme-node-library",
-          version: "0.0.0",
-          sideEffects: false,
-          bin: "./dist/cli.js",
-        },
-        null,
-        2,
-      )}\n`,
-    );
+    writeValidFixture(destination, "acme-node-library", { bin: "./dist/cli.js" });
 
     expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
       /ERR_BIN_REMAINING/,
@@ -328,11 +318,7 @@ describe("assertGenerated", () => {
 
   it("throws ERR_SIDE_EFFECTS_REMAINING when package.json#sideEffects is not false", () => {
     const destination = makeDestination();
-    writeValidFixture(destination, "acme-node-library");
-    writeFileSync(
-      path.join(destination, "package.json"),
-      `${JSON.stringify({ name: "acme-node-library", version: "0.0.0" }, null, 2)}\n`,
-    );
+    writeValidFixture(destination, "acme-node-library", { sideEffects: undefined });
 
     expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
       /ERR_SIDE_EFFECTS_REMAINING/,

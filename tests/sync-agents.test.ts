@@ -31,9 +31,14 @@ import {
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const workspaces: string[] = [];
 
-function makeTrees(): { source: string; mirror: string } {
-  const workspace = mkdtempSync(path.join(tmpdir(), "sync-agents-test-"));
+function makeWorkspace(prefix: string): string {
+  const workspace = mkdtempSync(path.join(tmpdir(), `${prefix}-`));
   workspaces.push(workspace);
+  return workspace;
+}
+
+function makeTrees(): { source: string; mirror: string } {
+  const workspace = makeWorkspace("sync-agents-test");
   const source = path.join(workspace, "source");
   const mirror = path.join(workspace, "mirror");
   mkdirSync(path.join(source, "skill", "scripts"), { recursive: true });
@@ -174,8 +179,7 @@ describe("formatDrift", () => {
 
 describe("listFiles", () => {
   it("lists every file recursively as sorted, forward-slash relative paths", () => {
-    const workspace = mkdtempSync(path.join(tmpdir(), "sync-agents-listfiles-"));
-    workspaces.push(workspace);
+    const workspace = makeWorkspace("sync-agents-listfiles");
     mkdirSync(path.join(workspace, "a", "b"), { recursive: true });
     writeFileSync(path.join(workspace, "top.md"), "top\n");
     writeFileSync(path.join(workspace, "a", "mid.md"), "mid\n");
@@ -189,15 +193,13 @@ describe("listFiles", () => {
   });
 
   it("returns an empty array for a directory that does not exist", () => {
-    const workspace = mkdtempSync(path.join(tmpdir(), "sync-agents-listfiles-"));
-    workspaces.push(workspace);
+    const workspace = makeWorkspace("sync-agents-listfiles");
 
     expect(listFiles(path.join(workspace, "absent"), "label")).toEqual([]);
   });
 
   it("throws ERR_AGENTS_UNSUPPORTED_ENTRY for a symlink", () => {
-    const workspace = mkdtempSync(path.join(tmpdir(), "sync-agents-listfiles-"));
-    workspaces.push(workspace);
+    const workspace = makeWorkspace("sync-agents-listfiles");
     writeFileSync(path.join(workspace, "real.md"), "real\n");
     symlinkSync("real.md", path.join(workspace, "link.md"));
 
@@ -208,16 +210,14 @@ describe("listFiles", () => {
 
 describe("assertSourceDirectory", () => {
   it("does not throw when the directory exists", () => {
-    const workspace = mkdtempSync(path.join(tmpdir(), "sync-agents-source-"));
-    workspaces.push(workspace);
+    const workspace = makeWorkspace("sync-agents-source");
     mkdirSync(path.join(workspace, "skills"));
 
     expect(() => assertSourceDirectory(path.join(workspace, "skills"))).not.toThrow();
   });
 
   it("throws ERR_AGENTS_SOURCE_MISSING when the directory is absent", () => {
-    const workspace = mkdtempSync(path.join(tmpdir(), "sync-agents-source-"));
-    workspaces.push(workspace);
+    const workspace = makeWorkspace("sync-agents-source");
 
     expect(() => assertSourceDirectory(path.join(workspace, "absent"))).toThrow(
       SyncAgentsError,
@@ -228,8 +228,7 @@ describe("assertSourceDirectory", () => {
   });
 
   it("rethrows a non-ENOENT filesystem error instead of reporting it as missing", () => {
-    const workspace = mkdtempSync(path.join(tmpdir(), "sync-agents-source-"));
-    workspaces.push(workspace);
+    const workspace = makeWorkspace("sync-agents-source");
     const notADirectory = path.join(workspace, "not-a-directory");
     writeFileSync(notADirectory, "file, not a directory\n");
 
@@ -241,9 +240,7 @@ describe("assertSourceDirectory", () => {
 
 describe("main", () => {
   function makeRoot(): string {
-    const dir = mkdtempSync(path.join(tmpdir(), "sync-agents-main-"));
-    workspaces.push(dir);
-    return dir;
+    return makeWorkspace("sync-agents-main");
   }
 
   function seedSource(root: string): void {
