@@ -151,6 +151,21 @@ describe("the .claude/skills bridge in tsconfig.json", () => {
     parsed.fileNames.map((file) => path.relative(repoRoot, file).replace(/\\/g, "/")),
   );
 
+  function excludeSpec(): readonly string[] {
+    const config: unknown = configFile.config;
+    const exclude =
+      typeof config === "object" && config !== null && "exclude" in config
+        ? config.exclude
+        : undefined;
+    if (
+      !Array.isArray(exclude) ||
+      !exclude.every((entry): entry is string => typeof entry === "string")
+    ) {
+      throw new TypeError("tsconfig.json's exclude must be an array of strings");
+    }
+    return exclude;
+  }
+
   it("type-checks the authored skill source", () => {
     expect(resolved.has(`${source}/scripts/survey-prs.mjs`)).toBe(true);
   });
@@ -171,27 +186,23 @@ describe("the .claude/skills bridge in tsconfig.json", () => {
       typeof config === "object" && config !== null && "include" in config
         ? config.include
         : undefined;
-    const exclude =
-      typeof config === "object" && config !== null && "exclude" in config
-        ? config.exclude
-        : undefined;
     expect(include).toContain(".claude/skills");
-    expect(exclude).toEqual([".claude/skills/*/**/*"]);
+    expect(excludeSpec()).toEqual([".claude/skills/*/**/*"]);
   });
 
   describe("generalizes to a skill that does not exist on disk", () => {
     // tsconfig.json's own `exclude` array (the JSONC-parsed value above, not
-    // a copy re-typed here) is fed straight into `ts.sys.readDirectory` --
-    // the same public, documented host method `ts.parseJsonConfigFileContent`
-    // itself delegates directory-listing and glob matching to -- against a
-    // throwaway directory tree that mirrors `.claude/skills/`'s shape but
-    // contains a skill name ("hypothetical-skill") this repository has never
-    // had. This proves the pattern's genericity through TypeScript's own
-    // matcher rather than by re-implementing glob semantics (e.g. Node's
-    // `path.matchesGlob`, which was tried first and rejected: it disagrees
-    // with `ts.sys.readDirectory`/`ts.parseJsonConfigFileContent` on this
-    // exact repository's rejected candidate pattern `.claude/skills/*/**`,
-    // proving the two glob dialects are not interchangeable for this case).
+    // a copy re-typed here) is replayed through `ts.parseJsonConfigFileContent`
+    // itself -- the same call `configFile`/`parsed` above make against the
+    // real repository -- against a throwaway directory tree that mirrors
+    // `.claude/skills/`'s shape but contains a skill name
+    // ("hypothetical-skill") this repository has never had. This proves the
+    // pattern's genericity through TypeScript's own config parser rather than
+    // by re-implementing glob semantics (e.g. Node's `path.matchesGlob`,
+    // which was tried first and rejected: it disagrees with
+    // `ts.parseJsonConfigFileContent` on this exact repository's rejected
+    // candidate pattern `.claude/skills/*/**`, proving the two glob dialects
+    // are not interchangeable for this case).
     const workspaces: string[] = [];
 
     afterEach(() => {
@@ -203,43 +214,35 @@ describe("the .claude/skills bridge in tsconfig.json", () => {
       }
     });
 
-    function excludeSpec(): readonly string[] {
-      const config: unknown = configFile.config;
-      const exclude =
-        typeof config === "object" && config !== null && "exclude" in config
-          ? config.exclude
-          : undefined;
-      if (
-        !Array.isArray(exclude) ||
-        !exclude.every((entry): entry is string => typeof entry === "string")
-      ) {
-        throw new TypeError("tsconfig.json's exclude must be an array of strings");
-      }
-      return exclude;
-    }
-
-    // `ts.parseJsonConfigFileContent` itself calls `host.readDirectory` with
-    // `rootDir` set to the directory containing tsconfig.json (the repository
-    // root) -- not `.claude/skills` -- because the exclude spec in the config
-    // (".claude/skills/*/**/*") is written relative to that root. Matching
-    // that call shape here, rather than scoping `rootDir` to `.claude/skills`
+    // `basePath` is set to the directory containing tsconfig.json (the
+    // repository root in the real config, the workspace root here) -- not
+    // `.claude/skills` -- because both `include` and the exclude spec
+    // (".claude/skills/*/**/*") are written relative to that root. Matching
+    // that call shape here, rather than scoping `basePath` to `.claude/skills`
     // itself, is what makes this a faithful replay of the real matching.
     function readWorkspaceMjsFiles(workspaceRoot: string): Set<string> {
-      const files = ts.sys.readDirectory(
-        workspaceRoot,
-        [".mjs"],
-        excludeSpec(),
-        undefined,
-        undefined,
-      );
+      const config = {
+        compilerOptions: { allowJs: true },
+        include: [".claude/skills"],
+        exclude: excludeSpec(),
+      };
+      const parsed = ts.parseJsonConfigFileContent(config, ts.sys, workspaceRoot);
       return new Set(
-        files.map((file) => path.relative(workspaceRoot, file).replace(/\\/g, "/")),
+        parsed.fileNames.map((file) =>
+          path.relative(workspaceRoot, file).replace(/\\/g, "/"),
+        ),
       );
+    }
+
+    function makeSkillsWorkspace(): string {
+      const workspace = mkdtempSync(path.join(tmpdir(), "tsconfig-skills-glob-"));
+      workspaces.push(workspace);
+      mkdirSync(path.join(workspace, ".claude/skills"), { recursive: true });
+      return workspace;
     }
 
     it("excludes a nested file under a brand-new skill directory", () => {
-      const workspace = mkdtempSync(path.join(tmpdir(), "tsconfig-skills-glob-"));
-      workspaces.push(workspace);
+      const workspace = makeSkillsWorkspace();
       const skillsRoot = path.join(workspace, ".claude/skills");
       mkdirSync(path.join(skillsRoot, "hypothetical-skill/nested"), {
         recursive: true,
@@ -262,10 +265,8 @@ describe("the .claude/skills bridge in tsconfig.json", () => {
     });
 
     it("still includes a file placed directly under .claude/skills, outside any subdirectory", () => {
-      const workspace = mkdtempSync(path.join(tmpdir(), "tsconfig-skills-glob-"));
-      workspaces.push(workspace);
+      const workspace = makeSkillsWorkspace();
       const skillsRoot = path.join(workspace, ".claude/skills");
-      mkdirSync(skillsRoot, { recursive: true });
       writeFileSync(path.join(skillsRoot, "codex-only.mjs"), "// probe\n");
 
       const found = readWorkspaceMjsFiles(workspace);

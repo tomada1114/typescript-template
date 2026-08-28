@@ -51,9 +51,9 @@
   // anything *nested inside* an immediate subdirectory of `.claude/skills/`
   // -- for every skill, present or future, without naming one -- while still
   // type-checking a hypothetical Codex-only file added directly under
-  // `.claude/skills/` itself (outside any subdirectory), the same
-  // distinction eslint.config.mjs's globalIgnores and .prettierignore draw
-  // for the mirror.
+  // `.claude/skills/` itself (outside any subdirectory) -- unlike
+  // eslint.config.mjs's globalIgnores and .prettierignore, which ignore the
+  // whole `.claude/skills/` tree and do not draw that distinction.
   //
   // The exact shape matters: `.claude/skills/*/**` (a single `*` segment
   // followed by `/**`) was tried first and rejected -- empirically, via
