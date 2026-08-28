@@ -522,9 +522,39 @@ function resolveGeneratedText(root, relative, preview) {
 }
 
 /**
+ * Decide whether a path-shaped token is a repository path at all, by testing
+ * only its *first* segment against the generated root. An ESLint flat-config
+ * block name (`public-api/internal-stays-private`), a Vitest project name, and
+ * any other `namespace/identifier` have exactly the shape this file accepts as
+ * a path, and naming one in prose must not fail the build — no such top-level
+ * entry exists, so the first segment is what tells the two apart.
+ *
+ * This cannot hide the case the dangling check exists for. A path bootstrap
+ * removes lives inside a directory that survives the removal
+ * (`scripts/bootstrap.mjs`, `tests/bootstrap.test.ts`), so its first segment
+ * still resolves and it reaches the same check as before; and `preview` — which
+ * is how a removed path is recognized — never introduces a new top-level
+ * directory, so a token it already knows is admitted outright.
+ *
+ * @param {string} root
+ * @param {string} token
+ * @param {Map<string, string | null>} [preview]
+ * @returns {boolean}
+ */
+function namesGeneratedTreeEntry(root, token, preview) {
+  if (preview?.has(token)) {
+    return true;
+  }
+  const firstSegment = token.split("/")[0];
+  return firstSegment !== undefined && existsSync(path.join(root, firstSegment));
+}
+
+/**
  * Find every backticked, repo-relative path token in the generated tree's own
  * Markdown files that does not resolve to a real file or directory in that
  * same tree — for example a reference to a file bootstrap itself just removed.
+ * A token whose first segment names nothing at the root is not a path at all
+ * (see `namesGeneratedTreeEntry`) and is passed over rather than reported.
  *
  * @param {string} root
  * @param {Map<string, string | null>} [preview]
@@ -540,6 +570,9 @@ function findDanglingReferences(root, preview) {
     }
     for (const token of extractPathTokens(text)) {
       if (DANGLING_REFERENCE_EXEMPTIONS.has(token)) {
+        continue;
+      }
+      if (!namesGeneratedTreeEntry(root, token, preview)) {
         continue;
       }
       const targetExists = preview?.has(token)
