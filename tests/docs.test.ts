@@ -27,7 +27,25 @@ import { normalizeIdentifier } from "../src/index.js";
 // package for a real consumer; this checks the source's own contract, so it
 // fails the moment a signature changes, in the same PR, before a release.
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const packageName = "my-package";
+
+/** Read a required string field off a parsed JSON value, or fail loudly. */
+function requireStringField(value: unknown, key: string): string {
+  const field = readString(value, key);
+  if (typeof field !== "string") {
+    throw new Error(`expected "${key}" to be a string field`);
+  }
+  return field;
+}
+
+// Read from package.json rather than hardcoding the bootstrap-substituted name
+// literally: a `const packageName = "<name>";` assignment is reformatted by
+// Prettier onto two lines once the substituted name is long enough to push the
+// line past printWidth, and the checked-in single-line form would then no
+// longer match what `prettier --check` expects (see #113).
+const packageManifest = parseJson(
+  readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+);
+const packageName = requireStringField(packageManifest, "name");
 
 /** One documented, compilable snippet. */
 interface Snippet {

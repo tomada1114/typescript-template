@@ -11,7 +11,7 @@ pnpm add my-package
 ```
 
 Requires Node.js 24 or newer. The package ships ESM only; on that range `require(esm)`
-is unflagged, so a CommonJS consumer can `require("my-package")` directly.
+is unflagged, so a CommonJS consumer can `require()` it directly.
 
 ## Quick start
 
