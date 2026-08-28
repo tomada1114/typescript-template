@@ -20,6 +20,7 @@ import {
   findDanglingMapSources,
   findMissingRequiredPaths,
   inspectPackageEntries,
+  parsePackedManifest,
   readTarEntries,
 } from "./check-package.mjs";
 import { isMain } from "./lib/is-main.mjs";
@@ -153,15 +154,25 @@ function publicSubpaths(manifest) {
 /**
  * Steps 3 to 5: what the tarball contains, and what it must not.
  *
+ * @remarks
+ * The declared-entry-point check ({@link inspectPackageEntries}'s `manifest`
+ * option) is driven by the manifest parsed out of the tarball itself, via
+ * {@link parsePackedManifest} — the same function `check-package.mjs`'s
+ * `inspectTarball` uses — not by the repository's own `package.json`. What a
+ * consumer resolves against is whatever shipped, and after `publishConfig` is
+ * folded in the two can legitimately differ (see issue #83).
+ *
  * @param {readonly import("./check-package.mjs").TarEntry[]} entries - Tarball entries.
- * @param {unknown} manifest - Repository `package.json`.
  * @param {string} label - Tarball file name, for error messages.
  * @returns {void}
+ * @throws {Error} A {@link SmokeError} when a check fails; exported so
+ * `tests/package.test.ts` can prove a `publishConfig`-redirected manifest is
+ * caught here too, not only by `check-package.mjs`'s `inspectTarball`.
  */
-function checkTarballContents(entries, manifest, label) {
+export function checkTarballContents(entries, label) {
   step("inspecting tarball paths, forbidden paths, size limits and required files");
   const problems = [
-    ...inspectPackageEntries(entries, { manifest }),
+    ...inspectPackageEntries(entries, { manifest: parsePackedManifest(entries) }),
     ...findMissingRequiredPaths(entries),
     ...findDanglingMapSources(entries),
   ];
@@ -672,12 +683,16 @@ function main(argv) {
   try {
     step(`tarball: ${path.basename(tarball)}`);
     const entries = readTarEntries(readFileSync(tarball));
-    checkTarballContents(entries, manifest, path.basename(tarball));
+    checkTarballContents(entries, path.basename(tarball));
 
     const consumer = installConsumer(workspace, tarball);
 
-    // From here the packed manifest is the authority: it is what a consumer
-    // resolves against, and it can differ from the repository's working copy.
+    // The packed manifest is the authority throughout this function: it is what
+    // a consumer resolves against, and it can differ from the repository's
+    // working copy once `publishConfig` is folded in. `checkTarballContents`
+    // above already reads it out of `entries`; this re-reads it from the
+    // installed copy so npm's own resolution — not this script's tar parsing —
+    // is the source for `publicSubpaths`.
     const installedManifest = parseJson(
       readFileSync(
         path.join(consumer, "node_modules", packageName, "package.json"),

@@ -964,8 +964,13 @@ export function findManifestMismatch(packedManifest, repositoryManifest) {
  * still finds the raw entry and reports it as unreadable, since
  * {@link findMissingRequiredPaths} only checks that a matching path exists,
  * never that its contents parse.
+ *
+ * @remarks
+ * Exported so `scripts/smoke-package.mjs` can read the same packed manifest
+ * before it installs the tarball, instead of checking tarball contents
+ * against the repository's own `package.json`.
  */
-function parsePackedManifest(entries) {
+export function parsePackedManifest(entries) {
   const manifestEntry = entries.findLast(
     (candidate) => candidate.path === "package.json" && candidate.type === "file",
   );

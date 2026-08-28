@@ -29,6 +29,7 @@ import {
   requiredEntryPaths,
 } from "../scripts/check-package.mjs";
 import { findSingleTarball } from "../scripts/lib/tarball.mjs";
+import { checkTarballContents } from "../scripts/smoke-package.mjs";
 import { resolveTarballArgument } from "../scripts/verify-package.mjs";
 
 // --- tar writing helpers -----------------------------------------------------
@@ -1020,6 +1021,85 @@ describe("inspectTarball verifies the manifest actually packed", () => {
     const problems = inspectTarball(file, repositoryManifest);
 
     expect(codesOf(problems)).toContain("ERR_PACKAGE_MANIFEST_UNREADABLE");
+  });
+});
+
+// --- checkTarballContents: the packed manifest, not the repository's -------
+//
+// Mirrors the "inspectTarball verifies the manifest actually packed" fixtures
+// above (issue #30 / PR #82): scripts/smoke-package.mjs's checkTarballContents
+// had the same defect — it checked the tarball's declared entry points
+// against the *repository's* package.json instead of the manifest actually
+// packed, so a publishConfig-redirected `exports` (or an added `bin`) would
+// never have its real target verified against the tarball's contents. See
+// issue #83.
+
+describe("checkTarballContents reads the packed manifest, not the repository's", () => {
+  it("catches a publishConfig-redirected exports target that the tarball never built", () => {
+    // Simulates what `pnpm pack` folds in from publishConfig: the manifest
+    // actually shipped inside the tarball promises "./dist/evil.js", a path
+    // this tarball never built. checkTarballContents must derive its
+    // required-entry check from this packed manifest, not from a hard-coded
+    // repository manifest that could still promise the honest "./dist/index.js".
+    const packedManifest = {
+      name: "fixture-package",
+      version: "1.0.0",
+      exports: { ".": { types: "./dist/index.d.ts", import: "./dist/evil.js" } },
+    };
+    const entries = [
+      entry("package.json", 10, {
+        data: Buffer.from(JSON.stringify(packedManifest), "utf8"),
+      }),
+      entry("README.md"),
+      entry("LICENSE"),
+      entry("dist/index.js"),
+      entry("dist/index.d.ts"),
+    ];
+
+    expect(() => checkTarballContents(entries, "fixture.tgz")).toThrow(
+      /ERR_SMOKE_TARBALL_CONTENTS[\s\S]*ERR_PACKAGE_ENTRY_MISSING/,
+    );
+  });
+
+  it("catches a publishConfig-added bin that the tarball never built", () => {
+    const packedManifest = {
+      name: "fixture-package",
+      version: "1.0.0",
+      exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
+      bin: { "fixture-cli": "./dist/cli.js" },
+    };
+    const entries = [
+      entry("package.json", 10, {
+        data: Buffer.from(JSON.stringify(packedManifest), "utf8"),
+      }),
+      entry("README.md"),
+      entry("LICENSE"),
+      entry("dist/index.js"),
+      entry("dist/index.d.ts"),
+    ];
+
+    expect(() => checkTarballContents(entries, "fixture.tgz")).toThrow(
+      /ERR_SMOKE_TARBALL_CONTENTS[\s\S]*ERR_PACKAGE_ENTRY_MISSING/,
+    );
+  });
+
+  it("passes when every entry the packed manifest promises is actually in the tarball", () => {
+    const packedManifest = {
+      name: "fixture-package",
+      version: "1.0.0",
+      exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
+    };
+    const entries = [
+      entry("package.json", 10, {
+        data: Buffer.from(JSON.stringify(packedManifest), "utf8"),
+      }),
+      entry("README.md"),
+      entry("LICENSE"),
+      entry("dist/index.js"),
+      entry("dist/index.d.ts"),
+    ];
+
+    expect(() => checkTarballContents(entries, "fixture.tgz")).not.toThrow();
   });
 });
 
