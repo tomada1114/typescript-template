@@ -1,12 +1,12 @@
 ---
 name: writing-tests
 description: >
-  Use when writing or reviewing a test in tests/*.test.ts: deciding what a new it()
-  should assert, naming it after behavior, asserting an error's class and `code` instead
-  of its message, sweeping edge cases with it.each, choosing a fake over a mock,
-  replacing a real sleep with vi.useFakeTimers, isolating a filesystem test in
-  mkdtempSync, fixing a flaky or skipped test, or writing the missing test a coverage
-  floor is asking for.
+  Use when writing or reviewing a test in tests/*.test.ts, or adding the regression test
+  a src/ bug fix needs: deciding what a new it() should assert, naming it after
+  behavior, asserting an error's class and `code` instead of its message, sweeping edge
+  cases with it.each, choosing a fake over a mock, replacing a real sleep with
+  vi.useFakeTimers, isolating a filesystem test in mkdtempSync, fixing a flaky or
+  skipped test, or writing the missing test a coverage floor is asking for.
 ---
 
 # Writing Tests

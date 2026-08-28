@@ -11,18 +11,15 @@ description: >
 # Public API Contract
 
 **Owns:** what the published surface may contain and how it is declared. **Does not
-own:** the same-PR checklist and the semver decision (`release-impact`), how a module is
-written inside (`writing-typescript`), or how the surface is tested (`writing-tests`,
-`type-testing`).
+own:** the same-PR checklist and the semver decision (`release-impact`), the type-system
+judgment, naming, and constant placement inside a module (`writing-typescript`), or how
+the surface is tested (`writing-tests`, `type-testing`).
 
 ## Layout
 
-```
-src/
-├── index.ts      # the public contract: the only module consumers can import
-├── internal/     # private; never re-exported from index.ts
-└── *.ts          # implementation modules, re-exported by name from index.ts
-```
+AGENTS.md's Architecture section carries the `src/` tree — `src/index.ts`,
+`src/internal/`, and the `*.ts` modules it re-exports. What follows is what each part of
+that tree may publish, not the tree itself.
 
 ## `src/index.ts` is the entire contract
 

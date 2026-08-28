@@ -23,15 +23,15 @@ left untiered; triage adds the priority.
 
 ## Priority labels
 
-| Label                 | Means                                                                                               |
-| --------------------- | --------------------------------------------------------------------------------------------------- |
-| `priority: P0`        | Ship now — other open issues are blocked on it, or damage is being taken (red main, vulnerability). |
-| `priority: P1`        | Do next — leverage: CI, schema, shared types, config, the ground later issues stand on.             |
-| `priority: P2`        | Normal — a real, self-contained change; nothing waits on it.                                        |
-| `priority: P3`        | Defer — nice-to-have, docs polish, cosmetics.                                                       |
-| `blocked: design`     | The approach is not settled; needs a human decision before anyone implements it.                    |
-| `blocked: dependency` | Waits on a specific open issue named by a `Depends on: #N` line in the body.                        |
-| `on hold`             | Not implementable as filed — a container issue, or parked pending something outside the tracker.    |
+| Label                 | When to apply it                                                                                                                                                                                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `priority: P0`        | Reserve for a real blocking chain — another open issue names it as the blocker — or active damage (red main, a live vulnerability). Don't tier by how urgent an issue feels; tier by whether something is actually blocked or broken.                                               |
+| `priority: P1`        | Foundational work — CI, schema, shared types, config — future issues will build on, even before any open issue names it as a dependency. Once one does, the resulting blocking chain likely makes it P0 instead of P1.                                                              |
+| `priority: P2`        | The default tier, used absent a specific reason to move up or down. Before leaving something here, check whether it actually blocks an open issue (P0) or is groundwork later issues will need (P1) — P2 is not a place to park work you haven't evaluated.                         |
+| `priority: P3`        | Defer only when impact is genuinely low — nobody is waiting on it and no future issue depends on it. Not a stand-in for "I don't want to do this"; an issue that matters but is unappealing to implement belongs at its real tier.                                                  |
+| `blocked: design`     | Applies when the approach has real, unresolved alternatives a human must choose between — not simply that no one has looked at it yet. It still gets a priority tier (see below); readiness and priority are independent judgments.                                                 |
+| `blocked: dependency` | Applies only alongside a `Depends on: #N` line in the body (see Ordering constraints below) — the label without a named blocker can't be verified or cleared automatically.                                                                                                         |
+| `on hold`             | A container/epic issue that isn't itself a unit of work, or something genuinely parked on a decision outside the tracker. Distinct from `blocked: design`: there the block is a decision still pending inside the tracker; here there may be no in-tracker decision to make at all. |
 
 Priority ranks impact on the rest of the backlog, not how interesting the work is. Do
 not tier an issue by how appealing it is to implement.

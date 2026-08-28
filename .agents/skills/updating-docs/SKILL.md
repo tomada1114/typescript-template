@@ -37,9 +37,9 @@ first one that seems relevant:
 - CHANGELOG.md, when the change implies a release. **REQUIRED:** follow `release-impact`
   for the note and the entry itself; this skill only flags that one is owed.
 
-A change to the public API updates the README example in the same commit as the code.
-**REQUIRED:** `release-impact` holds the full same-PR checklist these surfaces are part
-of.
+**REQUIRED:** `release-impact`'s same-PR checklist is what requires the README example
+and any affected `docs/` page to land in the same pull request as a public-API change;
+this skill decides which surface the update belongs on, not whether one is owed.
 
 ## Purpose per file
 

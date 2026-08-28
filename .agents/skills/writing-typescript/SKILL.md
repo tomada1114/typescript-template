@@ -6,7 +6,8 @@ description: >
   union, `import type` under verbatimModuleSyntax, why `enum` (erasableSyntaxOnly) and
   `node:` imports are rejected in src/, annotating a return type or a generic boundary,
   hitting noUncheckedIndexedAccess, exactOptionalPropertyTypes or
-  noPropertyAccessFromIndexSignature, or placing a new constant.
+  noPropertyAccessFromIndexSignature, placing a new constant, or fixing a logic bug in
+  an existing src/ function.
 ---
 
 # Writing TypeScript
@@ -37,8 +38,8 @@ exported from `src/index.ts` (`public-api-contract`); the `.mjs` files under `sc
 ## Imports
 
 - Mark a type-only named import inline (`import { value, type X } from "./x"`), the form
-  `@typescript-eslint/consistent-type-imports` autofixes to — `eslint.config.mjs` sets
-  `fixStyle: "inline-type-imports"`. A separate `import type { X } from "./x"` statement
+  `@typescript-eslint/consistent-type-imports` autofixes to, per `eslint.config.mjs`'s
+  `fixStyle` setting for that rule. A separate `import type { X } from "./x"` statement
   also satisfies the rule and is fine when every named import in the statement is
   type-only.
 - Never hand-fix an import differently from what `pnpm fix` produces.

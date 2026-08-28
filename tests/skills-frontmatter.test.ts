@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 // YAML dependency for a file format the repository itself controls.
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const skillsDirectory = path.join(repoRoot, ".agents", "skills");
+const agentsMdPath = path.join(repoRoot, "AGENTS.md");
 
 /**
  * The frontmatter keys a skill in this repository may declare. Claude Code
@@ -50,8 +51,9 @@ function listSkillNames(): string[] {
  *
  * @param {string} source - The full contents of a SKILL.md file.
  * @returns {Record<string, string>} Every key declared in the frontmatter.
- * @throws {Error} When the file has no delimited frontmatter block, or a line
- *   inside it is neither a key nor a continuation.
+ * @throws {Error} When the file has no delimited frontmatter block, a line
+ *   inside it is neither a key nor a continuation, a key is declared more than
+ *   once, or a plain scalar value contains an unquoted ": ".
  */
 function parseFrontmatter(source: string): Record<string, string> {
   const lines = source.split("\n");
@@ -70,9 +72,27 @@ function parseFrontmatter(source: string): Record<string, string> {
     const keyed = /^([A-Za-z][\w-]*):[ \t]*(.*)$/u.exec(line);
     if (keyed) {
       const [, key = "", rawValue = ""] = keyed;
+      if (key in fields) {
+        throw new Error(`frontmatter declares "${key}" more than once`);
+      }
       currentKey = key;
       // `>` and `>-` open a folded block; the value is on the lines below.
-      fields[key] = rawValue === ">" || rawValue === ">-" ? "" : rawValue.trim();
+      if (rawValue === ">" || rawValue === ">-") {
+        fields[key] = "";
+        continue;
+      }
+      // An unquoted "key: value" plain scalar whose value itself contains
+      // ": " is not valid YAML — a real parser reads the second colon as
+      // nesting a mapping inside the value and rejects the line. Every skill
+      // in this repository writes its description as a folded block scalar
+      // for exactly this reason: a plain scalar that happened to work here
+      // still breaks Codex CLI's real YAML loader (openai/codex#8609).
+      if (/:[ \t]/u.test(rawValue)) {
+        throw new Error(
+          `frontmatter value for "${key}" is a plain scalar containing an unquoted ": ", which is not valid YAML: ${line}`,
+        );
+      }
+      fields[key] = rawValue.trim();
       continue;
     }
     if (currentKey === undefined || !line.startsWith(" ")) {
@@ -82,6 +102,40 @@ function parseFrontmatter(source: string): Record<string, string> {
     fields[currentKey] = folded === "" ? line.trim() : `${folded} ${line.trim()}`;
   }
   return fields;
+}
+
+/**
+ * Extract the skill names named by AGENTS.md's "## Skills" routing table.
+ *
+ * The table's first column holds a backticked skill name; every other cell,
+ * and the row's surrounding prose, is free to change without affecting this
+ * parse — only the backticked names in that section are read.
+ *
+ * @param {string} source - The full contents of AGENTS.md.
+ * @returns {string[]} Every backticked name in the first column of a row
+ *   under the "## Skills" heading, in document order.
+ * @throws {Error} When AGENTS.md has no `## Skills` heading.
+ */
+function listRoutingTableSkillNames(source: string): string[] {
+  const lines = source.split("\n");
+  const headingIndex = lines.indexOf("## Skills");
+  if (headingIndex === -1) {
+    throw new Error('AGENTS.md has no "## Skills" heading');
+  }
+  const nextHeadingIndex = lines.findIndex(
+    (line, index) => index > headingIndex && /^##[ \t]/u.test(line),
+  );
+  const section = lines.slice(
+    headingIndex + 1,
+    nextHeadingIndex === -1 ? undefined : nextHeadingIndex,
+  );
+
+  const names: string[] = [];
+  for (const line of section) {
+    const row = /^\|\s*`([^`]+)`\s*\|/u.exec(line);
+    if (row) names.push(row[1] ?? "");
+  }
+  return names;
 }
 
 function readSkill(name: string): Record<string, string> {
@@ -106,6 +160,9 @@ function listSkillFiles(name: string): string[] {
 }
 
 const skillNames = listSkillNames();
+const routingTableSkillNames = listRoutingTableSkillNames(
+  readFileSync(agentsMdPath, "utf8"),
+);
 
 describe("the authored skill tree", () => {
   it("holds at least one skill", () => {
@@ -142,6 +199,23 @@ describe("the authored skill tree", () => {
   });
 });
 
+describe("AGENTS.md's Skills routing table", () => {
+  // The table is the only place an agent learns a skill exists at all; a
+  // skill missing from it never gets loaded, and a stale row that survives a
+  // rename or deletion sends an agent to a directory that is no longer there.
+
+  it.each(skillNames)("gives %s a row in the routing table", (name) => {
+    expect(routingTableSkillNames).toContain(name);
+  });
+
+  it.each(routingTableSkillNames)(
+    "names %s after an existing skill directory",
+    (name) => {
+      expect(skillNames).toContain(name);
+    },
+  );
+});
+
 describe("parseFrontmatter", () => {
   it("reads a plain scalar", () => {
     expect(parseFrontmatter("---\nname: a-skill\n---\n# Title\n")).toEqual({
@@ -169,5 +243,36 @@ describe("parseFrontmatter", () => {
 
   it("rejects a line that is neither a key nor a continuation", () => {
     expect(() => parseFrontmatter("---\n- stray\n---\n")).toThrow(/neither a key/u);
+  });
+
+  it("rejects a plain scalar value with an unquoted colon-space", () => {
+    // Valid YAML would read the second colon as opening a nested mapping;
+    // real parsers reject or mangle it, so a scalar shaped like this must
+    // never be accepted here either. See openai/codex#8609.
+    expect(() =>
+      parseFrontmatter("---\nname: a\ndescription: bad: value\n---\n"),
+    ).toThrow(/unquoted ": "/u);
+  });
+
+  it.each(skillNames)(
+    "parses %s's real frontmatter without an unquoted colon-space in a plain scalar",
+    (name) => {
+      // Every skill today writes its description as a folded block scalar,
+      // so this should never fire — it exists to catch a future skill that
+      // reverts to a plain scalar and reintroduces the invalid shape above.
+      expect(() => readSkill(name)).not.toThrow();
+    },
+  );
+
+  it("rejects frontmatter that declares the same key twice", () => {
+    expect(() =>
+      parseFrontmatter("---\nname: a\ndescription: one\ndescription: two\n---\n"),
+    ).toThrow(/more than once/u);
+  });
+
+  it("rejects a folded key that is declared twice", () => {
+    const source =
+      "---\nname: a\ndescription: >\n  First.\ndescription: >\n  Second.\n---\n";
+    expect(() => parseFrontmatter(source)).toThrow(/more than once/u);
   });
 });

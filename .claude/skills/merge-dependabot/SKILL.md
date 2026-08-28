@@ -125,8 +125,9 @@ git fetch origin <branch>
 git merge --no-ff origin/<branch> -m "deps: merge #<number> <title>"
 ```
 
-Resolve `pnpm-lock.yaml` conflicts by regenerating, never by hand —
-`.claude/settings.json`'s `permissions.deny` blocks editing it, correctly:
+Resolve `pnpm-lock.yaml` conflicts by regenerating, never by hand
+(`managing-dependencies` owns that rule) — `.claude/settings.json`'s `permissions.deny`
+blocks editing it, correctly:
 
 ```bash
 pnpm install --lockfile-only
@@ -191,7 +192,8 @@ as done.
 
 - **One approval gate only** — after Step 3's plan is approved, run to completion.
 - **Never** merge on `PENDING` checks; re-confirm green after every rebase.
-- **Never** hand-edit `pnpm-lock.yaml`; run `pnpm install --lockfile-only`.
+- **Never** hand-edit `pnpm-lock.yaml` (`managing-dependencies` owns this rule); run
+  `pnpm install --lockfile-only` instead.
 - **Never** close an original PR before its replacement is merged.
 - **Never** unpin a SHA-pinned GitHub Action to make a bump apply cleanly.
 - **Never** use `--admin`, `--no-verify`, or force-push, and never weaken a gate to land

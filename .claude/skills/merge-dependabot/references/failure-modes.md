@@ -47,7 +47,8 @@ the first real signal for these bumps.
 ## F3 — Cooldown rejection (`minimumReleaseAge`)
 
 **Symptom:** install fails because a requested version cannot be resolved, and the
-version named in the error was published within the last week.
+version named in the error was published recently (see `pnpm-workspace.yaml`'s
+`minimumReleaseAge`).
 
 **Cause:** the `minimumReleaseAge` cooldown in `pnpm-workspace.yaml`, mirrored by
 `.github/dependabot.yml`'s `cooldown`, so this normally cannot happen — except for

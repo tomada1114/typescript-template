@@ -45,9 +45,12 @@ failing to load. **Does not own:** the general `scripts/**` import and typing co
 ## Frontmatter
 
 Exactly two keys, `name` and `description`. Do not add any third key — no `paths`, no
-`globs`, no host-specific extension. Neither host gates a skill on a path glob; a key
-outside `name`/`description` is at best ignored and fails
-`tests/skills-frontmatter.test.ts`'s two-key check.
+`globs`, no host-specific extension. Claude Code's own `paths` field would gate
+auto-invocation on a glob, but Codex CLI has no such field: it ignores an unknown key
+and matches only on `description`. The same skill would then auto-fire on different
+terms per host, so a portable skill keeps `description` as its one trigger surface. A
+key outside `name`/`description` also fails `tests/skills-frontmatter.test.ts`'s two-key
+check.
 
 - `name` is byte-identical to the directory name.
 - English only, per AGENTS.md's Conventions. Enforced by:
@@ -56,10 +59,12 @@ outside `name`/`description` is at best ignored and fails
   skill (file globs, command names, error strings, decisions), never a summary of the
   skill's internal workflow. Both hosts select a skill on the description's _meaning_,
   so a trigger keyword mirrored into another language buys nothing.
+- The description is length-capped. Enforced by: `tests/skills-frontmatter.test.ts`,
+  which owns the limit.
 
-`tests/skills-frontmatter.test.ts` enforces the two-key shape, the `name` match, and the
-English-only rule; it is the one check that would otherwise have no gate at all — see
-"Why this needs its own test" below.
+`tests/skills-frontmatter.test.ts` enforces the two-key shape, the `name` match, the
+length cap, and the English-only rule; it is the one check that would otherwise have no
+gate at all — see "Why this needs its own test" below.
 
 ## When a new skill is warranted
 

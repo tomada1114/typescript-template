@@ -64,10 +64,9 @@ questions:
 - **`scripts/lib/guard/**`** — the credential and path detection rule engine, the most
   security-critical code in the repository — carries its own higher floor on lines,
   functions, and statements, so it cannot regress just because it is dragged along by
-  whatever number the broader `scripts/**` tree happens to sit at. Its branch floor
-  currently equals `scripts/**`'s, so a branch regression there is caught only by the
-  broader floor; raise the guard floor's branch number too once guard branch coverage
-  grows past it.
+  whatever number the broader `scripts/**` tree happens to sit at. The two trees' branch
+  floors are set independently in `vitest.config.ts` and are raised as each tree's own
+  measured branch coverage grows, so do not assume one bounds the other.
 
 See `vitest.config.ts`'s `coverage.thresholds` for the current numbers; this skill
 deliberately does not repeat them, since a copied number goes stale the moment the

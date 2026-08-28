@@ -91,12 +91,18 @@ the file for the current values rather than trusting a number copied here.
 - `strictPeerDependencies`: an unmet or conflicting peer range is a hard install
   failure, not a warning. This is what makes the TypeScript ceiling below an enforced
   constraint instead of an advisory one.
-- `minimumReleaseAgeStrict`, `minimumReleaseAgeIgnoreMissingTime`, `trustPolicy`,
-  `trustLockfile`, and `blockExoticSubdeps` each close a specific bypass of the cooldown
-  above (an already-lockfiled version, missing publish-time metadata, downgraded
-  provenance, and git/tarball transitive dependencies, respectively). When one of these
-  fires, find out why the install is actually failing; AGENTS.md holds the prohibition
-  on relaxing it.
+- `minimumReleaseAgeStrict` and `minimumReleaseAgeIgnoreMissingTime` close two specific
+  bypasses of the cooldown above: an already-lockfiled version skipping the check, and
+  registry metadata with no publish time being treated as old enough, respectively.
+- `trustPolicy`, `trustLockfile`, and `blockExoticSubdeps` are independent supply-chain
+  protections, not part of the cooldown: they reject a provenance/trusted-publisher
+  regression, refuse to trust the trust metadata recorded in a contributor's lockfile,
+  and refuse transitive dependencies fetched from git or arbitrary tarball URLs,
+  respectively.
+
+When one of these fires, find out why the install is actually failing; AGENTS.md holds
+the prohibition on relaxing it.
+
 - `verifyDepsBeforeRun: error`: a `pnpm run` whose `node_modules` no longer matches the
   lockfile fails instead of letting a gate pass against stale dependencies. The fix is
   `pnpm install`, never a weaker value. pnpm compares dependency fields and the settings

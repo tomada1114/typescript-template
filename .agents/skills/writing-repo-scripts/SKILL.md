@@ -66,9 +66,10 @@ if (isMain(import.meta.url)) {
 }
 ```
 
-Note that the helper predates the Node 24 floor; `import.meta.main` now covers the same
-ground, so `isMain` is a candidate for removal rather than a pattern to defend
-indefinitely — do not build new indirection on top of it.
+Note that the helper predates the current Node floor (see package.json's engines);
+`import.meta.main` now covers the same ground, so `isMain` is a candidate for removal
+rather than a pattern to defend indefinitely — do not build new indirection on top of
+it.
 
 ## Spawning `git`
 
