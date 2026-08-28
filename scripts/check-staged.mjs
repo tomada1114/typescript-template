@@ -122,6 +122,34 @@ function readStaged(path, cwd) {
 }
 
 /**
+ * Basenames and suffixes that mark a private-key-shaped file, whatever its
+ * content looks like. A key file is refused on its path alone: an
+ * `.pem`/`.p12`/`.pfx` container or an `id_rsa`/`id_ed25519` key can be
+ * binary, encrypted, or otherwise not textually credential-shaped, so
+ * `checkCredentials`'s content patterns cannot be relied on to catch it.
+ *
+ * @type {readonly string[]}
+ */
+const KEY_FILE_SUFFIXES = [".pem", ".p12", ".pfx"];
+
+/** @type {readonly string[]} */
+const KEY_FILE_BASENAMES = ["id_rsa", "id_ed25519"];
+
+/**
+ * Return whether a path's basename looks like a private key file.
+ *
+ * @param {string} filePath - Path relative to the repository root.
+ * @returns {boolean} True when the basename matches a key-file shape.
+ */
+function isKeyFilePath(filePath) {
+  const name = filePath.split("/").at(-1) ?? "";
+  return (
+    KEY_FILE_SUFFIXES.some((suffix) => name.endsWith(suffix)) ||
+    KEY_FILE_BASENAMES.includes(name)
+  );
+}
+
+/**
  * Check one staged change against every rule this script enforces.
  *
  * @param {StagedChange} change - One entry from {@link stagedChanges}.
@@ -144,6 +172,12 @@ export function checkStagedChange(change, cwd = repoRoot) {
   // verdict the path alone already gives.
   if (checkRead(change.path) !== null) {
     return `${change.path} looks like it holds secrets and must not be committed. Add it to .gitignore instead, or commit a .example/.sample/.template variant.`;
+  }
+
+  // A private-key file's path alone is enough to refuse it — its bytes may be
+  // binary or encrypted, so it cannot be relied on to trip checkCredentials.
+  if (isKeyFilePath(change.path)) {
+    return `${change.path} looks like a private key file and must not be committed. Keep it out of the repository entirely.`;
   }
 
   const after = readStaged(change.path, cwd);

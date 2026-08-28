@@ -155,6 +155,33 @@ describe("checkStagedChange", () => {
     };
     expect(checkStagedChange(change, dir)).toBeNull();
   });
+
+  it.each([
+    ["id_rsa", "id_rsa"],
+    ["id_ed25519", "id_ed25519"],
+    [".pem file", "server.pem"],
+    [".p12 file", "client.p12"],
+    [".pfx file", "client.pfx"],
+    ["a nested key file", ".ssh/id_rsa"],
+  ])("blocks staging a %s regardless of its content", (_label, relativePath) => {
+    const dir = makeRepo();
+    // The rule fires on the path alone, so content that would otherwise pass
+    // every credential-content check still gets blocked here.
+    const change = {
+      status: "A",
+      path: stage(dir, relativePath, "not secret-shaped\n"),
+    };
+    expect(checkStagedChange(change, dir)).toMatch(/private key file/);
+  });
+
+  it("allows a file that merely mentions id_rsa in its own name", () => {
+    const dir = makeRepo();
+    const change = {
+      status: "A",
+      path: stage(dir, "docs/id_rsa-rotation.md", "How to rotate an id_rsa key.\n"),
+    };
+    expect(checkStagedChange(change, dir)).toBeNull();
+  });
 });
 
 describe("main", () => {
