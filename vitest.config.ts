@@ -5,7 +5,7 @@ import { defineConfig } from "vitest/config";
 // the short-timeout unit project until its I/O needs are deliberately reviewed.
 // The five files not listed here are pure unit tests; guard-rules.test.ts is the
 // intentional exception to the usual `src/**` rule because it calls the guard
-// engine's pure functions directly. 
+// engine's pure functions directly.
 const automationTests = [
   "tests/bootstrap.test.ts",
   "tests/check-attw.test.ts",
