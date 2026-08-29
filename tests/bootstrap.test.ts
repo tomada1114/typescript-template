@@ -144,8 +144,9 @@ function aiLayerFiles(root: string): string[] {
 function options(
   packageName: string,
   profile: "node-library" | "universal-library",
+  cli: "yes" | "no" = "no",
 ): ReturnType<typeof parseArguments> {
-  return parseArguments([
+  const argv = [
     packageName,
     "--profile",
     profile,
@@ -157,7 +158,11 @@ function options(
     "ada",
     "--license",
     "MIT",
-  ]);
+  ];
+  if (cli === "yes") {
+    argv.push("--cli", cli);
+  }
+  return parseArguments(argv);
 }
 
 afterEach(() => {
@@ -226,10 +231,42 @@ describe("bootstrap validation", () => {
     expect(parsed.description).toBe("A TypeScript package.");
   });
 
+  it("defaults to no CLI and accepts a Node CLI option", () => {
+    expect(options("library-package", "node-library").cli).toBe(false);
+    expect(options("cli-package", "node-library", "yes").cli).toBe(true);
+  });
+
+  it("rejects an unsupported CLI option value", () => {
+    expect(() =>
+      parseArguments([
+        "cli-package",
+        "--profile",
+        "node-library",
+        "--cli",
+        "maybe",
+        "--author",
+        "Ada Lovelace",
+        "--email",
+        "ada@example.com",
+        "--github-user",
+        "ada",
+        "--license",
+        "MIT",
+      ]),
+    ).toThrow(/ERR_CLI_INVALID/);
+  });
+
+  it("refuses a CLI for the universal-library profile with its own error", () => {
+    expect(() => options("universal-cli", "universal-library", "yes")).toThrow(
+      /ERR_CLI_UNSUPPORTED/,
+    );
+  });
+
   it("collects package metadata through the interactive prompts", async () => {
     const answers = [
       "interactive-package",
       "universal-library",
+      "",
       "Ada Lovelace",
       "ada@example.com",
       "ada",
@@ -254,6 +291,7 @@ describe("bootstrap validation", () => {
     expect(prompts).toEqual([
       "Package name: ",
       "Profile [node-library]: ",
+      "CLI [no]: ",
       "Author name: ",
       "Author email: ",
       "GitHub user: ",
@@ -270,6 +308,7 @@ describe("bootstrap validation", () => {
       input:
         [
           "interactive-package",
+          "",
           "",
           "Ada Lovelace",
           "ada@example.com",
@@ -312,9 +351,10 @@ describe("bootstrap validation", () => {
 
 describe("bootstrap profiles", () => {
   it.each([
-    ["acme-library", "node-library"],
-    ["browser-kit", "universal-library"],
-  ] as const)("generates %s as %s", async (packageName, profile) => {
+    ["acme-library", "node-library", "no"],
+    ["acme-cli", "node-library", "yes"],
+    ["browser-kit", "universal-library", "no"],
+  ] as const)("generates %s as %s (%s CLI)", async (packageName, profile, cli) => {
     const root = copyTemplate();
     const binaryBefore = readFileSync(
       path.join(root, "tests", "fixtures", "binary.dat"),
@@ -329,7 +369,7 @@ describe("bootstrap profiles", () => {
           !file.includes("/skills/bootstrapping-the-template/"),
       )
       .map((file) => [file, readFileSync(path.join(root, file), "utf8")] as const);
-    bootstrap(root, options(packageName, profile));
+    bootstrap(root, options(packageName, profile, cli));
 
     const manifest = JSON.parse(
       readFileSync(path.join(root, "package.json"), "utf8"),
@@ -426,7 +466,15 @@ describe("bootstrap profiles", () => {
     expect(existsSync(path.join(root, "scripts", "lib", "is-main.mjs"))).toBe(true);
     expect(existsSync(path.join(root, "scripts", "lib", "json.mjs"))).toBe(true);
 
-    expect(manifest.bin).toBeUndefined();
+    if (cli === "yes") {
+      expect(manifest.bin).toEqual({ "": "./dist/cli.js" });
+      expect(readFileSync(path.join(root, "src", "cli.ts"), "utf8")).toContain(
+        "Usage:",
+      );
+    } else {
+      expect(manifest.bin).toBeUndefined();
+      expect(existsSync(path.join(root, "src", "cli.ts"))).toBe(false);
+    }
     expect(manifest.sideEffects).toBe(false);
 
     const buildConfig = readFileSync(path.join(root, "tsconfig.build.json"), "utf8");

@@ -7,6 +7,7 @@ import { defineConfig } from "vitest/config";
 // never spawn a process or read a file, even though the module under test
 // lives outside `src/`.
 const unitTests = [
+  "tests/cli.test.ts",
   "tests/index.test.ts",
   "tests/timeout.test.ts",
   "tests/types.test.ts",

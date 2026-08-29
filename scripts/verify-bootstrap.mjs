@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { MARKER_TARGETS, findPlaceholders } from "./bootstrap.mjs";
 import { isolatedGitEnv } from "./lib/git-env.mjs";
 import { isMain } from "./lib/is-main.mjs";
-import { parseJson, readKey } from "./lib/json.mjs";
+import { parseJson, readKey, readString } from "./lib/json.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const LEGACY_RELEASE_DIRECTORY = ".change" + "set";
@@ -97,13 +97,14 @@ export function run(command, args, cwd) {
  *
  * @param {string} destination
  * @param {string} packageName
+ * @param {boolean} [cli=false]
  *
  * @remarks
  * Exported so `tests/verify-bootstrap.test.ts` can exercise each of its
  * failure branches directly against a hand-built fixture tree, rather than
  * only through a full, real `main()` bootstrap run.
  */
-export function assertGenerated(destination, packageName) {
+export function assertGenerated(destination, packageName, cli = false) {
   const placeholders = findPlaceholders(destination);
   if (placeholders.length > 0) {
     throw new Error(
@@ -179,11 +180,23 @@ export function assertGenerated(destination, packageName) {
         "transform(), then rerun bootstrap:e2e.",
     );
   }
-  if (readKey(manifest, "bin") !== undefined) {
+  const bin = readKey(manifest, "bin");
+  if (!cli && bin !== undefined) {
     throw new Error(
       "ERR_BIN_REMAINING: generated package still declares package.json#bin.\n" +
-        "Expected: no bin entry in either remaining profile.\n" +
+        "Expected: no bin entry when bootstrap runs with --cli no.\n" +
         "Next: remove bin metadata from the template, then rerun bootstrap:e2e.",
+    );
+  }
+  if (
+    cli &&
+    (readString(bin, "") !== "./dist/cli.js" ||
+      !existsSync(path.join(destination, "src", "cli.ts")))
+  ) {
+    throw new Error(
+      "ERR_BIN_REMAINING: generated CLI package has no emitted CLI entry.\n" +
+        "Expected: package.json#bin[''] === './dist/cli.js' and src/cli.ts exists.\n" +
+        "Next: keep src/cli.ts and point bin at its emitted dist/cli.js, then rerun bootstrap:e2e.",
     );
   }
   if (readKey(manifest, "sideEffects") !== false) {
@@ -193,6 +206,7 @@ export function assertGenerated(destination, packageName) {
         "Next: update the template manifest, then rerun bootstrap:e2e.",
     );
   }
+
 }
 
 /**
@@ -268,12 +282,14 @@ export function copyTemplate(destination, root = ROOT) {
 export function main() {
   const workspace = mkdtempSync(path.join(tmpdir(), "typescript-template-e2e-"));
   try {
+    /** @type {readonly [string | undefined, string | undefined, boolean | undefined][]} */
     const cases = [
-      ["node-library", "acme-node-library"],
-      ["universal-library", "acme-universal-library"],
+      ["node-library", "acme-node-library", false],
+      ["node-library", "acme-node-cli", true],
+      ["universal-library", "acme-universal-library", false],
     ];
-    for (const [profile, packageName] of cases) {
-      if (profile === undefined || packageName === undefined) {
+    for (const [profile, packageName, cli] of cases) {
+      if (profile === undefined || packageName === undefined || cli === undefined) {
         throw new Error("ERR_E2E_CASE: malformed bootstrap test case.");
       }
       const destination = path.join(workspace, packageName);
@@ -294,11 +310,14 @@ export function main() {
           "ada",
           "--license",
           "MIT",
+          ...(cli ? ["--cli", "yes"] : []),
         ],
         destination,
       );
-      assertGenerated(destination, packageName);
-      console.log(`bootstrap-e2e: ${packageName} (${profile}) passed`);
+      assertGenerated(destination, packageName, cli);
+      console.log(
+        `bootstrap-e2e: ${packageName} (${profile}, cli=${String(cli)}) passed`,
+      );
     }
     return 0;
   } finally {

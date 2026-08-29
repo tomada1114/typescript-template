@@ -34,6 +34,12 @@ that tree may publish, not the tree itself.
 - Removing a line is equally a break: a consumer's import stops resolving. Treat a
   removal with the same weight as an addition.
 
+`src/cli.ts` is an optional command entry, not a second import surface. A package may
+name its emitted `dist/cli.js` through `package.json#bin`; that command is exercised
+through its `argv`/exit/output behavior rather than re-exported from `src/index.ts`.
+Keeping command code out of the import surface avoids turning a runnable entry into
+public API by accident.
+
 ## `src/internal/` is private
 
 - `src/internal/` is private regardless of what a file inside it is named — the

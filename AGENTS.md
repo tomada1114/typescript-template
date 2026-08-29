@@ -21,7 +21,8 @@ checked.
 ## Overview
 
 An ESM-only TypeScript package published to npm. Development and the published contract
-both run on Node >= 24. pnpm 11 is the package manager, used through Corepack.
+both run on Node >= 24. pnpm 11 is the package manager, used through Corepack. A package
+may also ship one command entry in `src/cli.ts`; that command is not an import surface.
 
 ## Quick reference
 
@@ -75,13 +76,16 @@ edit is slow enough that it stops being run at all.
 ```
 src/
 ├── index.ts      # the public contract: the only module consumers can import
+├── cli.ts        # optional command entry; not an import surface
 ├── internal/     # private; never re-exported from index.ts
 └── *.ts          # implementation modules, re-exported by name from index.ts
 ```
 
-`src/index.ts` is the single entry point of the published contract, and `scripts/*.mjs`
-is repository automation that never ships. What may appear on that surface, and what a
-change to it obliges, are the `public-api-contract` and `release-impact` skills.
+`src/index.ts` is the single consumer-importable entry point of the published contract.
+`src/cli.ts` may additionally be the command entry named by `package.json#bin`, but it
+is not an import surface. `scripts/*.mjs` is repository automation that never ships.
+What may appear on the import surface, and what a change to it obliges, are the
+`public-api-contract` and `release-impact` skills.
 
 ## Skills
 

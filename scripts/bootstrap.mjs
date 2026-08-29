@@ -22,9 +22,11 @@ const TEMPLATE_AUTHOR = "Your Name";
 const TEMPLATE_EMAIL = "you@example.com";
 const TEMPLATE_DESCRIPTION = "A short description.";
 const DEFAULT_PROFILE = "node-library";
+const DEFAULT_CLI = "no";
 const DEFAULT_LICENSE = "MIT";
 const DEFAULT_DESCRIPTION = "A TypeScript package.";
 const PROFILES = new Set(["node-library", "universal-library"]);
+const CLI_VALUES = new Set(["yes", "no"]);
 const LICENSES = new Set(["MIT", "ISC"]);
 const PLACEHOLDERS = [
   TEMPLATE_PACKAGE,
@@ -164,7 +166,9 @@ const MARKDOWN_INLINE_CODE = /`([^`\n]+)`/g;
 const REPO_RELATIVE_PATH_TOKEN = /^[A-Za-z0-9._](?:[A-Za-z0-9._/-]*[A-Za-z0-9_/-])?$/;
 
 // Paths that a Markdown file may legitimately name without the path existing
-// in the generated tree. `dist` and `docs/api` are gitignored build output;
+// in the generated tree. `dist` and `dist/cli.js` plus `docs/api` are gitignored
+// build output; `src/cli.ts` is an optional source entry removed by the
+// `--cli no` shape;
 // `docs` itself has no hand-written page yet, so `git ls-files` — which
 // creates a directory only for a file it copies — never creates it either;
 // `.claude/settings.local.json` is gitignored personal config; `secrets`
@@ -180,8 +184,11 @@ const REPO_RELATIVE_PATH_TOKEN = /^[A-Za-z0-9._](?:[A-Za-z0-9._/-]*[A-Za-z0-9_/-
 // spellings of which only one is covered.
 const DANGLING_REFERENCE_EXEMPTIONS = new Set([
   "dist",
+  "dist/cli.js",
   "docs",
   "docs/api",
+  "src/cli.ts",
+  "tests/cli.test.ts",
   ".claude/settings.local.json",
   ".claude/settings.json",
   "secrets",
@@ -213,6 +220,7 @@ Required:
   --license <MIT|ISC>
 
 Optional:
+  --cli <yes|no>          Keep the Node CLI entry (default: no)
   --description <text>    Package description
   --dry-run               Validate and show the planned changes only`;
 
@@ -311,6 +319,7 @@ export function deriveNames(packageName) {
  * @returns {{
  *   packageName: string,
  *   profile: string,
+ *   cli: boolean,
  *   author: string,
  *   email: string,
  *   githubUser: string,
@@ -323,6 +332,7 @@ export function parseArguments(argv) {
   const packageName = argv[0] ?? "";
   const allowedFlags = new Set([
     "--profile",
+    "--cli",
     "--author",
     "--email",
     "--github-user",
@@ -366,6 +376,23 @@ export function parseArguments(argv) {
   if (!PROFILES.has(profile)) {
     throw new BootstrapError("ERR_PROFILE_INVALID", `unsupported profile: ${profile}`);
   }
+  const cli = values.get("--cli") ?? DEFAULT_CLI;
+  if (!CLI_VALUES.has(cli)) {
+    throw new BootstrapError(
+      "ERR_CLI_INVALID",
+      `unsupported --cli value: ${cli}.\n` +
+        "Expected: yes or no.\n" +
+        "Next: pass `--cli yes` or `--cli no`, then rerun bootstrap.",
+    );
+  }
+  if (profile === "universal-library" && cli === "yes") {
+    throw new BootstrapError(
+      "ERR_CLI_UNSUPPORTED",
+      "the universal-library profile cannot ship a Node CLI.\n" +
+        "Expected: --cli no for universal-library.\n" +
+        "Next: pass --profile node-library --cli yes, or choose --cli no.",
+    );
+  }
   const license = values.get("--license") ?? "";
   if (!LICENSES.has(license)) {
     throw new BootstrapError("ERR_LICENSE_INVALID", `unsupported license: ${license}`);
@@ -385,6 +412,7 @@ export function parseArguments(argv) {
   return {
     packageName,
     profile,
+    cli: cli === "yes",
     author: values.get("--author") ?? "",
     email,
     githubUser,
@@ -404,6 +432,7 @@ export async function promptArguments(question) {
   const packageName = (await question("Package name: ")).trim();
   const profile =
     (await question(`Profile [${DEFAULT_PROFILE}]: `)).trim() || DEFAULT_PROFILE;
+  const cli = (await question(`CLI [${DEFAULT_CLI}]: `)).trim() || DEFAULT_CLI;
   const author = (await question("Author name: ")).trim();
   const email = (await question("Author email: ")).trim();
   const githubUser = (await question("GitHub user: ")).trim();
@@ -417,6 +446,8 @@ export async function promptArguments(question) {
     packageName,
     "--profile",
     profile,
+    "--cli",
+    cli,
     "--author",
     author,
     "--email",
@@ -1005,6 +1036,28 @@ function transform(root, options, year, preview) {
     changed.push(`${relative} (removed)`);
   }
 
+  const cliEntry = path.join(root, "src", "cli.ts");
+  if (!options.cli && existsSync(cliEntry)) {
+    if (preview !== undefined) {
+      preview.set("src/cli.ts", null);
+    }
+    if (write) {
+      rmSync(cliEntry);
+    }
+    changed.push("src/cli.ts (removed)");
+  }
+
+  const cliTest = path.join(root, "tests", "cli.test.ts");
+  if (!options.cli && existsSync(cliTest)) {
+    if (preview !== undefined) {
+      preview.set("tests/cli.test.ts", null);
+    }
+    if (write) {
+      rmSync(cliTest);
+    }
+    changed.push("tests/cli.test.ts (removed)");
+  }
+
   changed.push(...replaceTargets(root, replacements, options.profile, write, preview));
 
   const manifestPath = path.join(root, "package.json");
@@ -1024,7 +1077,11 @@ function transform(root, options, year, preview) {
   if (typeof scripts === "object" && scripts !== null && !Array.isArray(scripts)) {
     delete (/** @type {Record<string, unknown>} */ (scripts)["bootstrap:e2e"]);
   }
-  delete manifest["bin"];
+  if (options.cli) {
+    manifest["bin"] = { "": "./dist/cli.js" };
+  } else {
+    delete manifest["bin"];
+  }
   manifest["sideEffects"] = false;
   if (options.profile === "universal-library") {
     delete manifest["engines"];
