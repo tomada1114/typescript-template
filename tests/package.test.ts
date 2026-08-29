@@ -440,10 +440,12 @@ describe("inspectPackageEntries", () => {
     expect(problems[0]?.path).toBe("dist/index.d.ts");
   });
 
-  it("exposes the limits as plain numbers so raising one shows in a diff", () => {
-    expect(PACKAGE_LIMITS.maxUnpackedBytes).toBeTypeOf("number");
-    expect(PACKAGE_LIMITS.maxFileCount).toBeTypeOf("number");
-    expect(PACKAGE_LIMITS.maxSingleFileBytes).toBeTypeOf("number");
+  it("exposes the deliberately reviewable package limits", () => {
+    expect(PACKAGE_LIMITS).toEqual({
+      maxUnpackedBytes: 1024 * 1024,
+      maxFileCount: 200,
+      maxSingleFileBytes: 128 * 1024,
+    });
   });
 
   it("keeps both path lists non-empty", () => {
