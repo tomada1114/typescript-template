@@ -145,6 +145,7 @@ function options(
   packageName: string,
   profile: "node-library" | "universal-library",
   cli: "yes" | "no" = "no",
+  nodeEngines?: string,
 ): ReturnType<typeof parseArguments> {
   const argv = [
     packageName,
@@ -161,6 +162,9 @@ function options(
   ];
   if (cli === "yes") {
     argv.push("--cli", cli);
+  }
+  if (nodeEngines !== undefined) {
+    argv.push("--node-engines", nodeEngines);
   }
   return parseArguments(argv);
 }
@@ -236,6 +240,22 @@ describe("bootstrap validation", () => {
     expect(options("cli-package", "node-library", "yes").cli).toBe(true);
   });
 
+  it("defaults the published Node floor to 24 and accepts a lower floor", () => {
+    expect(options("library-package", "node-library").nodeEngines).toBe(">=24");
+    expect(options("older-library", "node-library", "no", ">=20").nodeEngines).toBe(
+      ">=20",
+    );
+  });
+
+  it.each(["20", ">=", ">=20.1", ">=20 <24"])(
+    "rejects a non-bare Node floor %j",
+    (nodeEngines) => {
+      expect(() => options("invalid-floor", "node-library", "no", nodeEngines)).toThrow(
+        /ERR_NODE_ENGINES_INVALID/,
+      );
+    },
+  );
+
   it("rejects an unsupported CLI option value", () => {
     expect(() =>
       parseArguments([
@@ -267,6 +287,7 @@ describe("bootstrap validation", () => {
       "interactive-package",
       "universal-library",
       "",
+      "",
       "Ada Lovelace",
       "ada@example.com",
       "ada",
@@ -292,6 +313,7 @@ describe("bootstrap validation", () => {
       "Package name: ",
       "Profile [node-library]: ",
       "CLI [no]: ",
+      "Node engines [>=24]: ",
       "Author name: ",
       "Author email: ",
       "GitHub user: ",
@@ -308,6 +330,7 @@ describe("bootstrap validation", () => {
       input:
         [
           "interactive-package",
+          "",
           "",
           "",
           "Ada Lovelace",
@@ -484,13 +507,31 @@ describe("bootstrap profiles", () => {
       expect(manifest.engines).toBeUndefined();
     } else {
       expect(buildConfig).toContain('"types": ["node"]');
-      expect(manifest.engines).toEqual({ node: ">=22.14" });
+      expect(manifest.engines).toEqual({ node: ">=24" });
     }
 
     // A `template-only` block at end of file (see #111) or a re-padded
     // Markdown table (see #103) both leave the generated tree failing its
     // own first `pnpm check:quick`. Check every generated text file against
     // Prettier itself, not a hand-picked one.
+    await assertGeneratedTreeIsFormatted(root);
+  });
+
+  it("writes a selected Node floor and the matching compatibility leg", async () => {
+    const root = copyTemplate();
+    bootstrap(root, options("node-20-package", "node-library", "no", ">=20"));
+
+    const manifest = JSON.parse(
+      readFileSync(path.join(root, "package.json"), "utf8"),
+    ) as { engines?: Record<string, string> };
+    expect(manifest.engines).toEqual({ node: ">=20" });
+    const workflow = readFileSync(
+      path.join(root, ".github", "workflows", "ci.yml"),
+      "utf8",
+    );
+    expect(workflow).toContain("node-version: 20");
+    expect(workflow).toContain("pnpm --runtime-on-fail=ignore run package:smoke");
+
     await assertGeneratedTreeIsFormatted(root);
   });
 

@@ -59,7 +59,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:related": "vitest related --run",
-    "package:smoke": "pnpm run build && node scripts/clean.mjs .smoke && pnpm pack --pack-destination .smoke && node scripts/smoke-package.mjs --pack-dir .smoke",
+    "package:smoke": "node scripts/package-smoke.mjs",
     "package:check": "pnpm run build && node scripts/clean.mjs .package && pnpm pack --pack-destination .package && pnpm run package:verify -- --pack-dir .package && node scripts/clean.mjs .package",
     "package:verify": "node scripts/verify-package.mjs",
     "docs:build": "typedoc",

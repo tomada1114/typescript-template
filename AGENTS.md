@@ -20,9 +20,10 @@ checked.
 
 ## Overview
 
-An ESM-only TypeScript package published to npm. Development and the published contract
-both run on Node >= 24. pnpm 11 is the package manager, used through Corepack. A package
-may also ship one command entry in `src/cli.ts`; that command is not an import surface.
+An ESM-only TypeScript package published to npm. Development runs on Node >= 24, while a
+generated `node-library` chooses its published `engines.node` floor during bootstrap.
+pnpm 11 is the package manager, used through Corepack. A package may also ship one
+command entry in `src/cli.ts`; that command is not an import surface.
 
 ## Quick reference
 
@@ -44,16 +45,19 @@ pnpm bootstrap:e2e # run scripts/bootstrap.mjs end to end for every profile
 
 Run a single test file with `pnpm exec vitest run tests/<name>.test.ts`.
 
-`pnpm check:quick` is the full local gate, and CI runs the same four package scripts as
-separate steps, so a green run here means those are green too. `lefthook`'s pre-commit
-hook runs a staged-file-scoped version of the same tools — format applied rather than
-merely checked, tests limited to the ones reachable from the staged files — before every
-commit. Nothing — not a hook, not a workflow — defines a check of its own; they all call
-these scripts.
+`pnpm check:quick` is the full local source gate, and CI runs those source/package
+checks as separate steps, so a green run here means those are green too. `lefthook`'s
+pre-commit hook runs a staged-file-scoped version of the same tools — format applied
+rather than merely checked, tests limited to the ones reachable from the staged files —
+before every commit. Nothing — not a hook, not a workflow — defines a check of its own;
+they all call these scripts.
 
-Development and the published contract both sit on Node 24, so there is no second
-runtime to verify against and no reason to ever waive `devEngines.runtime`'s
-`onFail: error`. Do not relax it.
+Development and source checks stay on Node 24. A generated `node-library` may publish a
+different bare `>=N` floor through bootstrap's `--node-engines` option (default `>=24`);
+the `package-floor` CI job builds and packs on Node 24, then consumes that artifact with
+`pnpm --runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke` on the selected
+floor. The override is only for that compatibility check. Never relax
+`devEngines.runtime`'s `onFail: error` for normal development or source checks.
 
 ## Validating a change
 

@@ -23,17 +23,24 @@ const TEMPLATE_EMAIL = "you@example.com";
 const TEMPLATE_DESCRIPTION = "A short description.";
 const DEFAULT_PROFILE = "node-library";
 const DEFAULT_CLI = "no";
+const DEFAULT_NODE_ENGINES = ">=24";
 const DEFAULT_LICENSE = "MIT";
 const DEFAULT_DESCRIPTION = "A TypeScript package.";
 const PROFILES = new Set(["node-library", "universal-library"]);
 const CLI_VALUES = new Set(["yes", "no"]);
 const LICENSES = new Set(["MIT", "ISC"]);
+const NODE_ENGINES_PATTERN = /^>=(\d+)$/;
+const CI_NODE_FLOOR_LINE = "node-version: 24 # bootstrap-node-floor";
+const README_NODE_FLOOR_LINE = "Requires Node.js 24 or newer.";
+const README_NODE_FLOOR_MARKER = "\n<!-- bootstrap-node-floor -->\n";
 const PLACEHOLDERS = [
   TEMPLATE_PACKAGE,
   TEMPLATE_REPOSITORY,
   TEMPLATE_AUTHOR,
   TEMPLATE_EMAIL,
   TEMPLATE_DESCRIPTION,
+  CI_NODE_FLOOR_LINE,
+  README_NODE_FLOOR_MARKER,
 ];
 const RESERVED_NAMES = new Set(["node_modules", "favicon.ico"]);
 const GENERATED_VERSION = "0.0.0";
@@ -57,6 +64,9 @@ const PLACEHOLDER_TARGETS = [
   { file: "README.md", placeholder: TEMPLATE_PACKAGE },
   { file: "README.md", placeholder: TEMPLATE_AUTHOR },
   { file: "README.md", placeholder: TEMPLATE_DESCRIPTION },
+  { file: ".github/workflows/ci.yml", placeholder: CI_NODE_FLOOR_LINE },
+  { file: "README.md", placeholder: README_NODE_FLOOR_LINE },
+  { file: "README.md", placeholder: README_NODE_FLOOR_MARKER },
   { file: "package.json", placeholder: TEMPLATE_REPOSITORY },
   { file: "package.json", placeholder: TEMPLATE_PACKAGE },
   { file: "package.json", placeholder: TEMPLATE_AUTHOR },
@@ -221,6 +231,7 @@ Required:
 
 Optional:
   --cli <yes|no>          Keep the Node CLI entry (default: no)
+  --node-engines <>=N>    Published Node floor (default: >=24)
   --description <text>    Package description
   --dry-run               Validate and show the planned changes only`;
 
@@ -235,6 +246,26 @@ export class BootstrapError extends Error {
     this.name = "BootstrapError";
     this.code = code;
   }
+}
+
+/**
+ * Return the major version represented by a supported published Node range.
+ *
+ * @param {string} nodeEngines
+ * @returns {number}
+ */
+export function nodeFloor(nodeEngines) {
+  const floor = NODE_ENGINES_PATTERN.exec(nodeEngines)?.[1];
+  const major = floor === undefined ? Number.NaN : Number(floor);
+  if (!Number.isSafeInteger(major) || major < 1) {
+    throw new BootstrapError(
+      "ERR_NODE_ENGINES_INVALID",
+      `unsupported --node-engines value: ${nodeEngines}.\n` +
+        "Expected: a bare range such as >=20.\n" +
+        "Next: pass --node-engines >=20 (or another positive major), then rerun bootstrap.",
+    );
+  }
+  return major;
 }
 
 /**
@@ -320,6 +351,7 @@ export function deriveNames(packageName) {
  *   packageName: string,
  *   profile: string,
  *   cli: boolean,
+ *   nodeEngines: string,
  *   author: string,
  *   email: string,
  *   githubUser: string,
@@ -333,6 +365,7 @@ export function parseArguments(argv) {
   const allowedFlags = new Set([
     "--profile",
     "--cli",
+    "--node-engines",
     "--author",
     "--email",
     "--github-user",
@@ -393,6 +426,8 @@ export function parseArguments(argv) {
         "Next: pass --profile node-library --cli yes, or choose --cli no.",
     );
   }
+  const nodeEngines = values.get("--node-engines") ?? DEFAULT_NODE_ENGINES;
+  nodeFloor(nodeEngines);
   const license = values.get("--license") ?? "";
   if (!LICENSES.has(license)) {
     throw new BootstrapError("ERR_LICENSE_INVALID", `unsupported license: ${license}`);
@@ -413,6 +448,7 @@ export function parseArguments(argv) {
     packageName,
     profile,
     cli: cli === "yes",
+    nodeEngines,
     author: values.get("--author") ?? "",
     email,
     githubUser,
@@ -433,6 +469,9 @@ export async function promptArguments(question) {
   const profile =
     (await question(`Profile [${DEFAULT_PROFILE}]: `)).trim() || DEFAULT_PROFILE;
   const cli = (await question(`CLI [${DEFAULT_CLI}]: `)).trim() || DEFAULT_CLI;
+  const nodeEngines =
+    (await question(`Node engines [${DEFAULT_NODE_ENGINES}]: `)).trim() ||
+    DEFAULT_NODE_ENGINES;
   const author = (await question("Author name: ")).trim();
   const email = (await question("Author email: ")).trim();
   const githubUser = (await question("GitHub user: ")).trim();
@@ -448,6 +487,8 @@ export async function promptArguments(question) {
     profile,
     "--cli",
     cli,
+    "--node-engines",
+    nodeEngines,
     "--author",
     author,
     "--email",
@@ -1008,6 +1049,14 @@ function transform(root, options, year, preview) {
     [TEMPLATE_AUTHOR, options.author],
     [TEMPLATE_EMAIL, options.email],
     [TEMPLATE_DESCRIPTION, options.description],
+    [CI_NODE_FLOOR_LINE, `node-version: ${String(nodeFloor(options.nodeEngines))}`],
+    [
+      README_NODE_FLOOR_LINE,
+      options.profile === "universal-library"
+        ? "The package does not declare a Node.js floor."
+        : `Requires Node.js ${String(nodeFloor(options.nodeEngines))} or newer.`,
+    ],
+    [README_NODE_FLOOR_MARKER, "\n"],
   ]);
   /** @type {string[]} */
   const changed = [];
@@ -1086,7 +1135,7 @@ function transform(root, options, year, preview) {
   if (options.profile === "universal-library") {
     delete manifest["engines"];
   } else {
-    manifest["engines"] = { node: ">=22.14" };
+    manifest["engines"] = { node: options.nodeEngines };
   }
   if (write) {
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

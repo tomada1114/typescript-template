@@ -1290,6 +1290,21 @@ describe("workflow regression checks for repository automation", () => {
     expect(source).toContain("for attempt in 1 2 3");
     expect(source).toContain("exit 1");
   });
+
+  it("checks the published Node floor with package:smoke after packing on Node 24", () => {
+    const source = workflowSource("ci.yml");
+    const packageFloorStart = source.indexOf("  package-floor:");
+    expect(packageFloorStart).toBeGreaterThan(-1);
+    const packageFloor = source.slice(packageFloorStart);
+
+    expect(packageFloor).toContain("node-version: 24 # bootstrap-node-floor");
+    expect(packageFloor).toContain("pnpm run build");
+    expect(packageFloor).toContain("pnpm pack --pack-destination .smoke");
+    expect(packageFloor).toContain(
+      "pnpm --runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke",
+    );
+    expect(packageFloor).toContain("pnpm install --frozen-lockfile");
+  });
 });
 
 // --- agreement with package.json and .node-version ---------------------------
@@ -1311,22 +1326,24 @@ describe("the development runtime contract fails closed", () => {
     expect(manifest.devEngines?.runtime?.onFail).toBe("error");
   });
 
-  it("names the same Node major in engines, devEngines, and .node-version", () => {
-    // Three places state the runtime: `engines.node` is the published
-    // contract, `devEngines.runtime.version` is what pnpm enforces locally,
-    // and `.node-version` is what every CI job installs. Nothing makes them
-    // agree on its own, so bumping one and not the others would publish a
-    // floor no job ever runs against.
+  it("keeps devEngines and .node-version on the development Node major", () => {
+    // `devEngines.runtime.version` is what pnpm enforces locally, and
+    // `.node-version` is what the source-check jobs install. The published
+    // `engines.node` floor is intentionally independent and is exercised by
+    // the package-floor job above.
     const major = (value: string) => /(\d+)/.exec(value)?.[1];
     const nodeVersionFile = readFileSync(
       path.join(repoRoot, ".node-version"),
       "utf8",
     ).trim();
 
-    expect(major(nodeVersionFile)).toBe(major(manifest.engines?.node ?? ""));
     expect(major(manifest.devEngines?.runtime?.version ?? "")).toBe(
       major(nodeVersionFile),
     );
+  });
+
+  it("keeps the template's default published floor explicit", () => {
+    expect(manifest.engines?.node).toBe(">=24");
   });
 });
 
