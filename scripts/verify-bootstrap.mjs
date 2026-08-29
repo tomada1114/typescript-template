@@ -116,9 +116,7 @@ export function assertGenerated(destination, packageName, cli = false) {
   for (const relative of MARKER_TARGETS) {
     const file = path.join(destination, relative);
     if (
-      /(?:template-only|profile:[a-z0-9-]+:)/.exec(
-        readFileSync(file, "utf8"),
-      ) !== null
+      /(?:template-only|profile:[a-z0-9-]+:)/.exec(readFileSync(file, "utf8")) !== null
     ) {
       throw new Error(
         `ERR_BOOTSTRAP_MARKER: generated ${packageName} retains a bootstrap marker in ${relative}.`,
@@ -153,10 +151,7 @@ export function assertGenerated(destination, packageName, cli = false) {
     );
   }
 
-  const changelog = readFileSync(
-    path.join(destination, "CHANGELOG.md"),
-    "utf8",
-  );
+  const changelog = readFileSync(path.join(destination, "CHANGELOG.md"), "utf8");
   if (/^## /m.test(changelog)) {
     throw new Error(
       `ERR_CHANGELOG_ENTRY_REMAINING: generated ${packageName} retains a template changelog entry.\n` +
@@ -168,19 +163,13 @@ export function assertGenerated(destination, packageName, cli = false) {
   const manifest = parseJson(
     readFileSync(path.join(destination, "package.json"), "utf8"),
   );
-  if (
-    typeof manifest !== "object" ||
-    manifest === null ||
-    Array.isArray(manifest)
-  ) {
+  if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) {
     throw new Error(
       `ERR_MANIFEST_SHAPE: generated ${packageName} has no object manifest.`,
     );
   }
   if (readKey(manifest, "name") !== packageName) {
-    throw new Error(
-      `ERR_PACKAGE_NAME: generated package name is not ${packageName}.`,
-    );
+    throw new Error(`ERR_PACKAGE_NAME: generated package name is not ${packageName}.`);
   }
   if (readKey(manifest, "version") !== "0.0.0") {
     throw new Error(
@@ -269,15 +258,7 @@ export function assertCopyable(source, relative) {
 export function copyTemplate(destination, root = ROOT) {
   const files = spawnSync(
     "git",
-    [
-      "-C",
-      root,
-      "ls-files",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-      "-z",
-    ],
+    ["-C", root, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
     { encoding: "utf8", timeout: 30_000, env: isolatedGitEnv() },
   );
   if (files.status !== 0) {
@@ -298,9 +279,7 @@ export function copyTemplate(destination, root = ROOT) {
  * @returns {number}
  */
 export function main() {
-  const workspace = mkdtempSync(
-    path.join(tmpdir(), "typescript-template-e2e-"),
-  );
+  const workspace = mkdtempSync(path.join(tmpdir(), "typescript-template-e2e-"));
   try {
     /** @type {readonly [string | undefined, string | undefined, boolean | undefined][]} */
     const cases = [
@@ -309,11 +288,7 @@ export function main() {
       ["universal-library", "acme-universal-library", false],
     ];
     for (const [profile, packageName, cli] of cases) {
-      if (
-        profile === undefined ||
-        packageName === undefined ||
-        cli === undefined
-      ) {
+      if (profile === undefined || packageName === undefined || cli === undefined) {
         throw new Error("ERR_E2E_CASE: malformed bootstrap test case.");
       }
       const destination = path.join(workspace, packageName);

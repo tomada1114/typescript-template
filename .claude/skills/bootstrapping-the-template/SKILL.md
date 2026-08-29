@@ -59,10 +59,10 @@ A profile is one of the two entries in `bootstrap.mjs`'s `PROFILES` set (`node-l
 `universal-library`); `DEFAULT_PROFILE` picks the one the interactive prompt defaults
 to. The `--cli` option is a separate yes/no axis, defaulting to `no`: `node-library` may
 keep `src/cli.ts` and `package.json#bin`, while `universal-library --cli yes` is
-rejected at argument-parsing time. A profile changes three things, and only these
-three: which `<!-- profile:<name>:start -->...<!-- profile:<name>:end -->` Markdown/YAML
-blocks survive in `MARKER_TARGETS`, `tsconfig.build.json`'s `compilerOptions.types`
-(and, downstream, whether `node:` builtins are allowed in the generated `src/**` — see
+rejected at argument-parsing time. A profile changes three things, and only these three:
+which `<!-- profile:<name>:start -->...<!-- profile:<name>:end -->` Markdown/YAML blocks
+survive in `MARKER_TARGETS`, `tsconfig.build.json`'s `compilerOptions.types` (and,
+downstream, whether `node:` builtins are allowed in the generated `src/**` — see
 `writing-typescript`'s "Runtime-agnostic source"), and `package.json#engines`.
 
 Adding or renaming a profile means: adding it to `PROFILES`, writing its

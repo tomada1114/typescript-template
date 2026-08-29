@@ -46,13 +46,14 @@ bootstrap before installing dependencies:
 node scripts/bootstrap.mjs
 ```
 
-Answer the prompts for the package name, profile, CLI choice, author, email, GitHub user,
-license, and description. For automation, pass the package name together with the
+Answer the prompts for the package name, profile, CLI choice, author, email, GitHub
+user, license, and description. For automation, pass the package name together with the
 `--profile`, `--cli`, `--author`, `--email`, `--github-user`, and `--license` flags.
 
 Use `node-library` for a Node.js package, or `universal-library` for code that must
 build without Node APIs. Add `--cli yes` to a `node-library` package to keep its
-`src/cli.ts` command entry. Bootstrap removes this section from the generated repository.
+`src/cli.ts` command entry. Bootstrap removes this section from the generated
+repository.
 <!-- template-only:end -->
 
 ## Development
