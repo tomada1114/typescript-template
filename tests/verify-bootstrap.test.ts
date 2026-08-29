@@ -374,6 +374,30 @@ describe("assertGenerated", () => {
     );
   });
 
+  it("accepts a CLI-shaped generated repository", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library", {
+      bin: { "": "./dist/cli.js" },
+    });
+    mkdirSync(path.join(destination, "src"), { recursive: true });
+    writeFileSync(path.join(destination, "src", "cli.ts"), "export {};");
+
+    expect(() => assertGenerated(destination, "acme-node-library", true)).not.toThrow();
+  });
+
+  it("throws ERR_BIN_REMAINING when a CLI package has no emitted CLI entry", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library", {
+      bin: { "": "./dist/other.js" },
+    });
+    mkdirSync(path.join(destination, "src"), { recursive: true });
+    writeFileSync(path.join(destination, "src", "cli.ts"), "export {};");
+
+    expect(() => assertGenerated(destination, "acme-node-library", true)).toThrow(
+      /ERR_BIN_REMAINING/,
+    );
+  });
+
   it("throws ERR_SIDE_EFFECTS_REMAINING when package.json#sideEffects is not false", () => {
     const destination = makeDestination();
     writeValidFixture(destination, "acme-node-library", { sideEffects: undefined });
