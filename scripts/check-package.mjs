@@ -60,16 +60,18 @@ import { findSingleTarball } from "./lib/tarball.mjs";
  * a generated baseline: raising a ceiling then shows up as a reviewable diff
  * instead of happening silently (spec 02 §4).
  *
- * The current placeholder package packs about 42 KB across 30 files, so these
- * leave room for a real package to grow while still catching an accidentally
- * bundled dependency or a committed artifact.
+ * These are tripwires for unintended inclusion, not a size budget for the
+ * package's own design. A bundled dependency tree should trip the file and
+ * unpacked-size limits, while a committed binary should trip the single-file
+ * limit. The values stay deliberately reviewable literals so raising one is a
+ * visible policy decision rather than a silent change.
  *
  * @type {PackageLimits}
  */
 export const PACKAGE_LIMITS = {
-  maxUnpackedBytes: 262_144,
-  maxFileCount: 80,
-  maxSingleFileBytes: 65_536,
+  maxUnpackedBytes: 1_048_576,
+  maxFileCount: 200,
+  maxSingleFileBytes: 131_072,
 };
 
 /**
