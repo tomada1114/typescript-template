@@ -44,6 +44,15 @@ criteria above say `unit`, rather than leaving the default in place.
   a real subprocess or temp-directory operation — giving it the short one would make
   correct tests flaky.
 
+## CLI entry tests
+
+A command's test seam is the CLI entry itself: drive `argv` and observe the exit code,
+stdout, and stderr. For `src/cli.ts`, the conventional location is `tests/cli.test.ts`,
+not `src/internal/` and not a second public package entry. An in-process entry test that
+imports only `src/cli.ts` and touches no I/O belongs to the `unit` project; a test that
+starts the command as a child process or uses a temporary consumer belongs to
+`automation`.
+
 ## Coverage floors
 
 `coverage.include` in `vitest.config.ts` lists both `src/**/*.ts` and `scripts/**/*.mjs`
