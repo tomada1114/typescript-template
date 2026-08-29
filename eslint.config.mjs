@@ -214,6 +214,16 @@ export default defineConfig([
     },
   },
   {
+    name: "cli/terminal-output",
+    files: ["src/cli.ts", "src/cli/**/*.ts"],
+    rules: {
+      // Terminal output is the product of a command. Keep this exception at
+      // the command boundary so library modules still cannot print as a side
+      // effect of an import.
+      "no-console": "off",
+    },
+  },
+  {
     // The `writing-tests` skill states these rules in prose; this is what enforces the
     // ones a linter can see. The recommended set is taken as published and the
     // escalations below are the entries this repository will not run on

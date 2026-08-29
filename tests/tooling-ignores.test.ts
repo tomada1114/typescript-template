@@ -24,6 +24,16 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const source = ".agents/skills/merge-dependabot";
 const mirror = ".claude/skills/merge-dependabot";
 
+type RuleSetting = number | readonly [number, ...unknown[]];
+
+interface EffectiveConfig {
+  rules?: Record<string, RuleSetting | undefined>;
+}
+
+function ruleSeverity(setting: RuleSetting | undefined): number | undefined {
+  return typeof setting === "number" ? setting : setting?.[0];
+}
+
 const eslint = new ESLint({ cwd: repoRoot });
 
 function ignoredByEslint(relative: string): Promise<boolean> {
@@ -61,6 +71,21 @@ describe("the .claude/skills ignore entry in eslint.config.mjs", () => {
     // Why the cases above are restricted to `.mjs`: this file is under the
     // linted source tree and would still answer `true` on an empty ignore list.
     await expect(ignoredByEslint(`${source}/SKILL.md`)).resolves.toBe(true);
+  });
+});
+
+describe("the CLI-only no-console boundary in eslint.config.mjs", () => {
+  it.each([
+    ["the CLI entry", "src/cli.ts", 0],
+    ["a nested CLI module", "src/cli/commands.ts", 0],
+    ["the public library entry", "src/index.ts", 2],
+    ["a private library module", "src/internal/assert.ts", 2],
+  ])("sets no-console to %s for %s", async (_label, relative, expected) => {
+    const config = (await eslint.calculateConfigForFile(
+      path.join(repoRoot, relative),
+    )) as EffectiveConfig;
+    const setting = config.rules?.["no-console"];
+    expect(ruleSeverity(setting)).toBe(expected);
   });
 });
 
