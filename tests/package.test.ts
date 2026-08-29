@@ -255,6 +255,24 @@ describe("inspectPackageEntries", () => {
     expect(codesOf(problems)).toContain("ERR_PACKAGE_PATH_NOT_ALLOWED");
   });
 
+  it("accepts a JSON metadata file under dist/", () => {
+    expect(inspectPackageEntries([entry("dist/spec/claude-code.json")], {})).toEqual(
+      [],
+    );
+  });
+
+  it("rejects an .npmrc under dist/ as forbidden credential material", () => {
+    expect(codesOf(inspectPackageEntries([entry("dist/.npmrc")], {}))).toContain(
+      "ERR_PACKAGE_PATH_FORBIDDEN",
+    );
+  });
+
+  it("rejects JSON files outside dist/", () => {
+    expect(codesOf(inspectPackageEntries([entry("spec/x.json")], {}))).toContain(
+      "ERR_PACKAGE_PATH_NOT_ALLOWED",
+    );
+  });
+
   it.each([
     ["dist/date.utils.js"],
     ["dist/date.utils.d.ts"],

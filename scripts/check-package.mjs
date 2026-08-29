@@ -79,7 +79,8 @@ export const PACKAGE_LIMITS = {
  * An allowlist, not a denylist: a new kind of file has to be added here on
  * purpose. The first three patterns are the files npm and pnpm include
  * regardless of `files`, so refusing them would be unimplementable; the last is
- * the build output, restricted to the four extensions `tsc` emits.
+ * the build output and JSON metadata, restricted to extensions that belong in a
+ * published package.
  */
 export const ALLOWED_PATHS = [
   { label: "the package manifest", pattern: /^package\.json$/ },
@@ -89,14 +90,15 @@ export const ALLOWED_PATHS = [
     pattern: /^LICEN[SC]E(\.[A-Za-z0-9]+)?$/i,
   },
   {
-    label: "compiled output under dist/",
-    // The extension list is the whole point: only the four things `tsc` emits.
+    label: "compiled output and JSON metadata under dist/",
+    // The extension list is the whole point: only compiled output and package
+    // metadata may live under dist/.
     // Interior dots are allowed in the basename because a source file may be
     // named `date.utils.ts`, which emits `dist/date.utils.js`. A leading dot is
     // not, so a stray `.DS_Store`-style file cannot slip through, and `.` and
     // `..` are excluded as directory segments.
     pattern:
-      /^dist\/(?:(?!\.\.?(?:\/|$))[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:d\.ts\.map|d\.ts|js\.map|js)$/,
+      /^dist\/(?:(?!\.\.?(?:\/|$))[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:d\.ts\.map|d\.ts|js\.map|js|json)$/,
   },
 ];
 
