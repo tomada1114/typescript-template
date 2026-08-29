@@ -206,6 +206,33 @@ export function assertGenerated(destination, packageName, cli = false) {
         "Next: update the template manifest, then rerun bootstrap:e2e.",
     );
   }
+
+  const nodeEngines = readString(readKey(manifest, "engines"), "node");
+  if (nodeEngines !== undefined) {
+    const floor = /^>=(\d+)$/.exec(nodeEngines)?.[1];
+    const workflow = readFileSync(
+      path.join(destination, ".github", "workflows", "ci.yml"),
+      "utf8",
+    );
+    const packageFloorStart = workflow.indexOf("\n  package-floor:");
+    const packageFloor =
+      packageFloorStart === -1 ? "" : workflow.slice(packageFloorStart);
+    if (floor === undefined || !packageFloor.includes(`node-version: ${floor}`)) {
+      throw new Error(
+        `ERR_NODE_ENGINES_CI_MISMATCH: generated ${packageName} publishes ${nodeEngines}, ` +
+          "but its package-floor CI leg does not run that major.\n" +
+          "Expected: the package-floor job's node-version to equal engines.node's >=N floor.\n" +
+          "Next: rerun bootstrap with a supported --node-engines range and regenerate ci.yml.",
+      );
+    }
+    if (!packageFloor.includes("package:smoke")) {
+      throw new Error(
+        `ERR_NODE_ENGINES_CI_MISMATCH: generated ${packageName} has no package:smoke floor check.\n` +
+          "Expected: package-floor runs package:smoke against the packed artifact.\n" +
+          "Next: restore the package-floor job in ci.yml, then rerun bootstrap:e2e.",
+      );
+    }
+  }
 }
 
 /**
@@ -281,14 +308,19 @@ export function copyTemplate(destination, root = ROOT) {
 export function main() {
   const workspace = mkdtempSync(path.join(tmpdir(), "typescript-template-e2e-"));
   try {
-    /** @type {readonly [string | undefined, string | undefined, boolean | undefined][]} */
+    /** @type {readonly [string | undefined, string | undefined, boolean | undefined, string | undefined][]} */
     const cases = [
-      ["node-library", "acme-node-library", false],
-      ["node-library", "acme-node-cli", true],
-      ["universal-library", "acme-universal-library", false],
+      ["node-library", "acme-node-library", false, ">=24"],
+      ["node-library", "acme-node-cli", true, ">=20"],
+      ["universal-library", "acme-universal-library", false, ">=24"],
     ];
-    for (const [profile, packageName, cli] of cases) {
-      if (profile === undefined || packageName === undefined || cli === undefined) {
+    for (const [profile, packageName, cli, nodeEngines] of cases) {
+      if (
+        profile === undefined ||
+        packageName === undefined ||
+        cli === undefined ||
+        nodeEngines === undefined
+      ) {
         throw new Error("ERR_E2E_CASE: malformed bootstrap test case.");
       }
       const destination = path.join(workspace, packageName);
@@ -309,13 +341,15 @@ export function main() {
           "ada",
           "--license",
           "MIT",
+          "--node-engines",
+          nodeEngines,
           ...(cli ? ["--cli", "yes"] : []),
         ],
         destination,
       );
       assertGenerated(destination, packageName, cli);
       console.log(
-        `bootstrap-e2e: ${packageName} (${profile}, cli=${String(cli)}) passed`,
+        `bootstrap-e2e: ${packageName} (${profile}, cli=${String(cli)}, engines=${nodeEngines}) passed`,
       );
     }
     return 0;

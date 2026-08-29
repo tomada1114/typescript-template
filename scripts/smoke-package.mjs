@@ -467,9 +467,10 @@ export function checkBinCommands(consumer, packageName, manifest) {
  * A CommonJS consumer resolves the package and its manifest.
  *
  * @remarks
- * Every Node this package supports (`engines.node` is `>=22.14`, and
- * `require(esm)` is unflagged from 22.12) can `require()` an ESM entry point.
- * Without a condition that matches `require`, resolution fails first with
+ * The package's published Node floor is checked separately by the package-floor
+ * CI job. On runtimes where `require(esm)` is supported, a CommonJS consumer
+ * can require an ESM entry point. Without a condition that matches `require`,
+ * resolution fails first with
  * `ERR_PACKAGE_PATH_NOT_EXPORTED` — an error that says nothing about the real
  * situation, which is that the module is ESM. This is the regression test for
  * the `default` condition in `exports`, and for the `./package.json` subpath

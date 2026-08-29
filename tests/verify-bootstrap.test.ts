@@ -385,6 +385,43 @@ describe("assertGenerated", () => {
     expect(() => assertGenerated(destination, "acme-node-library", true)).not.toThrow();
   });
 
+  it("accepts a generated Node floor whose CI package-smoke leg uses the same major", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library", {
+      engines: { node: ">=20" },
+    });
+    writeFileSync(
+      path.join(destination, ".github", "workflows", "ci.yml"),
+      [
+        "jobs:",
+        "  package-floor:",
+        "    steps:",
+        "      - uses: actions/setup-node@sha # v1.0.0",
+        "        with:",
+        "          node-version: 20",
+        "      - run: pnpm --config.runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke",
+        "",
+      ].join("\n"),
+    );
+
+    expect(() => assertGenerated(destination, "acme-node-library")).not.toThrow();
+  });
+
+  it("throws ERR_NODE_ENGINES_CI_MISMATCH when the generated CI floor drifts", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library", {
+      engines: { node: ">=20" },
+    });
+    writeFileSync(
+      path.join(destination, ".github", "workflows", "ci.yml"),
+      "  package-floor:\n    node-version: 24\n    run: pnpm run package:smoke\n",
+    );
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_NODE_ENGINES_CI_MISMATCH/,
+    );
+  });
+
   it("throws ERR_BIN_REMAINING when a CLI package has no emitted CLI entry", () => {
     const destination = makeDestination();
     writeValidFixture(destination, "acme-node-library", {

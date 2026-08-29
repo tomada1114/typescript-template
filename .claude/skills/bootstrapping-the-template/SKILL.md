@@ -23,8 +23,8 @@ conventions (`writing-tests`); where a test file lives or its coverage floor
 
 `scripts/bootstrap.mjs` turns a fresh clone of this template into a real package, once.
 `main()` collects package metadata — interactively via `promptArguments`, or
-non-interactively from `<package-name>` plus `--profile`/`--cli`/`--author`/`--email`/
-`--github-user`/`--license` flags (`parseArguments`) — then calls
+non-interactively from `<package-name>` plus `--profile`/`--cli`/`--node-engines`/
+`--author`/`--email`/`--github-user`/`--license` flags (`parseArguments`) — then calls
 `bootstrap(root, options)`.
 
 `bootstrap()` runs `transform()` twice: once as a dry-run into an in-memory `preview`
@@ -40,9 +40,10 @@ Map (never touching disk), then for real only after the dry-run passes every che
 - Rewrites `package.json` (name, version, description, license, author, repository,
   `bugs`, `homepage`, conditionally keeps `bin` for a CLI or removes it otherwise, drops
   the `bootstrap:e2e` script entry, sets `sideEffects: false`, and profile-conditionally
-  sets/removes `engines`), removes `src/cli.ts` when the CLI option is `no`, rewrites
-  `tsconfig.build.json`'s `compilerOptions.types` for the profile, and regenerates
-  `LICENSE` and a bare `CHANGELOG.md`.
+  sets/removes `engines` using the selected `--node-engines` floor), removes
+  `src/cli.ts` when the CLI option is `no`, rewrites `tsconfig.build.json`'s
+  `compilerOptions.types` for the profile, rewrites the generated CI package-floor job
+  to that same floor, and regenerates `LICENSE` and a bare `CHANGELOG.md`.
 
 `scripts/verify-bootstrap.mjs`, run as `pnpm bootstrap:e2e`, is the flow's own
 integration test: `main()` builds a throwaway workspace with `copyTemplate()` (see
@@ -51,7 +52,8 @@ without its CLI and for `universal-library` without one, and calls `assertGenera
 against each result — placeholders gone, no bootstrap marker left in `MARKER_TARGETS`,
 the legacy release directory absent, `scripts/bootstrap.mjs` itself gone, a bare
 changelog, and the expected `package.json` shape (name, `0.0.0`, the requested CLI `bin`
-shape, and `sideEffects: false`).
+shape, the selected `engines.node` floor and matching package-floor CI leg, and
+`sideEffects: false`).
 
 ## Profiles
 
@@ -59,11 +61,14 @@ A profile is one of the two entries in `bootstrap.mjs`'s `PROFILES` set (`node-l
 `universal-library`); `DEFAULT_PROFILE` picks the one the interactive prompt defaults
 to. The `--cli` option is a separate yes/no axis, defaulting to `no`: `node-library` may
 keep `src/cli.ts` and `package.json#bin`, while `universal-library --cli yes` is
-rejected at argument-parsing time. A profile changes three things, and only these three:
-which `<!-- profile:<name>:start -->...<!-- profile:<name>:end -->` Markdown/YAML blocks
-survive in `MARKER_TARGETS`, `tsconfig.build.json`'s `compilerOptions.types` (and,
-downstream, whether `node:` builtins are allowed in the generated `src/**` — see
-`writing-typescript`'s "Runtime-agnostic source"), and `package.json#engines`.
+rejected at argument-parsing time. `--node-engines` is a bare `>=N` range, defaulting to
+`>=24`; it controls the published `engines.node` and package-floor CI job, while the
+development runtime remains Node 24. A profile changes three things, and only these
+three: which `<!-- profile:<name>:start -->...<!-- profile:<name>:end -->` Markdown/YAML
+blocks survive in `MARKER_TARGETS`, `tsconfig.build.json`'s `compilerOptions.types`
+(and, downstream, whether `node:` builtins are allowed in the generated `src/**` — see
+`writing-typescript`'s "Runtime-agnostic source"), and whether `package.json#engines` is
+present. For `node-library`, the range itself comes from `--node-engines`.
 
 Adding or renaming a profile means: adding it to `PROFILES`, writing its
 `profile:<name>` blocks in every Markdown/YAML file that needs to differ by profile,
@@ -143,5 +148,6 @@ real, end-to-end run: a change to `copyTemplate`/`assertCopyable`'s file-copying
 behavior, anything that could make the CLI's interactive or non-interactive argument
 path diverge from what the unit tests inject directly, or as a final check before
 believing a profile or removal-list change is actually safe for both profiles. It is
-slower — it runs `scripts/bootstrap.mjs` as a real subprocess, three times, against a
-real temporary workspace — which is why it isn't the first thing to reach for.
+slower — it runs `scripts/bootstrap.mjs` as a real subprocess against a real temporary
+workspace for both the default Node 24 case and a lower `>=20` package floor — which is
+why it isn't the first thing to reach for.
