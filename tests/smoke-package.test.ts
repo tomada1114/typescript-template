@@ -1,5 +1,12 @@
 import consoleModule from "node:console";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -506,32 +513,52 @@ describe("main", () => {
     }
 
     const tarball = path.join(workspace, "fixture-package-1.0.0.tgz");
+    const runtimeDependency = "smoke-runtime-helper";
     writeFixtureTarball(tarball, {
       name: "smoke-fixture-package",
       version: "1.0.0",
+      dependencies: { [runtimeDependency]: "1.0.0" },
       exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
     });
 
-    // Simulate npm install's one real side effect — the installed manifest at
-    // node_modules/<name>/package.json — since runNode never actually runs
-    // npm; every other check just needs to see exit 0.
+    let runtimeDependencyInstalled = false;
+
+    // Simulate npm install's package and runtime-dependency side effects since
+    // runNode never actually runs npm; every other check just needs to see exit
+    // 0. The nested location mirrors --install-strategy=nested, which proves
+    // this is a dependency resolved for the installed package rather than an
+    // undeclared top-level dependency.
     runNodeMock.mockImplementation((_script, args, options) => {
       if (args[0] === "install" && options?.cwd !== undefined) {
         const installed = path.join(options.cwd, "node_modules", name);
         mkdirSync(installed, { recursive: true });
         writeFileSync(
           path.join(installed, "package.json"),
-          JSON.stringify({ name, version: "0.0.0" }),
+          JSON.stringify({
+            name,
+            version: "0.0.0",
+            dependencies: { [runtimeDependency]: "1.0.0" },
+            exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
+          }),
         );
+        const dependency = path.join(installed, "node_modules", runtimeDependency);
+        mkdirSync(dependency, { recursive: true });
+        writeFileSync(
+          path.join(dependency, "package.json"),
+          JSON.stringify({ name: runtimeDependency, version: "1.0.0" }),
+        );
+        runtimeDependencyInstalled = existsSync(path.join(dependency, "package.json"));
       }
       return { status: 0, stdout: "  ok\n", stderr: "" };
     });
 
-    expect(main(["--tarball", tarball])).toBe(0);
+    const exitCode = main(["--tarball", tarball]);
     expect(errorSpy).not.toHaveBeenCalled();
+    expect(exitCode).toBe(0);
+    expect(runtimeDependencyInstalled).toBe(true);
     // install + runtime imports + require interop + one TypeScript consumer
     // (this repository is the node-library profile, so no Bundler consumer)
     // + the deep-import check.
-    expect(runNodeMock).toHaveBeenCalledTimes(4);
+    expect(runNodeMock).toHaveBeenCalledTimes(5);
   });
 });
