@@ -38,6 +38,21 @@ detail to fill in later — it means the review has not actually happened yet.
 - Which of `dependencies`, `devDependencies`, `peerDependencies`, or
   `optionalDependencies` it belongs in, and why.
 
+## The first runtime dependency in a generated repository
+
+The repository's packaging tests cover a declared dependency separately from a bundled
+installed-dependency directory, and the consumer smoke suite may mock npm at its
+subprocess boundary for fast branch coverage. That mock does not prove that a package
+manager can resolve the dependency, or that this repository's cooldown, trust, and
+lifecycle rules permit it.
+
+When a generated repository adds its first runtime dependency, land the manifest and
+lockfile change only after running `pnpm package:check` and `pnpm package:smoke` for
+real. Those commands exercise the packed manifest and an actual throwaway consumer
+install; keep the dependency declared in `dependencies`, never bundle it into the
+tarball, and do not treat the mocked unit/automation case as a substitute for either
+real command.
+
 ## Range vs. pin, and how a change lands
 
 - A runtime dependency declares a SemVer **range**, never an exact pin — the library

@@ -242,6 +242,28 @@ describe("inspectPackageEntries", () => {
     expect(problems).toEqual([]);
   });
 
+  it("accepts a declared runtime dependency but refuses a bundled copy", () => {
+    const manifest = {
+      ...SATISFIED_MANIFEST,
+      dependencies: { "runtime-helper": "^1.0.0" },
+    };
+    const packageFiles = [
+      entry("package.json"),
+      entry("dist/index.js"),
+      entry("dist/index.d.ts"),
+    ];
+
+    expect(inspectPackageEntries(packageFiles, { manifest })).toEqual([]);
+    expect(
+      codesOf(
+        inspectPackageEntries(
+          [...packageFiles, entry("node_modules/runtime-helper/package.json")],
+          { manifest },
+        ),
+      ),
+    ).toEqual(["ERR_PACKAGE_PATH_FORBIDDEN"]);
+  });
+
   it("rejects a path that is not on the allowlist", () => {
     const problems = inspectPackageEntries([entry("dist/index.css")], {});
 
