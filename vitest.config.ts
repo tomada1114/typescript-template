@@ -1,17 +1,31 @@
 import { defineConfig } from "vitest/config";
 
-// Files that only import `src/**` and touch no filesystem, subprocess, or git
-// — see the `unit` project below for why that distinction earns a much
-// shorter timeout. `scripts/lib/guard/**`'s own tests (guard-rules.test.ts)
-// belong here too: they call the rule engine's pure functions directly and
-// never spawn a process or read a file, even though the module under test
-// lives outside `src/`.
-const unitTests = [
-  "tests/cli.test.ts",
-  "tests/index.test.ts",
-  "tests/timeout.test.ts",
-  "tests/types.test.ts",
-  "tests/guard-rules.test.ts",
+// Tests that import repository automation, touch the filesystem, spawn a
+// subprocess, or use git. They are listed explicitly so a new test defaults to
+// the short-timeout unit project until its I/O needs are deliberately reviewed.
+// The five files not listed here are pure unit tests; guard-rules.test.ts is the
+// intentional exception to the usual `src/**` rule because it calls the guard
+// engine's pure functions directly. 
+const automationTests = [
+  "tests/bootstrap.test.ts",
+  "tests/check-attw.test.ts",
+  "tests/check-staged.test.ts",
+  "tests/ci-sync.test.ts",
+  "tests/clean.test.ts",
+  "tests/docs.test.ts",
+  "tests/git-env.test.ts",
+  "tests/labels.test.ts",
+  "tests/node-tools.test.ts",
+  "tests/package-smoke.test.ts",
+  "tests/package.test.ts",
+  "tests/skills-frontmatter.test.ts",
+  "tests/smoke-package.test.ts",
+  "tests/sync-agents.test.ts",
+  "tests/sync-labels.test.ts",
+  "tests/tooling-ignores.test.ts",
+  "tests/verify-bootstrap.test.ts",
+  "tests/verify-package.test.ts",
+  "tests/workflows.test.ts",
 ];
 
 export default defineConfig({
@@ -30,18 +44,19 @@ export default defineConfig({
     // finds it before the commit rather than the pipeline finding it after.
     allowOnly: false,
     // Two projects, split by what a test actually touches rather than by
-    // where it lives: a hung `unit` test (no I/O, so it can only be looping
-    // or awaiting forever) is a bug that should be visible in seconds, while
-    // `automation` tests legitimately shell out to git/node in temp
-    // directories and need the long budget. `coverage` below is unaffected by
-    // this split — Vitest collects and thresholds coverage once for the whole
-    // run, never per project.
+    // where it lives: a new test is unit by default, while the explicit
+    // automation list receives the long budget only after its I/O needs are
+    // known. A hung unit test (no I/O, so it can only be looping or awaiting
+    // forever) is a bug that should be visible in seconds. `coverage` below is
+    // unaffected by this split — Vitest collects and thresholds coverage once
+    // for the whole run, never per project.
     projects: [
       {
         extends: true,
         test: {
           name: "unit",
-          include: unitTests,
+          include: ["tests/**/*.test.ts"],
+          exclude: automationTests,
           testTimeout: 5_000,
           hookTimeout: 5_000,
         },
@@ -50,8 +65,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "automation",
-          include: ["tests/**/*.test.ts"],
-          exclude: unitTests,
+          include: automationTests,
           // Repository automation tests shell out to git/node in temp
           // directories, which is slower than a unit test but must not be
           // allowed to hang CI.

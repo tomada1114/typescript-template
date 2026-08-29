@@ -24,11 +24,11 @@ style, and fixtures (`writing-tests`); type tests with `expectTypeOf` (`type-tes
 ## Choosing a project
 
 `vitest.config.ts` splits `test.projects` into `unit` and `automation`. Placement is a
-decision you make from what the file touches, never from its name or its directory — and
-it is not inferred: `automation` is the default, its `include` is `tests/**/*.test.ts`
-minus the `unitTests` array declared at the top of `vitest.config.ts`, and a test only
-joins `unit` when you add its path to that array. Creating the file alone, whatever it
-touches, puts it in `automation`. Choose between them by:
+decision you make from what the file touches, never from its name or its directory. The
+unit project includes `tests/**/*.test.ts` by default; the automation project is the
+explicit `automationTests` list at the top of `vitest.config.ts`. A new test therefore
+starts in `unit`, and you add its path to `automationTests` when it needs I/O. Choose
+between them by:
 
 - **`unit`** — the test imports only `src/**` (plus, as a deliberate exception,
   `scripts/lib/guard/**`'s own pure-function tests) and touches no filesystem,
@@ -37,8 +37,8 @@ touches, puts it in `automation`. Choose between them by:
   directory, or spawns `git`/`node`.
 
 Getting this wrong does not fail the run — the wrong project just gives the test the
-wrong timeout budget, so decide it deliberately and edit the `unitTests` array when the
-criteria above say `unit`, rather than leaving the default in place.
+wrong timeout budget. Keep pure tests in the default unit project and edit the explicit
+`automationTests` list when a test gains filesystem, subprocess, or git work.
 
 - **Why the timeouts differ:** a `unit` test has no I/O, so if it hangs the only
   possible cause is an infinite loop or an unresolved promise, and a short timeout
