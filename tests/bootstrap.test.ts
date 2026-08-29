@@ -530,7 +530,9 @@ describe("bootstrap profiles", () => {
       "utf8",
     );
     expect(workflow).toContain("node-version: 20");
-    expect(workflow).toContain("pnpm --config.runtime-on-fail=ignore run package:smoke");
+    expect(workflow).toContain(
+      "pnpm --config.runtime-on-fail=ignore run package:smoke",
+    );
 
     await assertGeneratedTreeIsFormatted(root);
   });

@@ -55,8 +55,8 @@ they all call these scripts.
 Development and source checks stay on Node 24. A generated `node-library` may publish a
 different bare `>=N` floor through bootstrap's `--node-engines` option (default `>=24`);
 the `package-floor` CI job builds and packs on Node 24, then consumes that artifact with
-`pnpm --config.runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke` on the selected
-floor. The override is only for that compatibility check. Never relax
+`pnpm --config.runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke` on the
+selected floor. The override is only for that compatibility check. Never relax
 `devEngines.runtime`'s `onFail: error` for normal development or source checks.
 
 ## Validating a change
