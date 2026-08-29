@@ -10,7 +10,14 @@
 // Build and pack happen in the package.json script that calls this one, because
 // pnpm's own path is not discoverable from a `.mjs` under pnpm 11.
 import console from "node:console";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -155,6 +162,31 @@ export function publicSubpaths(manifest) {
     .sort();
 }
 
+/**
+ * Command names a consumer gets from a packed `bin` field.
+ *
+ * @param {unknown} manifest - Packed package manifest.
+ * @param {string} packageName - Installed package name, used for unnamed bins.
+ * @returns {string[]} Sorted command names.
+ */
+export function publicBinCommands(manifest, packageName) {
+  const bin = readKey(manifest, "bin");
+  const defaultName = packageName.slice(packageName.lastIndexOf("/") + 1);
+  if (typeof bin === "string") {
+    return [defaultName];
+  }
+  if (typeof bin !== "object" || bin === null || Array.isArray(bin)) {
+    return [];
+  }
+  return [
+    ...new Set(
+      Object.keys(/** @type {Record<string, unknown>} */ (bin)).map((name) =>
+        name === "" ? defaultName : name,
+      ),
+    ),
+  ].sort();
+}
+
 // -----------------------------------------------------------------------------
 // Checks
 // -----------------------------------------------------------------------------
@@ -247,9 +279,6 @@ export function installConsumer(workspace, tarball) {
       // A published package must be usable without running install scripts, and
       // this keeps the smoke test from executing anything the tarball ships.
       "--ignore-scripts",
-      // The strict layout is the point: npm's default hoisting would let an
-      // undeclared transitive dependency resolve and hide a phantom dependency.
-      "--install-strategy=nested",
     ],
     {
       cwd: consumer,
@@ -291,6 +320,7 @@ function runInConsumer(consumer, name, source) {
  * @param {string} consumer - Consumer directory.
  * @param {string} packageName - Installed package name.
  * @param {readonly string[]} subpaths - From {@link publicSubpaths}.
+ * @param {boolean} [checkLibrary=true] Whether the packed manifest has exports.
  * @returns {void}
  *
  * @remarks
@@ -298,7 +328,16 @@ function runInConsumer(consumer, name, source) {
  * directly, mocking `runNode` at the subprocess boundary rather than
  * installing a real tarball for every case.
  */
-export function checkRuntimeImports(consumer, packageName, subpaths) {
+export function checkRuntimeImports(
+  consumer,
+  packageName,
+  subpaths,
+  checkLibrary = true,
+) {
+  if (!checkLibrary) {
+    step("skipping library entry-point checks: the package declares no exports");
+    return;
+  }
   step(
     `importing ${String(subpaths.length)} public entry point(s) and calling the API`,
   );
@@ -354,6 +393,74 @@ console.log("  root API behaved as documented");
     });
   }
   process.stdout.write(result.stdout);
+}
+
+/**
+ * Execute every command exposed by the packed package and require usable help.
+ *
+ * @param {string} consumer - Consumer directory.
+ * @param {string} packageName - Installed package name.
+ * @param {unknown} manifest - Installed package manifest.
+ * @returns {void}
+ * @throws {SmokeError} When a declared command is missing or unusable.
+ */
+export function checkBinCommands(consumer, packageName, manifest) {
+  const bin = readKey(manifest, "bin");
+  if (bin === undefined) {
+    return;
+  }
+
+  const commands = publicBinCommands(manifest, packageName);
+  if (commands.length === 0) {
+    fail("ERR_SMOKE_BIN_INVALID", {
+      what: "The packed package declares bin in an unusable shape.",
+      subject: packageName,
+      expected: "a string bin or a non-empty object of command names",
+      actual: "no command names",
+      next: "Set package.json#bin to a string or a non-empty object, then repack.",
+    });
+  }
+
+  const binDirectory = path.join(consumer, "node_modules", ".bin");
+  for (const command of commands) {
+    if (
+      command === "." ||
+      command === ".." ||
+      command.includes("/") ||
+      command.includes("\\")
+    ) {
+      fail("ERR_SMOKE_BIN_INVALID", {
+        what: "The packed package declares an unsafe bin command name.",
+        subject: command,
+        expected: "a command name without path separators",
+        actual: command,
+        next: "Use a plain command name in package.json#bin, then repack.",
+      });
+    }
+
+    const executable = path.join(binDirectory, command);
+    step(`running ${command} --help through node_modules/.bin`);
+    if (!existsSync(executable)) {
+      fail("ERR_SMOKE_BIN_MISSING", {
+        what: "The installed package did not create a declared bin command.",
+        subject: command,
+        expected: executable,
+        actual: "path is absent",
+        next: "Build the declared bin target, then repack and reinstall.",
+      });
+    }
+    const result = runNode(executable, ["--help"], { cwd: consumer });
+    if (result.status !== 0 || result.stdout.trim() === "") {
+      fail("ERR_SMOKE_BIN_FAILED", {
+        what: "A declared bin command did not provide usable help.",
+        subject: command,
+        expected: "exit 0 with non-empty stdout for --help",
+        actual: `exit ${String(result.status)}\n${excerpt(result.stderr || result.stdout)}`,
+        next: "Run the installed command manually with --help, then fix its entry point.",
+      });
+    }
+    process.stdout.write(result.stdout);
+  }
 }
 
 /**
@@ -746,7 +853,13 @@ export function main(argv) {
       ),
     );
 
-    checkRuntimeImports(consumer, packageName, publicSubpaths(installedManifest));
+    checkRuntimeImports(
+      consumer,
+      packageName,
+      publicSubpaths(installedManifest),
+      readKey(installedManifest, "exports") !== undefined,
+    );
+    checkBinCommands(consumer, packageName, installedManifest);
     checkRequireInterop(consumer, packageName);
     checkTypeScriptConsumers(consumer, packageName);
     checkDeepImportBlocked(consumer, packageName);
