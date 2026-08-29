@@ -1301,7 +1301,7 @@ describe("workflow regression checks for repository automation", () => {
     expect(packageFloor).toContain("pnpm run build");
     expect(packageFloor).toContain("pnpm pack --pack-destination .smoke");
     expect(packageFloor).toContain(
-      "pnpm --runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke",
+      "pnpm --config.runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke",
     );
     expect(packageFloor).toContain("pnpm install --frozen-lockfile");
   });

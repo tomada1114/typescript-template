@@ -399,7 +399,7 @@ describe("assertGenerated", () => {
         "      - uses: actions/setup-node@sha # v1.0.0",
         "        with:",
         "          node-version: 20",
-        "      - run: pnpm --runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke",
+        "      - run: pnpm --config.runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke",
         "",
       ].join("\n"),
     );

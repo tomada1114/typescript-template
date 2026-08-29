@@ -42,7 +42,7 @@ default is `>=24`. Its generated `package-floor` CI job builds and packs on Node
 then switches to the selected floor and runs only the consumer check:
 
 ```sh
-pnpm --runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke
+pnpm --config.runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke
 ```
 
 The override is deliberately scoped to this artifact-consumption step. Do not use it for

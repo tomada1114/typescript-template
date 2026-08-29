@@ -145,7 +145,7 @@ jobs:
           node-version: 24 # bootstrap-node-floor
 
       - name: Consume the packed artifact at the published Node floor
-        run: pnpm --runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke
+        run: pnpm --config.runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke
 
   # template-only:start
   bootstrap:
