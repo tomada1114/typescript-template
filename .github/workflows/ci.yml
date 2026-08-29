@@ -61,8 +61,12 @@ jobs:
         run: pnpm run docs:build
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -83,7 +87,12 @@ jobs:
       # The single source of coverage: it is collected exactly once across the
       # whole workflow.
       - name: Run tests with coverage
+        if: matrix.os == 'ubuntu-latest'
         run: pnpm run test:coverage
+
+      - name: Run tests without coverage
+        if: matrix.os != 'ubuntu-latest'
+        run: pnpm run test
 
   package:
     name: Package artifact
