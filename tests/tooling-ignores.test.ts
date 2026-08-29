@@ -23,6 +23,7 @@ import { afterEach, describe, expect, it } from "vitest";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const source = ".agents/skills/merge-dependabot";
 const mirror = ".claude/skills/merge-dependabot";
+const fixtures = "tests/fixtures/";
 
 type RuleSetting = number | readonly [number, ...unknown[]];
 
@@ -107,6 +108,10 @@ describe("the .claude/skills entry in .prettierignore", () => {
   ])("still ignores %s", async (_label, relative) => {
     expect(await ignoredByPrettier(relative)).toBe(true);
   });
+
+  it("ignores the invalid JSON fixture", async () => {
+    expect(await ignoredByPrettier(`${fixtures}broken.json`)).toBe(true);
+  });
 });
 
 /**
@@ -158,6 +163,10 @@ describe("the generated/ignored tree stays consistent across tooling", () => {
 
   it("excludes the tracked-but-generated .claude/skills mirror from typos, like ESLint and Prettier already do", () => {
     expect(typosExclude).toContain(GENERATED_MIRROR);
+  });
+
+  it("excludes test fixtures from typos", () => {
+    expect(typosExclude).toContain(fixtures);
   });
 
   it("dropped the stale .rehearsal/ entry now that publish-rehearsal.mjs is gone", () => {
