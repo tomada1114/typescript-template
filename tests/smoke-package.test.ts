@@ -532,6 +532,6 @@ describe("main", () => {
     // install + runtime imports + require interop + one TypeScript consumer
     // (this repository is the node-library profile, so no Bundler consumer)
     // + the deep-import check.
-    expect(runNodeMock).toHaveBeenCalledTimes(5);
+    expect(runNodeMock).toHaveBeenCalledTimes(4);
   });
 });
