@@ -46,6 +46,7 @@ vi.mock("../scripts/lib/node-tools.mjs", async (importOriginal) => {
 });
 
 const {
+  checkBinCommands,
   checkDeepImportBlocked,
   checkRequireInterop,
   checkRuntimeImports,
@@ -54,6 +55,7 @@ const {
   installConsumer,
   isUniversalProfile,
   main,
+  publicBinCommands,
   publicSubpaths,
 } = await import("../scripts/smoke-package.mjs");
 const { repoRoot } = await import("../scripts/lib/node-tools.mjs");
@@ -101,6 +103,86 @@ describe("checkRuntimeImports", () => {
     expect(() =>
       checkRuntimeImports(consumer, "fixture-package", ["", "/sub"]),
     ).toThrow(/ERR_SMOKE_IMPORT_FAILED[\s\S]*fixture-package, fixture-package\/sub/);
+  });
+
+  it("skips the library contract for a bin-only package", () => {
+    const consumer = makeConsumer();
+
+    expect(() =>
+      checkRuntimeImports(consumer, "fixture-package", [""], false),
+    ).not.toThrow();
+    expect(runNodeMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the named-export contract for a package that also has a bin", () => {
+    runNodeMock.mockReturnValue({ status: 0, stdout: "  library ok\n", stderr: "" });
+    const consumer = makeConsumer();
+
+    expect(() =>
+      checkRuntimeImports(consumer, "fixture-package", [""], true),
+    ).not.toThrow();
+    expect(runNodeMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("publicBinCommands and checkBinCommands", () => {
+  it("normalizes a string bin and an unnamed object bin to command names", () => {
+    expect(
+      publicBinCommands({ bin: "./dist/cli.js" }, "@scope/fixture-package"),
+    ).toEqual(["fixture-package"]);
+    expect(
+      publicBinCommands(
+        { bin: { "": "./dist/cli.js", other: "./dist/other.js" } },
+        "fixture-package",
+      ),
+    ).toEqual(["fixture-package", "other"]);
+  });
+
+  it("runs every installed bin command with --help and reports stdout", () => {
+    runNodeMock.mockReturnValue({ status: 0, stdout: "Usage: fixture\n", stderr: "" });
+    const consumer = makeConsumer();
+    const binDirectory = path.join(consumer, "node_modules", ".bin");
+    mkdirSync(binDirectory, { recursive: true });
+    writeFileSync(path.join(binDirectory, "fixture-package"), "#!/usr/bin/env node\n");
+    writeFileSync(path.join(binDirectory, "other"), "#!/usr/bin/env node\n");
+
+    expect(() =>
+      checkBinCommands(consumer, "fixture-package", {
+        bin: { "": "./dist/cli.js", other: "./dist/other.js" },
+      }),
+    ).not.toThrow();
+    expect(runNodeMock).toHaveBeenCalledTimes(2);
+    expect(runNodeMock).toHaveBeenNthCalledWith(
+      1,
+      path.join(binDirectory, "fixture-package"),
+      ["--help"],
+      expect.objectContaining({ cwd: consumer }),
+    );
+    expect(stdoutSpy).toHaveBeenCalledWith("Usage: fixture\n");
+  });
+
+  it("reports a missing installed bin with its own smoke error", () => {
+    const consumer = makeConsumer();
+
+    expect(() =>
+      checkBinCommands(consumer, "fixture-package", {
+        bin: { "": "./dist/cli.js" },
+      }),
+    ).toThrow(/ERR_SMOKE_BIN_MISSING/);
+  });
+
+  it("reports a bin that exits unsuccessfully or prints no help", () => {
+    runNodeMock.mockReturnValue({ status: 0, stdout: "", stderr: "" });
+    const consumer = makeConsumer();
+    const binDirectory = path.join(consumer, "node_modules", ".bin");
+    mkdirSync(binDirectory, { recursive: true });
+    writeFileSync(path.join(binDirectory, "fixture-package"), "#!/usr/bin/env node\n");
+
+    expect(() =>
+      checkBinCommands(consumer, "fixture-package", {
+        bin: { "": "./dist/cli.js" },
+      }),
+    ).toThrow(/ERR_SMOKE_BIN_FAILED/);
   });
 });
 
@@ -295,7 +377,6 @@ describe("installConsumer", () => {
         "install",
         "/pack/fixture-package-1.0.0.tgz",
         "--ignore-scripts",
-        "--install-strategy=nested",
       ]),
       expect.objectContaining({ cwd: consumer }),
     );
@@ -451,6 +532,6 @@ describe("main", () => {
     // install + runtime imports + require interop + one TypeScript consumer
     // (this repository is the node-library profile, so no Bundler consumer)
     // + the deep-import check.
-    expect(runNodeMock).toHaveBeenCalledTimes(5);
+    expect(runNodeMock).toHaveBeenCalledTimes(4);
   });
 });
