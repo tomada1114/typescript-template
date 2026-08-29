@@ -99,7 +99,6 @@ const SELF_REMOVED_PATHS = [
 const AI_LAYER_TARGETS = [
   "AGENTS.md",
   "CLAUDE.md",
-  ".claude/settings.json",
   ".agents/skills/merge-dependabot/SKILL.md",
   ".agents/skills/merge-dependabot/references/failure-modes.md",
   ".agents/skills/merge-dependabot/scripts/survey-prs.mjs",
@@ -168,20 +167,23 @@ const REPO_RELATIVE_PATH_TOKEN = /^[A-Za-z0-9._](?:[A-Za-z0-9._/-]*[A-Za-z0-9_/-
 // in the generated tree. `dist` and `docs/api` are gitignored build output;
 // `docs` itself has no hand-written page yet, so `git ls-files` — which
 // creates a directory only for a file it copies — never creates it either;
-// `.claude/settings.local.json` is gitignored personal config; and `secrets`
+// `.claude/settings.local.json` is gitignored personal config; `secrets`
 // documents a directory *pattern* this template guards against rather than a
-// directory it ships. All five are load-bearing in a generated tree: with
-// `namesGeneratedTreeEntry` now classifying a token by shape as well as by
-// what exists on disk (see below), every one of these can be reported as
-// dangling even when its first segment is absent at the root. Entries are
-// stored without a trailing slash; a lookup normalizes the token the same
-// way, so `docs/api` and `docs/api/` are one entry rather than two spellings
-// of which only one is covered.
+// directory it ships; and `.claude/settings.json` is named only to say the
+// template does *not* ship one (AGENTS.md's "Security and human approval"),
+// so it never exists in a generated tree either. All six are load-bearing in
+// a generated tree: with `namesGeneratedTreeEntry` now classifying a token by
+// shape as well as by what exists on disk (see below), every one of these can
+// be reported as dangling even when its first segment is absent at the root.
+// Entries are stored without a trailing slash; a lookup normalizes the token
+// the same way, so `docs/api` and `docs/api/` are one entry rather than two
+// spellings of which only one is covered.
 const DANGLING_REFERENCE_EXEMPTIONS = new Set([
   "dist",
   "docs",
   "docs/api",
   ".claude/settings.local.json",
+  ".claude/settings.json",
   "secrets",
 ]);
 

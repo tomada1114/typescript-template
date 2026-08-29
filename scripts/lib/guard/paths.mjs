@@ -5,8 +5,9 @@
 // staged-content check (scripts/check-staged.mjs, which sees a git diff).
 // Lockfile hand-editing is not a path-shaped rule here: a re-generated
 // lockfile (`pnpm install`) is normal to commit, and a git diff cannot tell
-// that apart from a hand edit. Only `.claude/settings.json`'s
-// `permissions.deny` (a tool-call-aware layer) can, so that rule lives there.
+// that apart from a hand edit. Only a layer that sees the tool call that
+// produced the change could tell them apart, and this repository does not
+// enforce one — see AGENTS.md's "Enforcement layers".
 
 /** Suffixes that mark a committed, secret-free sample of a `.env` file. */
 export const ENV_EXAMPLE_SUFFIXES = [".example", ".sample", ".template"];

@@ -126,8 +126,7 @@ git merge --no-ff origin/<branch> -m "deps: merge #<number> <title>"
 ```
 
 Resolve `pnpm-lock.yaml` conflicts by regenerating, never by hand
-(`managing-dependencies` owns that rule) — `.claude/settings.json`'s `permissions.deny`
-blocks editing it, correctly:
+(`managing-dependencies` owns that rule):
 
 ```bash
 pnpm install --lockfile-only

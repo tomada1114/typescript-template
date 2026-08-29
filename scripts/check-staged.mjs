@@ -14,21 +14,19 @@
 // turns off the secret check along with everything else. This one should never
 // have a reason to fire on work someone meant to do.
 //
-// It complements `.claude/settings.json`'s `permissions.deny`, which only ever
-// sees a tool call inside a Claude Code session; this script sees what
-// actually reaches `git commit`, from any author — a human, Codex, or any
-// other tool. Two rules stay on that side and are deliberately not duplicated
-// here:
+// This script sees what actually reaches `git commit`, from any author — a
+// human, Codex, or any other tool. Two rules are deliberately not folded in
+// here, because a git diff cannot express them:
 //
 //   - Lockfile hand-editing. A regenerated lockfile (`pnpm install`) is an
 //     ordinary, expected commit, and a git diff cannot tell that apart from a
 //     hand edit — only a layer that sees the tool call that produced the
-//     change can.
+//     change could, and no such layer is enforced by this repository.
 //   - `git commit --no-verify`, a bare force-push, and publish/workflow
 //     dispatch leave nothing in a diff for this script to see. `--no-verify`
 //     in particular disables this script along with the rest of the git hook
-//     chain, so no git hook can catch it — a layer that runs before the commit
-//     is even attempted is the only one that can.
+//     chain, so no git hook can catch it. These stay as instructions in
+//     AGENTS.md rather than an enforced block — see its "Enforcement layers".
 //
 // Exit codes:
 //   0  every staged change is safe to commit
