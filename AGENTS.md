@@ -100,7 +100,7 @@ names its own boundary with its neighbours.
 | `writing-repo-scripts`       | a `.mjs` under `scripts/`                                                             |
 | `bootstrapping-the-template` | the bootstrap flow, its profiles, or `pnpm bootstrap:e2e`                             |
 | `authoring-skills`           | a skill under `.agents/skills/`                                                       |
-| `changing-gates`             | a CI workflow, `lefthook.yml`, a tool config, or a permissions entry                  |
+| `changing-gates`             | a CI workflow, `lefthook.yml`, or a tool config                                       |
 | `managing-dependencies`      | adding, bumping, or removing a package by hand (an open bot PR is `merge-dependabot`) |
 | `merge-dependabot`           | landing open Dependabot or Renovate pull requests                                     |
 | `updating-docs`              | `README.md`, `CONTRIBUTING.md`, or `docs/`                                            |
@@ -108,12 +108,13 @@ names its own boundary with its neighbours.
 
 ## Security and human approval
 
-- **Commit, push, pull request, and publish always need a human.** They are outside the
-  permission allowlist, and `.claude/settings.json`'s `permissions.deny` refuses the
-  common spellings of the dangerous ones: `--no-verify`, plain force-push,
-  `npm`/`pnpm publish`, and workflow dispatch. Those entries are prefix patterns, so
-  they catch the flag written directly after the subcommand and nothing more — the rule
-  is the instruction here, not the pattern.
+- **Commit, push, pull request, and publish always need a human.** No file this
+  repository ships blocks the dangerous spellings — `--no-verify`, a plain force-push,
+  `npm`/`pnpm publish`, workflow dispatch — mechanically; this instruction is the rule
+  itself, not a pattern enforcing it. An agent may still carry its own personal
+  permission settings on top (a Claude Code session's own `~/.claude/settings.json`, for
+  instance), but that is a choice made outside this repository, not something it ships
+  or requires.
 - Never read or write `.env*` (the `.example`, `.sample` and `.template` variants are
   fine) or anything under `secrets/`.
 - Never write a credential into a tracked file — no registry auth token, no private key.
@@ -136,35 +137,31 @@ each supply-chain setting closes off; the prohibition itself is here.
 
 ## Enforcement layers
 
-The rules above are enforced by three layers, from declarative to procedural. Each layer
+The rules above are enforced by two layers, from mechanical to procedural. Each layer
 holds only what belongs there — the rule itself lives in exactly one place, never copied
 between layers:
 
-| Layer                                        | Fires on              | Applies to             | Holds                                                          |
-| -------------------------------------------- | --------------------- | ---------------------- | -------------------------------------------------------------- |
-| `.claude/settings.json`'s `permissions.deny` | every tool call       | Claude Code only       | Rules a path or command pattern can state declaratively        |
-| `lefthook` pre-commit                        | `git commit`          | every author, any tool | Formatting, a related-test run, and the one content rule below |
-| This file                                    | read at session start | every agent            | Everything else — the reasons behind the rules above           |
+| Layer                 | Fires on              | Applies to             | Holds                                                          |
+| --------------------- | --------------------- | ---------------------- | -------------------------------------------------------------- |
+| `lefthook` pre-commit | `git commit`          | every author, any tool | Formatting, a related-test run, and the one content rule below |
+| This file             | read at session start | every agent            | Everything else — the reasons behind the rules above           |
 
-`permissions.deny` rules are a hard block, including in `bypassPermissions` mode — they
-are not advisory. They are declarative pattern matches, though, and the official Claude
-Code docs warn that a Bash pattern constraining arguments is fragile: it cannot tell
-`git commit` from `git commit --no-verify`, does not see through an `&&` chain or an
-`eval`, and a wrapper like `sh -c '…'` defeats it entirely. That gap is accepted rather
-than closed with a second, procedural Claude Code layer: an agent's own permission model
-plus a human's approval on commit/push/PR/publish already cover a session's realistic
-risk. The one rule that must hold regardless of which tool or human is committing — a
-secret about to land in history — lives in `lefthook`'s pre-commit hook instead, where
-every author goes through the same gate.
+This repository ships no declarative, tool-call-aware layer (a Claude Code
+`permissions.deny` or equivalent) — every generated project starts without one, and an
+agent has that protection only if it, or the human running it, has configured it
+personally, outside this repository. The one rule that must hold regardless of which
+tool or human is committing — a secret about to land in history — is instead the single
+mechanical layer this repository does ship: `lefthook`'s pre-commit hook, which every
+author goes through the same gate for.
 
-Two consequences of that shape are worth naming rather than discovering: `Read`/`Edit`
-deny rules classify a **tool call's path**, so they say nothing about a shell command
-that opens the same file (`cat .env`, `cp .env /tmp/x`); and turning the Git hooks off
-through the environment (`LEFTHOOK=0 git commit …`) is invisible to both the pattern
-layer and the hook it disables. Neither is enforced anywhere. "Never read or write
-`.env*` or anything under `secrets/`" and "never bypass the hooks" hold as instructions
-in this file, not as blocks — reaching for either spelling is the thing being ruled out,
-not the spelling that happens to be caught.
+Two consequences of that shape are worth naming rather than discovering: a shell command
+that reads a secret path outside a commit (`cat .env`, `cp .env /tmp/x`) is invisible to
+the hook, since it only inspects what is staged; and turning the Git hooks off through
+the environment (`LEFTHOOK=0 git commit …`) is invisible to the hook it disables, with
+nothing else in the repository watching for it. Neither is enforced anywhere. "Never
+read or write `.env*` or anything under `secrets/`" and "never bypass the hooks" hold as
+instructions in this file, not as blocks — reaching for either spelling is the thing
+being ruled out, not the spelling that happens to be caught.
 
 `scripts/lib/guard/` is the rule engine `scripts/check-staged.mjs` (the pre-commit
 layer) uses to decide whether a staged path or its content is secret-shaped. That is the
@@ -179,16 +176,16 @@ narrow hook that never fires on intended work protects more than a broad one tha
 be routed around. "Never weaken a gate to make a run pass" therefore holds as an
 instruction in this file and as something a reviewer checks, not as a block.
 
-The lockfile rule is split on purpose, and is the clearest example of why a rule
-sometimes belongs in only one layer: hand-editing `pnpm-lock.yaml` is refused by
-`permissions.deny`, but **not** by `check-staged.mjs`. A regenerated lockfile
-(`pnpm install`) is an ordinary, expected commit, and a git diff cannot tell that apart
-from a hand edit — only a layer that sees the actual tool call that produced the change
-can.
+Hand-editing `pnpm-lock.yaml` is the clearest example of a rule this repository accepts
+as unenforced rather than mechanically blocked: a regenerated lockfile (`pnpm install`)
+is an ordinary, expected commit, and a git diff cannot tell that apart from a hand edit
+— only a layer that sees the actual tool call that produced the change could, and none
+is enforced here. "The lockfile is generated, never hand-edited" holds as an
+instruction, the same way the rules above it do.
 
-A skill is subject to the same split. It holds the reasoning behind a rule and the
-judgment a config cannot express; it never holds a value a config owns, and never holds
-a prohibition an agent would meet while its declared task is something else.
+A skill holds the reasoning behind a rule and the judgment a config cannot express; it
+never holds a value a config owns, and never holds a prohibition an agent would meet
+while its declared task is something else.
 
 ## Conventions
 

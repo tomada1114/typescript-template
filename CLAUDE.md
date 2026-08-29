@@ -20,14 +20,14 @@ only records what Claude Code adds on top of them.
   committed; drift fails `pnpm agents:check`, `tests/sync-agents.test.ts`, and
   lefthook's pre-commit hook. The `authoring-skills` skill holds the rest, including why
   both copies are real files rather than a symlink.
-- `.claude/settings.json` — the shared permission allowlist, limited to local build,
-  lint, and test commands, plus `permissions.deny` entries for the rules a path or
-  command pattern can state declaratively (`/.env*`, `/secrets/**`, every
-  repository-root lockfile, `publish` on every package manager, workflow dispatch,
-  `gh release create`, `git commit --no-verify`, a plain force-push). These are a hard
-  block in every mode, including bypassPermissions — they are not advisory. Personal
-  preferences (model, output style, extra permissions) belong in
-  `.claude/settings.local.json`, which is gitignored, and never here.
+- This repository ships no `.claude/settings.json`, so no Claude Code permission entry
+  is committed here or carried into a generated project — AGENTS.md's "Security and
+  human approval" and "Enforcement layers" hold the rules that would otherwise live
+  there as instructions instead. A personal permission allowlist (model choice, extra
+  permissions, a deny list you configure for yourself) belongs in your own
+  `~/.claude/settings.json` or the gitignored `.claude/settings.local.json`, never
+  committed to this repository.
 
-When `permissions.deny` blocks something, the answer is to fix what made the bypass look
-necessary, or to ask. It is not to find another spelling.
+When an instruction in AGENTS.md would block something that looks necessary, the answer
+is to fix what made the bypass look necessary, or to ask. It is not to find another
+spelling.

@@ -2,22 +2,19 @@
 name: changing-gates
 description: >
   Covers editing a file that enforces rather than implements: hand-authoring or editing
-  a .github/workflows/*.yml CI workflow, editing lefthook.yml, changing a setting inside
-  eslint.config.mjs, tsconfig*.json, vitest.config.ts, or .prettierrc.json, or adding or
-  removing a permissions.allow/permissions.deny entry in .claude/settings.json. Use when
-  a new CI job or workflow is proposed, a lefthook stage or command changes, an ESLint
-  rule or tsconfig option is added or loosened, or a Claude Code permission entry is
-  added, removed, or narrowed.
+  a .github/workflows/*.yml CI workflow, editing lefthook.yml, or changing a setting
+  inside eslint.config.mjs, tsconfig*.json, vitest.config.ts, or .prettierrc.json. Use
+  when a new CI job or workflow is proposed, a lefthook stage or command changes, or an
+  ESLint rule or tsconfig option is added or loosened.
 ---
 
 # Changing Gates
 
 **Owns:** a change to a file that enforces rather than implements — a CI workflow,
-`lefthook.yml`, a tool config (`eslint.config.mjs`, `tsconfig*.json`,
-`vitest.config.ts`, `.prettierrc.json`), or a `permissions.allow`/`permissions.deny`
-entry in `.claude/settings.json`. **Does not own:** adding a dependency the config then
-configures (`managing-dependencies`); a coverage floor's value or which project a test
-joins (`placing-tests`); a `.mjs` under `scripts/` that a gate invokes
+`lefthook.yml`, or a tool config (`eslint.config.mjs`, `tsconfig*.json`,
+`vitest.config.ts`, `.prettierrc.json`). **Does not own:** adding a dependency the
+config then configures (`managing-dependencies`); a coverage floor's value or which
+project a test joins (`placing-tests`); a `.mjs` under `scripts/` that a gate invokes
 (`writing-repo-scripts`); `.github/labels.yml` (`triaging-issues`).
 
 ## The one rule every gate change shares
@@ -71,19 +68,3 @@ which rule or option moved, why, and what now passes (or newly fails) that did n
 before. That statement is what lets a reviewer weigh the change; AGENTS.md's prohibition
 on weakening a gate to make a run pass governs whether the change is allowed at all, and
 this skill does not restate it.
-
-## `.claude/settings.json`
-
-Shared only — a personal preference (model choice, an extra permission convenient for
-one contributor's own workflow) belongs in the gitignored `.claude/settings.local.json`
-instead, never here.
-
-- An `allow` entry is for a local build, lint, or test command that every session needs,
-  not a one-off convenience.
-- A `deny` entry is a hard block in every mode, including `bypassPermissions`, and it is
-  a prefix pattern: it catches a flag written directly after the subcommand and nothing
-  more. The rule is the AGENTS.md instruction behind the entry, not the pattern's exact
-  reach.
-- When a `deny` entry blocks something that looks necessary, the answer is to fix what
-  made the bypass look necessary, or to ask a human — never to find another spelling
-  that the pattern happens to miss.
