@@ -76,6 +76,9 @@ placeholders in the title rather than a bare index.
 
 - Prefer factory functions (`function makeX(overrides = {})`) to shared mutable
   fixtures.
+- `tests/fixtures/` is reserved for data under test, including deliberately malformed
+  inputs that must remain byte-for-byte invalid. Keep the test under `tests/*.test.ts`;
+  fixture files are never imported as modules.
 - Filesystem tests use a fresh `mkdtempSync(path.join(tmpdir(), "prefix-"))` removed in
   `afterEach` with `rmSync(dir, { recursive: true, force: true })` — never write into a
   real project directory.

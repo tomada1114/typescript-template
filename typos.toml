@@ -8,6 +8,7 @@ extend-exclude = [
   "dist/",
   "coverage/",
   "docs/api/",
+  "tests/fixtures/",
   # Generated mirror of .agents/skills/ (`pnpm agents:sync`); the real files
   # are spell-checked at their real path, and checking the copy too would
   # report the same typo twice, at a path nobody may edit.

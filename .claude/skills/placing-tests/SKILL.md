@@ -18,6 +18,8 @@ style, and fixtures (`writing-tests`); type tests with `expectTypeOf` (`type-tes
 
 - Every test file lives at `tests/<module>.test.ts`. Never co-locate a test next to the
   source file it covers.
+- `tests/fixtures/` is reserved for data under test, not test modules. A file there is
+  never imported as a module; keep executable assertions in `tests/<module>.test.ts`.
 
 ## Choosing a project
 
