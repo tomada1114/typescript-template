@@ -1264,6 +1264,23 @@ describe("the Dependabot cooldown agrees with the pnpm install cooldown", () => 
 });
 
 describe("workflow regression checks for repository automation", () => {
+  it("runs the test job as a fail-fast-free OS matrix with one coverage leg", () => {
+    const source = workflowSource("ci.yml");
+    const testStart = source.indexOf("  test:");
+    const packageStart = source.indexOf("  package:", testStart);
+    const testJob = source.slice(testStart, packageStart);
+
+    expect(testJob).toContain("name: Test (${{ matrix.os }})");
+    expect(testJob).toContain("strategy:");
+    expect(testJob).toContain("fail-fast: false");
+    expect(testJob).toContain("os: [ubuntu-latest]");
+    expect(testJob).toContain("if: matrix.os == 'ubuntu-latest'");
+    expect(testJob).toContain("if: matrix.os != 'ubuntu-latest'");
+    expect(testJob).toContain("run: pnpm run test:coverage");
+    expect(testJob).toContain("run: pnpm run test");
+    expect((testJob.match(/run: pnpm run test:coverage/g) ?? []).length).toBe(1);
+  });
+
   it("runs the lightweight bootstrap check in CI", () => {
     const source = workflowSource("ci.yml");
     const bootstrapStart = source.indexOf("  bootstrap:");
