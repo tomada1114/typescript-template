@@ -377,7 +377,7 @@ describe("assertGenerated", () => {
   it("accepts a CLI-shaped generated repository", () => {
     const destination = makeDestination();
     writeValidFixture(destination, "acme-node-library", {
-      bin: { "": "./dist/cli.js" },
+      bin: { "acme-node-library": "./dist/cli.js" },
     });
     mkdirSync(path.join(destination, "src"), { recursive: true });
     writeFileSync(path.join(destination, "src", "cli.ts"), "export {};");
@@ -425,7 +425,7 @@ describe("assertGenerated", () => {
   it("throws ERR_BIN_REMAINING when a CLI package has no emitted CLI entry", () => {
     const destination = makeDestination();
     writeValidFixture(destination, "acme-node-library", {
-      bin: { "": "./dist/other.js" },
+      bin: { "acme-node-library": "./dist/other.js" },
     });
     mkdirSync(path.join(destination, "src"), { recursive: true });
     writeFileSync(path.join(destination, "src", "cli.ts"), "export {};");

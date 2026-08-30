@@ -188,14 +188,17 @@ export function assertGenerated(destination, packageName, cli = false) {
         "Next: remove bin metadata from the template, then rerun bootstrap:e2e.",
     );
   }
+  // The command a consumer types is the bin object's key, so verifying the path
+  // alone would accept a package whose command is unnamed or misnamed.
+  const command = packageName.slice(packageName.lastIndexOf("/") + 1);
   if (
     cli &&
-    (readString(bin, "") !== "./dist/cli.js" ||
+    (readString(bin, command) !== "./dist/cli.js" ||
       !existsSync(path.join(destination, "src", "cli.ts")))
   ) {
     throw new Error(
-      "ERR_BIN_REMAINING: generated CLI package has no emitted CLI entry.\n" +
-        "Expected: package.json#bin[''] === './dist/cli.js' and src/cli.ts exists.\n" +
+      `ERR_BIN_REMAINING: generated CLI package has no emitted CLI entry.\n` +
+        `Expected: package.json#bin['${command}'] === './dist/cli.js' and src/cli.ts exists.\n` +
         "Next: keep src/cli.ts and point bin at its emitted dist/cli.js, then rerun bootstrap:e2e.",
     );
   }
