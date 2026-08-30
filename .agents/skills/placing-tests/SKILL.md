@@ -36,9 +36,13 @@ between them by:
 - **`automation`** — everything else: any test that shells out, reads or writes a temp
   directory, or spawns `git`/`node`.
 
-Getting this wrong does not fail the run — the wrong project just gives the test the
-wrong timeout budget. Keep pure tests in the default unit project and edit the explicit
-`automationTests` list when a test gains filesystem, subprocess, or git work.
+The two directions fail differently, which is the point of listing `automation`
+explicitly. Forgetting to register a test that does I/O leaves it in `unit`, where the
+5-second budget makes it time out loudly rather than pass on a budget nobody chose.
+Listing a pure test in `automationTests` is the quiet mistake: it still passes, just on
+a budget far longer than it needs. Keep pure tests in the default unit project and edit
+the explicit `automationTests` list when a test gains filesystem, subprocess, or git
+work.
 
 - **Why the timeouts differ:** a `unit` test has no I/O, so if it hangs the only
   possible cause is an infinite loop or an unresolved promise, and a short timeout

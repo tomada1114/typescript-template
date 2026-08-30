@@ -13,7 +13,7 @@ pnpm check
 ```
 
 The first command must report Node 24.x. `devEngines.runtime.onFail` is an intentional
-hard error for normal development; use the documented `--runtime-on-fail=ignore`
+hard error for normal development; use the documented `--config.runtime-on-fail=ignore`
 override only for the minimum-Node compatibility check below.
 
 Useful focused commands are `pnpm check:quick`, `pnpm test`, `pnpm test:coverage`,
