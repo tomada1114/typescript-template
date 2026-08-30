@@ -8,6 +8,8 @@ import { getFileInfo } from "prettier";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 
+import vitestConfig from "../vitest.config.js";
+
 // The skills are authored under `.agents/skills/` and mirrored into
 // `.claude/skills/` by `pnpm agents:sync`. Both tools must therefore see the
 // real files and ignore the generated copy: linting or reformatting the mirror
@@ -36,6 +38,38 @@ function ruleSeverity(setting: RuleSetting | undefined): number | undefined {
 }
 
 const eslint = new ESLint({ cwd: repoRoot });
+
+function readKey(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null && key in value
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+/** The `exclude` list of vitest.config.ts's `unit` project. */
+function unitProjectExclude(): readonly string[] {
+  const projects = readKey(readKey(vitestConfig, "test"), "projects");
+  // The `every` predicate is what narrows `Array.isArray`'s `any[]`.
+  if (
+    !Array.isArray(projects) ||
+    !projects.every(
+      (entry): entry is Record<string, unknown> =>
+        typeof entry === "object" && entry !== null,
+    )
+  ) {
+    throw new TypeError("vitest.config.ts must declare test.projects");
+  }
+  const unit = projects.find(
+    (project) => readKey(readKey(project, "test"), "name") === "unit",
+  );
+  const exclude = readKey(readKey(unit, "test"), "exclude");
+  if (
+    !Array.isArray(exclude) ||
+    !exclude.every((entry): entry is string => typeof entry === "string")
+  ) {
+    throw new TypeError("the unit project's exclude must be an array of strings");
+  }
+  return exclude;
+}
 
 function ignoredByEslint(relative: string): Promise<boolean> {
   return eslint.isPathIgnored(path.join(repoRoot, relative));
@@ -169,36 +203,81 @@ describe("the generated/ignored tree stays consistent across tooling", () => {
     expect(typosExclude).toContain(fixtures);
   });
 
+  // A file lands there because it is malformed, deliberately failing, or
+  // written for another toolchain. All five tools are asserted together so they
+  // cannot drift apart.
+  describe("tests/fixtures/ is data under test for every tool", () => {
+    it("is not linted by ESLint", async () => {
+      expect(await ignoredByEslint(`${fixtures}project/src/leaky.ts`)).toBe(true);
+    });
+
+    it("is not formatted by Prettier", async () => {
+      expect(await ignoredByPrettier(`${fixtures}project/src/leaky.ts`)).toBe(true);
+    });
+
+    it("is not type-checked by TypeScript, while the rest of tests/ still is", () => {
+      const workspace = mkdtempSync(path.join(tmpdir(), "tsconfig-fixtures-glob-"));
+      try {
+        mkdirSync(path.join(workspace, "tests/fixtures/project"), { recursive: true });
+        writeFileSync(
+          path.join(workspace, "tests/fixtures/project/broken.ts"),
+          "export const wrong: number = 'not a number';\n",
+        );
+        writeFileSync(path.join(workspace, "tests/real.test.ts"), "export {};\n");
+
+        const parsed = ts.parseJsonConfigFileContent(
+          { include: ["tests"], exclude: excludeSpec() },
+          ts.sys,
+          workspace,
+        );
+        const found = new Set(
+          parsed.fileNames.map((file) =>
+            path.relative(workspace, file).replace(/\\/g, "/"),
+          ),
+        );
+
+        expect(found.has("tests/fixtures/project/broken.ts")).toBe(false);
+        expect(found.has("tests/real.test.ts")).toBe(true);
+      } finally {
+        rmSync(workspace, { recursive: true, force: true });
+      }
+    });
+
+    it("is not collected as a test by the unit Vitest project", () => {
+      expect(unitProjectExclude()).toContain(`${fixtures}**`);
+    });
+  });
+
   it("dropped the stale .rehearsal/ entry now that publish-rehearsal.mjs is gone", () => {
     expect(gitignoreLines).not.toContain(".rehearsal/");
   });
 });
 
+// Hoisted: two describe blocks below replay this exclude spec.
+const configFile = ts.readConfigFile(path.join(repoRoot, "tsconfig.json"), (file) =>
+  ts.sys.readFile(file),
+);
+
+function excludeSpec(): readonly string[] {
+  const config: unknown = configFile.config;
+  const exclude =
+    typeof config === "object" && config !== null && "exclude" in config
+      ? config.exclude
+      : undefined;
+  if (
+    !Array.isArray(exclude) ||
+    !exclude.every((entry): entry is string => typeof entry === "string")
+  ) {
+    throw new TypeError("tsconfig.json's exclude must be an array of strings");
+  }
+  return exclude;
+}
+
 describe("the .claude/skills bridge in tsconfig.json", () => {
-  // `tsc --showConfig`-shaped: resolved through the compiler API's own
-  // include/exclude matching rather than a file committed under
-  // `.claude/skills/`, which is a generated mirror nobody may hand-edit.
-  const configPath = path.join(repoRoot, "tsconfig.json");
-  const configFile = ts.readConfigFile(configPath, (file) => ts.sys.readFile(file));
   const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, repoRoot);
   const resolved = new Set(
     parsed.fileNames.map((file) => path.relative(repoRoot, file).replace(/\\/g, "/")),
   );
-
-  function excludeSpec(): readonly string[] {
-    const config: unknown = configFile.config;
-    const exclude =
-      typeof config === "object" && config !== null && "exclude" in config
-        ? config.exclude
-        : undefined;
-    if (
-      !Array.isArray(exclude) ||
-      !exclude.every((entry): entry is string => typeof entry === "string")
-    ) {
-      throw new TypeError("tsconfig.json's exclude must be an array of strings");
-    }
-    return exclude;
-  }
 
   it("type-checks the authored skill source", () => {
     expect(resolved.has(`${source}/scripts/survey-prs.mjs`)).toBe(true);
@@ -220,8 +299,10 @@ describe("the .claude/skills bridge in tsconfig.json", () => {
       typeof config === "object" && config !== null && "include" in config
         ? config.include
         : undefined;
+    // Exact, not `toContain`: the property pinned is that no per-skill name
+    // has crept into the list.
     expect(include).toContain(".claude/skills");
-    expect(excludeSpec()).toEqual([".claude/skills/*/**/*"]);
+    expect(excludeSpec()).toEqual([".claude/skills/*/**/*", "tests/fixtures/**"]);
   });
 
   describe("generalizes to a skill that does not exist on disk", () => {

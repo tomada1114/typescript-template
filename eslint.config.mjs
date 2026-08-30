@@ -89,12 +89,15 @@ export default defineConfig([
   // the same violation twice, at a path nobody may edit.
   // `.claude/worktrees/` holds full working copies created by agent sessions,
   // linted in their own checkout.
+  // A `tests/fixtures/` file is malformed on purpose, so linting it reports
+  // the very defect a test asserts on.
   globalIgnores([
     "dist/",
     "coverage/",
     "docs/api/",
     ".claude/skills/",
     ".claude/worktrees/",
+    "tests/fixtures/",
   ]),
   {
     linterOptions: {

@@ -200,6 +200,11 @@ while its declared task is something else.
 - All committed code, comments, configuration, and public documentation are in English.
   `authoring-skills` applies this to a skill's `description`.
 
+- **A comment carries only what the code cannot** — a non-obvious why, a trap the next
+  edit would spring, an external constraint. Default to none and keep the rest to a line
+  or two. Restating the code, or narrating decision history, is what the code and git
+  already do. TSDoc on the published surface is a contract and stays.
+
 - Do what was asked; nothing more. Prefer editing an existing file to creating a new
   one, and do not add documentation files that were not requested.
 - Note improvements you spot outside the current scope instead of making them.

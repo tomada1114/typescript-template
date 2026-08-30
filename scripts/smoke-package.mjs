@@ -30,6 +30,7 @@ import {
   inspectPackageEntries,
   parsePackedManifest,
   readTarEntries,
+  requiredEntryPaths,
 } from "./check-package.mjs";
 import { isMain } from "./lib/is-main.mjs";
 import { parseJson, readKey, readString } from "./lib/json.mjs";
@@ -318,7 +319,14 @@ function runInConsumer(consumer, name, source) {
 }
 
 /**
- * Steps 7 and 8: import every public entry point and call the root API.
+ * Steps 7 and 8: import every public entry point and read its export shape.
+ *
+ * @remarks
+ * Names no concrete symbol on purpose: an assertion about *this* package's API
+ * would have to be rewritten by every repository generated from this template,
+ * inside automation nobody expects to edit. A module that throws while
+ * evaluating is still caught; one that throws on first call is the package's
+ * own test suite's concern.
  *
  * @param {string} consumer - Consumer directory.
  * @param {string} packageName - Installed package name.
@@ -341,9 +349,7 @@ export function checkRuntimeImports(
     step("skipping library entry-point checks: the package declares no exports");
     return;
   }
-  step(
-    `importing ${String(subpaths.length)} public entry point(s) and calling the API`,
-  );
+  step(`importing ${String(subpaths.length)} public entry point(s)`);
   const result = runInConsumer(
     consumer,
     "check-runtime.mjs",
@@ -361,36 +367,14 @@ for (const subpath of ${JSON.stringify(subpaths)}) {
   assert.ok(names.length > 0, \`\${specifier} exposes no named exports\`);
   console.log(\`  \${specifier} -> \${names.sort().join(", ")}\`);
 }
-
-// Exercise the root API for real: an entry point that resolves but throws on
-// first use would otherwise pass.
-const { normalizeIdentifier, withTimeout, InvalidInputError, TimeoutError } =
-  await import(${JSON.stringify(packageName)});
-
-assert.equal(normalizeIdentifier("Hello World"), "hello-world");
-assert.equal(normalizeIdentifier("Hello World", { separator: "_" }), "hello_world");
-assert.throws(() => normalizeIdentifier("   "), InvalidInputError);
-
-assert.equal(await withTimeout(async () => "ok", { timeoutMs: 10_000 }), "ok");
-await assert.rejects(
-  withTimeout(
-    (signal) =>
-      new Promise((_resolve, reject) => {
-        signal.addEventListener("abort", () => { reject(signal.reason); }, { once: true });
-      }),
-    { timeoutMs: 1 },
-  ),
-  TimeoutError,
-);
-console.log("  root API behaved as documented");
 `,
   );
 
   if (result.status !== 0) {
     fail("ERR_SMOKE_IMPORT_FAILED", {
-      what: "A consumer could not import or use the published entry points.",
+      what: "A consumer could not import the published entry points.",
       subject: subpaths.map((subpath) => packageName + subpath).join(", "),
-      expected: "every public subpath imports, and the root API behaves as documented",
+      expected: "every public subpath imports and exposes at least one named export",
       actual: `exit ${String(result.status)}\n${excerpt(result.stderr || result.stdout)}`,
       next: "Check `exports` in package.json and the re-exports in src/index.ts.",
     });
@@ -503,12 +487,15 @@ export function checkRequireInterop(consumer, packageName) {
 
 const api = require(${JSON.stringify(packageName)});
 assert.equal(
-  typeof api.normalizeIdentifier,
-  "function",
-  "require() returned no normalizeIdentifier; check the exports conditions",
+  typeof api,
+  "object",
+  "require() did not return a module namespace; check the exports conditions",
 );
-assert.equal(api.normalizeIdentifier("Hello World"), "hello-world");
-console.log("  require() resolved the package root and called its API");
+assert.ok(
+  Object.keys(api).filter((name) => name !== "__esModule").length > 0,
+  "require() returned no named exports; check the exports conditions",
+);
+console.log("  require() resolved the package root");
 
 const manifest = require(${JSON.stringify(`${packageName}/package.json`)});
 assert.equal(manifest.name, ${JSON.stringify(packageName)});
@@ -530,10 +517,37 @@ console.log("  require() resolved the ./package.json subpath");
 }
 
 /**
- * Step 11: a private module must not be reachable by deep import.
+ * A packed file path that `exports` must refuse to resolve for a consumer.
+ *
+ * @remarks
+ * Derived from the manifest so this holds for any package, including one with
+ * no private directory at all. A path the manifest points at is a real file in
+ * the tarball, and is unreachable by that path unless `exports` also spells it
+ * as a subpath key — which the filter excludes.
+ *
+ * @param {unknown} manifest - The installed package manifest.
+ * @returns {string | undefined} A path relative to the package root.
+ */
+export function unexportedEntryPath(manifest) {
+  const exports = readKey(manifest, "exports");
+  const exportedKeys = new Set(
+    typeof exports === "object" && exports !== null
+      ? Object.keys(/** @type {Record<string, unknown>} */ (exports))
+          .filter((key) => key.startsWith("./"))
+          .map((key) => key.slice(2))
+      : [],
+  );
+  return requiredEntryPaths(manifest).find(
+    (candidate) => candidate.endsWith(".js") && !exportedKeys.has(candidate),
+  );
+}
+
+/**
+ * Step 11: a packed file must not be reachable by deep import.
  *
  * @param {string} consumer - Consumer directory.
  * @param {string} packageName - Installed package name.
+ * @param {string | undefined} entryPath - From {@link unexportedEntryPath}.
  * @returns {void}
  *
  * @remarks
@@ -541,16 +555,20 @@ console.log("  require() resolved the ./package.json subpath");
  * directly; see {@link checkRuntimeImports} for why `runNode` is the boundary
  * mocked rather than a real tarball install.
  */
-export function checkDeepImportBlocked(consumer, packageName) {
-  const specifier = `${packageName}/dist/internal/assert.js`;
+export function checkDeepImportBlocked(consumer, packageName, entryPath) {
+  if (entryPath === undefined) {
+    step("skipping the deep-import check: the manifest points at no packed .js file");
+    return;
+  }
+  const specifier = `${packageName}/${entryPath}`;
   step(`checking that ${specifier} is not reachable`);
   const result = runInConsumer(
     consumer,
     "check-deep-import.mjs",
     `import assert from "node:assert/strict";
 
-// The file is inside the tarball on purpose: index.js imports it. What must hold
-// is that \`exports\` refuses to resolve it for a consumer.
+// The file is inside the tarball on purpose — the manifest points at it. What
+// must hold is that \`exports\` refuses to resolve it by that path.
 await assert.rejects(
   import(${JSON.stringify(specifier)}),
   (error) => {
@@ -568,7 +586,7 @@ console.log("  deep import correctly refused");
 
   if (result.status !== 0) {
     fail("ERR_SMOKE_DEEP_IMPORT_ALLOWED", {
-      what: "A private module was reachable by deep import, or the import failed for the wrong reason.",
+      what: "A packed file was reachable by deep import, or the import failed for the wrong reason.",
       subject: specifier,
       expected: "the import rejects with ERR_PACKAGE_PATH_NOT_EXPORTED",
       actual: `exit ${String(result.status)}\n${excerpt(result.stderr || result.stdout)}`,
@@ -656,37 +674,19 @@ export function compileTypeScriptConsumer(consumer, packageName, resolution) {
       2,
     )}\n`,
   );
+  // A namespace import names no symbol, so this compiles for any package. Not
+  // a weaker check: `skipLibCheck` is off above, so the import makes tsc fully
+  // check every published declaration. Reading the keys keeps it from being
+  // elided.
   writeFileSync(
     path.join(project, "index.ts"),
-    `import {
-  InvalidInputError,
-  TimeoutError,
-  normalizeIdentifier,
-  withTimeout,
-} from ${JSON.stringify(packageName)};
-import type {
-  NormalizeIdentifierOptions,
-  WithTimeoutOptions,
-} from ${JSON.stringify(packageName)};
+    `import * as api from ${JSON.stringify(packageName)};
 
-// Exercise the inferred types, not merely the presence of the names.
-const options: NormalizeIdentifierOptions = { separator: "_", maxLength: 8 };
-const identifier: string = normalizeIdentifier("Hello World", options);
-const deadline: WithTimeoutOptions = { timeoutMs: 1_000 };
+export type PublicSurface = typeof api;
 
-export async function run(): Promise<string> {
-  try {
-    return await withTimeout<string>(async () => identifier, deadline);
-  } catch (error: unknown) {
-    if (error instanceof TimeoutError) {
-      return \`timed out after \${String(error.timeoutMs)}ms\`;
-    }
-    if (error instanceof InvalidInputError) {
-      // \`code\` and \`field\` are part of the published contract.
-      return \`\${error.code}: \${error.field}\`;
-    }
-    throw error;
-  }
+export function publicNames(): readonly string[] {
+  const surface: PublicSurface = api;
+  return Object.keys(surface);
 }
 `,
   );
@@ -866,7 +866,11 @@ export function main(argv) {
     checkBinCommands(consumer, packageName, installedManifest);
     checkRequireInterop(consumer, packageName);
     checkTypeScriptConsumers(consumer, packageName);
-    checkDeepImportBlocked(consumer, packageName);
+    checkDeepImportBlocked(
+      consumer,
+      packageName,
+      unexportedEntryPath(installedManifest),
+    );
 
     step("all checks passed");
     return 0;

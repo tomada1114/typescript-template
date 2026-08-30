@@ -18,8 +18,14 @@ style, and fixtures (`writing-tests`); type tests with `expectTypeOf` (`type-tes
 
 - Every test file lives at `tests/<module>.test.ts`. Never co-locate a test next to the
   source file it covers.
-- `tests/fixtures/` is reserved for data under test, not test modules. A file there is
-  never imported as a module; keep executable assertions in `tests/<module>.test.ts`.
+- `tests/fixtures/` is reserved for data under test, not test modules. Keep executable
+  assertions in `tests/<module>.test.ts`.
+- Nothing under `tests/fixtures/` is linted, formatted, type-checked, spell-checked, or
+  collected as a test — `eslint.config.mjs`, `.prettierignore`, `tsconfig.json`,
+  `typos.toml` and `vitest.config.ts` all skip it, and `tests/tooling-ignores.test.ts`
+  holds the five together. That is what makes the tree usable for a fixture that is
+  _meant_ to be malformed or to fail, or for a whole project belonging to another
+  toolchain, driven from an `automation` test as a child process.
 
 ## Choosing a project
 
@@ -86,6 +92,13 @@ questions:
 See `vitest.config.ts`'s `coverage.thresholds` for the current numbers; this skill
 deliberately does not repeat them, since a copied number goes stale the moment the
 config changes.
+
+**Coverage stops at the process boundary.** The v8 provider instruments the Vitest
+workers and nothing else, so a `src/**` module that only ever executes inside a process
+the test spawns reports 0% however thoroughly the integration test exercises it — and 0%
+against an 80% floor fails the run. Design for it rather than discovering it: keep the
+part that runs in the child thin and put the logic behind it in a module the test can
+also call in-process.
 
 - **Branch coverage is the one that matters.** Cover both sides of a conditional rather
   than adding a trivial test whose only effect is moving a line/statement percentage.

@@ -57,6 +57,7 @@ const {
   main,
   publicBinCommands,
   publicSubpaths,
+  unexportedEntryPath,
 } = await import("../scripts/smoke-package.mjs");
 const { repoRoot } = await import("../scripts/lib/node-tools.mjs");
 
@@ -209,21 +210,63 @@ describe("checkRequireInterop", () => {
   });
 });
 
+describe("unexportedEntryPath", () => {
+  it("returns the file behind the root export, which is not itself a subpath", () => {
+    expect(
+      unexportedEntryPath({
+        exports: {
+          ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+          "./package.json": "./package.json",
+        },
+      }),
+    ).toBe("dist/index.js");
+  });
+
+  it("skips a packed file that the manifest also exports by that exact path", () => {
+    // Such a path is public, so probing it would assert the opposite of the
+    // contract.
+    expect(
+      unexportedEntryPath({
+        exports: {
+          ".": "./dist/index.js",
+          "./dist/index.js": "./dist/index.js",
+        },
+        bin: { tool: "./dist/cli.js" },
+      }),
+    ).toBe("dist/cli.js");
+  });
+
+  it("returns undefined when the manifest points at no packed .js file", () => {
+    expect(unexportedEntryPath({ types: "./dist/index.d.ts" })).toBeUndefined();
+  });
+});
+
 describe("checkDeepImportBlocked", () => {
   it("passes when the deep import is correctly refused", () => {
     runNodeMock.mockReturnValue({ status: 0, stdout: "  refused\n", stderr: "" });
     const consumer = makeConsumer();
 
-    expect(() => checkDeepImportBlocked(consumer, "fixture-package")).not.toThrow();
+    expect(() =>
+      checkDeepImportBlocked(consumer, "fixture-package", "dist/index.js"),
+    ).not.toThrow();
   });
 
-  it("throws ERR_SMOKE_DEEP_IMPORT_ALLOWED when the private module is reachable", () => {
+  it("throws ERR_SMOKE_DEEP_IMPORT_ALLOWED when the packed file is reachable", () => {
     runNodeMock.mockReturnValue({ status: 1, stdout: "", stderr: "AssertionError" });
     const consumer = makeConsumer();
 
-    expect(() => checkDeepImportBlocked(consumer, "fixture-package")).toThrow(
-      /ERR_SMOKE_DEEP_IMPORT_ALLOWED/,
-    );
+    expect(() =>
+      checkDeepImportBlocked(consumer, "fixture-package", "dist/index.js"),
+    ).toThrow(/ERR_SMOKE_DEEP_IMPORT_ALLOWED/);
+  });
+
+  it("skips the check, without spawning anything, when there is no path to probe", () => {
+    const consumer = makeConsumer();
+
+    expect(() =>
+      checkDeepImportBlocked(consumer, "fixture-package", undefined),
+    ).not.toThrow();
+    expect(runNodeMock).not.toHaveBeenCalled();
   });
 });
 
