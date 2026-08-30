@@ -1127,7 +1127,10 @@ function transform(root, options, year, preview) {
     delete (/** @type {Record<string, unknown>} */ (scripts)["bootstrap:e2e"]);
   }
   if (options.cli) {
-    manifest["bin"] = { "": "./dist/cli.js" };
+    // npm exposes a bin object's key as the command name, so the key has to be
+    // the name the consumer types. A scoped package's command is its unscoped
+    // half, which is what `npx <name>` resolves to.
+    manifest["bin"] = { [names.unscoped]: "./dist/cli.js" };
   } else {
     delete manifest["bin"];
   }

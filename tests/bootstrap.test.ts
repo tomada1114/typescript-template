@@ -490,7 +490,7 @@ describe("bootstrap profiles", () => {
     expect(existsSync(path.join(root, "scripts", "lib", "json.mjs"))).toBe(true);
 
     if (cli === "yes") {
-      expect(manifest.bin).toEqual({ "": "./dist/cli.js" });
+      expect(manifest.bin).toEqual({ [packageName]: "./dist/cli.js" });
       expect(readFileSync(path.join(root, "src", "cli.ts"), "utf8")).toContain(
         "Usage:",
       );
@@ -556,6 +556,21 @@ describe("bootstrap profiles", () => {
       await assertGeneratedTreeIsFormatted(root);
     },
   );
+
+  // npm exposes a bin object's key as the command name, and a scoped package's
+  // command is its unscoped half — `npx @acme/widget-cli` runs `widget-cli`.
+  // Keying the object by the full scoped name would declare a command nobody
+  // can type.
+  it("names the generated CLI command after the unscoped package name", () => {
+    const root = copyTemplate();
+
+    bootstrap(root, options("@acme/widget-cli", "node-library", "yes"));
+
+    const manifest = JSON.parse(
+      readFileSync(path.join(root, "package.json"), "utf8"),
+    ) as { bin?: Record<string, string> };
+    expect(manifest.bin).toEqual({ "widget-cli": "./dist/cli.js" });
+  });
 
   it("rewrites only explicit targets", () => {
     const root = copyTemplate();
