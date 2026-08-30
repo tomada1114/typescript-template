@@ -420,6 +420,7 @@ describe("installConsumer", () => {
         "install",
         "/pack/fixture-package-1.0.0.tgz",
         "--ignore-scripts",
+        "--legacy-peer-deps",
       ]),
       expect.objectContaining({ cwd: consumer }),
     );

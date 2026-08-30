@@ -283,6 +283,9 @@ export function installConsumer(workspace, tarball) {
       // The strict layout is the point: npm's default hoisting would let an
       // undeclared transitive dependency resolve and hide a phantom dependency.
       "--install-strategy=nested",
+      // Peers are the consumer's to provide, not this smoke test's to fetch
+      // from the registry; this keeps the install offline for any peer range.
+      "--legacy-peer-deps",
     ],
     {
       cwd: consumer,
