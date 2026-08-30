@@ -58,20 +58,23 @@ real command.
 
 ## What a `peerDependencies` entry actually does here
 
-No gate asserts anything about a peer. Both package managers resolve one silently, which
-is worth knowing before you rely on either:
+No gate asserts that a declared peer range is satisfiable. What the two package managers
+do with one differs, which is worth knowing before you rely on either:
 
 - `pnpm install` auto-installs an unsatisfied peer of this package as an ordinary
   dependency, picking the **highest** version matching the range. A `devDependencies`
   entry naming the same package wins instead, and pnpm does not complain when that entry
   falls outside the declared peer range.
 - The consumer smoke test (`scripts/smoke-package.mjs`) installs the tarball with
-  `npm install`, which also auto-installs peers from the network, again at the top of
-  the range. So a peer makes `pnpm package:check` a network operation, and a peer
-  shipping a native postinstall arrives unusable — the install passes `--ignore-scripts`
-  on purpose.
-- A peer range nothing can satisfy therefore surfaces as `ERR_SMOKE_INSTALL_FAILED`,
-  whose message is about the tarball rather than about the peer.
+  `npm install --legacy-peer-deps`, so the throwaway consumer never fetches a peer from
+  the network and `node_modules` holds only the package under test. That is what proves
+  the more useful thing: the published package installs and its `bin` runs _before_ the
+  consumer has the peer in place, which is the real first-run experience of
+  `npx <tool>`. A `bin` that actually needs the peer at runtime must therefore fail with
+  its own diagnostic, not a bare module-resolution stack trace.
+- Whether the declared range itself is satisfiable by anything on the registry is not
+  tested here — asserting that needs the real network by definition, so it belongs in a
+  separate CI job, not in the offline smoke test.
 
 ## Testing against a version the ceiling forbids
 
