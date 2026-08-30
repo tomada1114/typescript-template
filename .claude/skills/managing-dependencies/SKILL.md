@@ -22,7 +22,10 @@ Adding a runtime dependency is a permanent supply-chain commitment, so before ad
 one, record all of the following in the PR that adds it. Missing one item is not a
 detail to fill in later — it means the review has not actually happened yet.
 
-- Why a small hand-written helper or a Node builtin cannot replace it.
+- Why a small hand-written helper or a Node builtin cannot replace it. For a package
+  with a `bin`, check `node:util`'s `parseArgs` first: it covers subcommands
+  (`allowPositionals`) and rejects unknown flags (`strict`), so an argument-parser
+  dependency needs a reason beyond convenience.
 - Maintainer and release continuity — actively maintained, not abandoned.
 - License compatibility (MIT/BSD/Apache-class; a copyleft license needs a deliberate,
   explicit reason for a published library).
@@ -52,6 +55,34 @@ real. Those commands exercise the packed manifest and an actual throwaway consum
 install; keep the dependency declared in `dependencies`, never bundle it into the
 tarball, and do not treat the mocked unit/automation case as a substitute for either
 real command.
+
+## What a `peerDependencies` entry actually does here
+
+No gate asserts anything about a peer. Both package managers resolve one silently, which
+is worth knowing before you rely on either:
+
+- `pnpm install` auto-installs an unsatisfied peer of this package as an ordinary
+  dependency, picking the **highest** version matching the range. A `devDependencies`
+  entry naming the same package wins instead, and pnpm does not complain when that entry
+  falls outside the declared peer range.
+- The consumer smoke test (`scripts/smoke-package.mjs`) installs the tarball with
+  `npm install`, which also auto-installs peers from the network, again at the top of
+  the range. So a peer makes `pnpm package:check` a network operation, and a peer
+  shipping a native postinstall arrives unusable — the install passes `--ignore-scripts`
+  on purpose.
+- A peer range nothing can satisfy therefore surfaces as `ERR_SMOKE_INSTALL_FAILED`,
+  whose message is about the tarball rather than about the peer.
+
+## Testing against a version the ceiling forbids
+
+The TypeScript ceiling below is a real ceiling: `typescript@7` as a `devDependencies`
+entry fails the install outright under `strictPeerDependencies`. The same holds for any
+peer runtime this repository's own toolchain caps.
+
+A package whose product must _support_ such a version does not raise the ceiling for it.
+It installs that version into a fixture project under `tests/fixtures/` and drives it as
+a child process, keeping the version under test out of this repository's own dependency
+graph entirely.
 
 ## Range vs. pin, and how a change lands
 
@@ -103,9 +134,11 @@ the file for the current values rather than trusting a number copied here.
   allowlisted entry, a reviewed exception because its postinstall is how its Git-hook
   binary is downloaded and linked. Adding another entry carries the same review weight
   as adding a new dependency.
-- `strictPeerDependencies`: an unmet or conflicting peer range is a hard install
-  failure, not a warning. This is what makes the TypeScript ceiling below an enforced
-  constraint instead of an advisory one.
+- `strictPeerDependencies`: a peer range declared by an installed **dependency** and
+  left unmet or conflicting is a hard install failure, not a warning. This is what makes
+  the TypeScript ceiling below an enforced constraint instead of an advisory one. It
+  says nothing about a peer this package declares for its own consumers — see "What a
+  `peerDependencies` entry actually does here" above for that.
 - `minimumReleaseAgeStrict` and `minimumReleaseAgeIgnoreMissingTime` close two specific
   bypasses of the cooldown above: an already-lockfiled version skipping the check, and
   registry metadata with no publish time being treated as old enough, respectively.
