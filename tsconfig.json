@@ -63,5 +63,8 @@
   // `.claude/skills/*/**/*` requires at least one path segment *after* the
   // subdirectory name, so it only matches paths nested inside a subdirectory
   // and never a file sitting directly in `.claude/skills/`.
-  "exclude": [".claude/skills/*/**/*"]
+  //
+  // A `tests/fixtures/` file is malformed on purpose, so type-checking it
+  // reports the very defect a test asserts on.
+  "exclude": [".claude/skills/*/**/*", "tests/fixtures/**"]
 }

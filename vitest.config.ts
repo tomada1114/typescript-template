@@ -1,5 +1,9 @@
 import { defineConfig } from "vitest/config";
 
+// Without this, a fixture suite written to fail is collected as one of this
+// repository's own tests.
+const fixtures = "tests/fixtures/**";
+
 // Tests that import repository automation, touch the filesystem, spawn a
 // subprocess, or use git. They are listed explicitly so a new test defaults to
 // the short-timeout unit project until its I/O needs are deliberately reviewed.
@@ -56,7 +60,7 @@ export default defineConfig({
         test: {
           name: "unit",
           include: ["tests/**/*.test.ts"],
-          exclude: automationTests,
+          exclude: [...automationTests, fixtures],
           testTimeout: 5_000,
           hookTimeout: 5_000,
         },
