@@ -279,6 +279,9 @@ export function installConsumer(workspace, tarball) {
       // A published package must be usable without running install scripts, and
       // this keeps the smoke test from executing anything the tarball ships.
       "--ignore-scripts",
+      // The strict layout is the point: npm's default hoisting would let an
+      // undeclared transitive dependency resolve and hide a phantom dependency.
+      "--install-strategy=nested",
     ],
     {
       cwd: consumer,

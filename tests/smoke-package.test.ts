@@ -1,12 +1,5 @@
 import consoleModule from "node:console";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -521,15 +514,16 @@ describe("main", () => {
       exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
     });
 
-    let runtimeDependencyInstalled = false;
+    let installArgs: readonly string[] = [];
 
     // Simulate npm install's package and runtime-dependency side effects since
     // runNode never actually runs npm; every other check just needs to see exit
-    // 0. The nested location mirrors --install-strategy=nested, which proves
-    // this is a dependency resolved for the installed package rather than an
-    // undeclared top-level dependency.
+    // 0. The nested location mirrors --install-strategy=nested, which is what
+    // makes this a dependency resolved for the installed package rather than an
+    // undeclared top-level one.
     runNodeMock.mockImplementation((_script, args, options) => {
       if (args[0] === "install" && options?.cwd !== undefined) {
+        installArgs = args;
         const installed = path.join(options.cwd, "node_modules", name);
         mkdirSync(installed, { recursive: true });
         writeFileSync(
@@ -547,7 +541,6 @@ describe("main", () => {
           path.join(dependency, "package.json"),
           JSON.stringify({ name: runtimeDependency, version: "1.0.0" }),
         );
-        runtimeDependencyInstalled = existsSync(path.join(dependency, "package.json"));
       }
       return { status: 0, stdout: "  ok\n", stderr: "" };
     });
@@ -555,7 +548,12 @@ describe("main", () => {
     const exitCode = main(["--tarball", tarball]);
     expect(errorSpy).not.toHaveBeenCalled();
     expect(exitCode).toBe(0);
-    expect(runtimeDependencyInstalled).toBe(true);
+    // Asserting the file the mock itself just wrote would only test the mock.
+    // What this case can actually protect is the production argv: the nested
+    // layout is the reason a declared runtime dependency has to resolve under
+    // the installed package instead of being hoisted next to it, so dropping
+    // the flag must fail here rather than quietly weakening the smoke test.
+    expect(installArgs).toContain("--install-strategy=nested");
     // install + runtime imports + require interop + one TypeScript consumer
     // (this repository is the node-library profile, so no Bundler consumer)
     // + the deep-import check.
