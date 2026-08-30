@@ -8,6 +8,8 @@ extend-exclude = [
   "dist/",
   "coverage/",
   "docs/api/",
+  # Data under test. Unlike the generated trees above this one is committed on
+  # purpose, and a string misspelled on purpose is the point of the fixture.
   "tests/fixtures/",
   # Generated mirror of .agents/skills/ (`pnpm agents:sync`); the real files
   # are spell-checked at their real path, and checking the copy too would
