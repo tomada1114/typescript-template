@@ -26,6 +26,7 @@ const automationTests = [
   "tests/smoke-package.test.ts",
   "tests/sync-agents.test.ts",
   "tests/sync-labels.test.ts",
+  "tests/template-self.test.ts",
   "tests/tooling-ignores.test.ts",
   "tests/verify-bootstrap.test.ts",
   "tests/verify-package.test.ts",

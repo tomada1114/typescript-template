@@ -501,13 +501,22 @@ describe("bootstrap profiles", () => {
     expect(manifest.sideEffects).toBe(false);
 
     const buildConfig = readFileSync(path.join(root, "tsconfig.build.json"), "utf8");
+    const workflow = readFileSync(
+      path.join(root, ".github", "workflows", "ci.yml"),
+      "utf8",
+    );
+    expect(workflow).not.toContain("# bootstrap-node-floor");
     if (profile === "universal-library") {
       expect(buildConfig).toContain('"types": []');
       expect(buildConfig).toContain('"DOM"');
       expect(manifest.engines).toBeUndefined();
+      // No published floor means no floor for this job to verify.
+      expect(workflow).not.toContain("  package-floor:");
     } else {
       expect(buildConfig).toContain('"types": ["node"]');
       expect(manifest.engines).toEqual({ node: ">=24" });
+      const packageFloor = workflow.slice(workflow.indexOf("  package-floor:"));
+      expect(packageFloor).toContain("node-version: 24");
     }
 
     // A `template-only` block at end of file (see #111) or a re-padded
@@ -529,8 +538,10 @@ describe("bootstrap profiles", () => {
       path.join(root, ".github", "workflows", "ci.yml"),
       "utf8",
     );
-    expect(workflow).toContain("node-version: 20");
-    expect(workflow).toContain(
+    expect(workflow).not.toContain("# bootstrap-node-floor");
+    const packageFloor = workflow.slice(workflow.indexOf("  package-floor:"));
+    expect(packageFloor).toContain("node-version: 20");
+    expect(packageFloor).toContain(
       "pnpm --config.runtime-on-fail=ignore run package:smoke",
     );
 

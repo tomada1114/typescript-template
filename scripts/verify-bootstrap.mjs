@@ -211,30 +211,50 @@ export function assertGenerated(destination, packageName, cli = false) {
   }
 
   const nodeEngines = readString(readKey(manifest, "engines"), "node");
-  if (nodeEngines !== undefined) {
-    const floor = /^>=(\d+)$/.exec(nodeEngines)?.[1];
-    const workflow = readFileSync(
-      path.join(destination, ".github", "workflows", "ci.yml"),
-      "utf8",
+  const workflow = readFileSync(
+    path.join(destination, ".github", "workflows", "ci.yml"),
+    "utf8",
+  );
+  if (workflow.includes("# bootstrap-node-floor")) {
+    throw new Error(
+      `ERR_NODE_ENGINES_CI_MISMATCH: generated ${packageName} still carries the ` +
+        "bootstrap-node-floor marker in ci.yml.\n" +
+        "Expected: bootstrap's placeholder rewrite drops that trailing comment.\n" +
+        "Next: check CI_NODE_FLOOR_LINE's replacement in transform(), then rerun bootstrap:e2e.",
     );
-    const packageFloorStart = workflow.indexOf("\n  package-floor:");
-    const packageFloor =
-      packageFloorStart === -1 ? "" : workflow.slice(packageFloorStart);
-    if (floor === undefined || !packageFloor.includes(`node-version: ${floor}`)) {
+  }
+  const packageFloorStart = workflow.indexOf("\n  package-floor:");
+  const packageFloor =
+    packageFloorStart === -1 ? "" : workflow.slice(packageFloorStart);
+  if (nodeEngines === undefined) {
+    // universal-library declares no floor, so there is nothing for the
+    // package-floor job to verify — bootstrap removes the whole job.
+    if (packageFloorStart !== -1) {
       throw new Error(
-        `ERR_NODE_ENGINES_CI_MISMATCH: generated ${packageName} publishes ${nodeEngines}, ` +
-          "but its package-floor CI leg does not run that major.\n" +
-          "Expected: the package-floor job's node-version to equal engines.node's >=N floor.\n" +
-          "Next: rerun bootstrap with a supported --node-engines range and regenerate ci.yml.",
+        `ERR_NODE_ENGINES_CI_MISMATCH: generated ${packageName} declares no ` +
+          "engines.node but still ships the package-floor CI job.\n" +
+          "Expected: no package-floor job when the package publishes no Node floor.\n" +
+          "Next: check the `# profile:node-library:` block wrapping package-floor in " +
+          "ci.yml, then rerun bootstrap:e2e.",
       );
     }
-    if (!packageFloor.includes("package:smoke")) {
-      throw new Error(
-        `ERR_NODE_ENGINES_CI_MISMATCH: generated ${packageName} has no package:smoke floor check.\n` +
-          "Expected: package-floor runs package:smoke against the packed artifact.\n" +
-          "Next: restore the package-floor job in ci.yml, then rerun bootstrap:e2e.",
-      );
-    }
+    return;
+  }
+  const floor = /^>=(\d+)$/.exec(nodeEngines)?.[1];
+  if (floor === undefined || !packageFloor.includes(`node-version: ${floor}`)) {
+    throw new Error(
+      `ERR_NODE_ENGINES_CI_MISMATCH: generated ${packageName} publishes ${nodeEngines}, ` +
+        "but its package-floor CI leg does not run that major.\n" +
+        "Expected: the package-floor job's node-version to equal engines.node's >=N floor.\n" +
+        "Next: rerun bootstrap with a supported --node-engines range and regenerate ci.yml.",
+    );
+  }
+  if (!packageFloor.includes("package:smoke")) {
+    throw new Error(
+      `ERR_NODE_ENGINES_CI_MISMATCH: generated ${packageName} has no package:smoke floor check.\n` +
+        "Expected: package-floor runs package:smoke against the packed artifact.\n" +
+        "Next: restore the package-floor job in ci.yml, then rerun bootstrap:e2e.",
+    );
   }
 }
 
