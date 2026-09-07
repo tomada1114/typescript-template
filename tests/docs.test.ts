@@ -215,11 +215,16 @@ describe("README's Node.js floor", () => {
       readFileSync(path.join(repoRoot, "package.json"), "utf8"),
     );
     const nodeRange = readString(readKey(manifest, "engines"), "node");
-    expect(typeof nodeRange).toBe("string");
-    const floor = /^>=(\d+)$/.exec(String(nodeRange))?.[1];
+    // universal-library declares no engines.node: README says so explicitly
+    // instead of claiming a floor that isn't published.
+    if (nodeRange === undefined) {
+      expect(readme).toContain("The package does not declare a Node.js floor.");
+      return;
+    }
+    const floor = /^>=(\d+)$/.exec(nodeRange)?.[1];
     if (floor === undefined) {
       throw new Error(
-        `package.json's engines.node (${String(nodeRange)}) is not a bare >=N range`,
+        `package.json's engines.node (${nodeRange}) is not a bare >=N range`,
       );
     }
     expect(readme).toContain(`Requires Node.js ${floor} or newer`);

@@ -99,6 +99,7 @@ export const MARKER_TARGETS = [
 const SELF_REMOVED_PATHS = [
   "tests/bootstrap.test.ts",
   "tests/verify-bootstrap.test.ts",
+  "tests/template-self.test.ts",
   "scripts/verify-bootstrap.mjs",
   "scripts/bootstrap.mjs",
   ".agents/skills/bootstrapping-the-template",
@@ -129,6 +130,12 @@ const TEMPLATE_ONLY_YAML_BLOCK =
   /^[ \t]*# template-only:start\s*$[\s\S]*?^[ \t]*# template-only:end\s*$\n?/gm;
 const PROFILE_BLOCK =
   /<!-- profile:([a-z0-9-]+):start -->([\s\S]*?)<!-- profile:\1:end -->/g;
+// The YAML analogue of PROFILE_BLOCK, applied to every marker target
+// regardless of file type (unlike PROFILE_BLOCK, which is Markdown/
+// instruction-file only) — see `.github/workflows/ci.yml`'s `package-floor`
+// job, kept only for `node-library`.
+const PROFILE_YAML_BLOCK =
+  /^[ \t]*# profile:([a-z0-9-]+):start\s*$\n([\s\S]*?)^[ \t]*# profile:\1:end\s*$\n?/gm;
 
 // Lines this template's own AGENTS.md carries only because the
 // `bootstrapping-the-template` skill and the bootstrap tooling it documents
@@ -623,6 +630,10 @@ function replaceText(file, replacements, profile, write) {
   const isMarkdown = file.endsWith(".md");
   const isInstructionFile = ["AGENTS.md", "CLAUDE.md"].includes(path.basename(file));
   let updated = original.replace(TEMPLATE_ONLY_YAML_BLOCK, "");
+  /** @type {(match: string, markedProfile: string, contents: string) => string} */
+  const selectProfileYamlBlock = (_match, markedProfile, contents) =>
+    markedProfile === profile ? contents : "";
+  updated = updated.replace(PROFILE_YAML_BLOCK, selectProfileYamlBlock);
   if (isMarkdown || isInstructionFile) {
     updated = updated.replace(TEMPLATE_ONLY_BLOCK, "");
     /** @type {(match: string, markedProfile: string, contents: string) => string} */

@@ -422,6 +422,62 @@ describe("assertGenerated", () => {
     );
   });
 
+  it("throws ERR_NODE_ENGINES_CI_MISMATCH when the bootstrap-node-floor marker survives a rewrite", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-node-library", {
+      engines: { node: ">=20" },
+    });
+    // node-version was rewritten to the selected floor, as expected, but the
+    // trailing marker comment incorrectly survived that rewrite too.
+    writeFileSync(
+      path.join(destination, ".github", "workflows", "ci.yml"),
+      [
+        "jobs:",
+        "  package-floor:",
+        "    steps:",
+        "      - uses: actions/setup-node@sha # v1.0.0",
+        "        with:",
+        "          node-version: 20 # bootstrap-node-floor",
+        "      - run: pnpm --config.runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke",
+        "",
+      ].join("\n"),
+    );
+
+    expect(() => assertGenerated(destination, "acme-node-library")).toThrow(
+      /ERR_NODE_ENGINES_CI_MISMATCH/,
+    );
+  });
+
+  it("accepts a universal-library-shaped repository with no engines and no package-floor job", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-universal-library");
+    writeFileSync(
+      path.join(destination, ".github", "workflows", "ci.yml"),
+      "jobs:\n  test:\n    steps: []\n",
+    );
+
+    expect(() => assertGenerated(destination, "acme-universal-library")).not.toThrow();
+  });
+
+  it("throws ERR_NODE_ENGINES_CI_MISMATCH when engines is absent but package-floor still ships", () => {
+    const destination = makeDestination();
+    writeValidFixture(destination, "acme-universal-library");
+    writeFileSync(
+      path.join(destination, ".github", "workflows", "ci.yml"),
+      [
+        "jobs:",
+        "  package-floor:",
+        "    steps:",
+        "      - run: pnpm --config.runtime-on-fail=ignore run package:smoke -- --pack-dir .smoke",
+        "",
+      ].join("\n"),
+    );
+
+    expect(() => assertGenerated(destination, "acme-universal-library")).toThrow(
+      /ERR_NODE_ENGINES_CI_MISMATCH/,
+    );
+  });
+
   it("throws ERR_BIN_REMAINING when a CLI package has no emitted CLI entry", () => {
     const destination = makeDestination();
     writeValidFixture(destination, "acme-node-library", {

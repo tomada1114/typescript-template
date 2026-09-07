@@ -296,17 +296,21 @@ describe("compileTypeScriptConsumer", () => {
 });
 
 describe("isUniversalProfile", () => {
-  it("reflects this repository's own node-library profile", () => {
-    // tsconfig.build.json sets compilerOptions.types to ["node"], not the
-    // empty array that signals the universal-library profile, so this
-    // repository is Node profile — which is what the checkTypeScriptConsumers
-    // tests below rely on to skip the Bundler-resolution consumer.
-    expect(isUniversalProfile()).toBe(false);
+  it("reflects this repository's own profile", () => {
+    // tsconfig.build.json's compilerOptions.types is bootstrap's single
+    // source of truth for the profile (see isUniversalProfile's doc comment),
+    // and package.json#engines.node is deleted only for universal-library, so
+    // the two must always agree on whichever profile this checkout — or a
+    // repository generated from it — actually is.
+    const manifest = JSON.parse(
+      readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+    ) as { engines?: { node?: string } };
+    expect(isUniversalProfile()).toBe(manifest.engines?.node === undefined);
   });
 });
 
 describe("checkTypeScriptConsumers", () => {
-  it("compiles only the NodeNext consumer for a Node profile and passes when nothing leaks", () => {
+  it("compiles the Bundler consumer only for this repository's own profile", () => {
     runNodeMock.mockReturnValue({
       status: 0,
       stdout: [
@@ -318,8 +322,9 @@ describe("checkTypeScriptConsumers", () => {
     const consumer = makeConsumer();
 
     expect(() => checkTypeScriptConsumers(consumer, "fixture-package")).not.toThrow();
-    // Node profile: only the NodeNext consumer compiles, never Bundler.
-    expect(runNodeMock).toHaveBeenCalledTimes(1);
+    // Node profile: only the NodeNext consumer compiles. universal-library
+    // additionally compiles a Bundler-resolution consumer.
+    expect(runNodeMock).toHaveBeenCalledTimes(isUniversalProfile() ? 2 : 1);
   });
 
   it("throws ERR_SMOKE_CONSUMER_READ_REPOSITORY when the compiler read this repository's src/", () => {
@@ -598,9 +603,9 @@ describe("main", () => {
     // the installed package instead of being hoisted next to it, so dropping
     // the flag must fail here rather than quietly weakening the smoke test.
     expect(installArgs).toContain("--install-strategy=nested");
-    // install + runtime imports + require interop + one TypeScript consumer
-    // (this repository is the node-library profile, so no Bundler consumer)
-    // + the deep-import check.
-    expect(runNodeMock).toHaveBeenCalledTimes(5);
+    // install + runtime imports + require interop + TypeScript consumer(s)
+    // (an extra Bundler consumer only for the universal-library profile) +
+    // the deep-import check.
+    expect(runNodeMock).toHaveBeenCalledTimes(isUniversalProfile() ? 6 : 5);
   });
 });

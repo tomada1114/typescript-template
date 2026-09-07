@@ -1263,6 +1263,21 @@ describe("the Dependabot cooldown agrees with the pnpm install cooldown", () => 
   });
 });
 
+// --- agreement with package.json and .node-version ---------------------------
+
+interface Manifest {
+  engines?: { node?: string };
+  packageManager?: string;
+  devEngines?: {
+    runtime?: { onFail?: string; version?: string };
+    packageManager?: { version?: string };
+  };
+}
+
+const manifest = JSON.parse(
+  readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+) as Manifest;
+
 describe("workflow regression checks for repository automation", () => {
   it("runs the test job as a fail-fast-free OS matrix with one coverage leg", () => {
     const source = workflowSource("ci.yml");
@@ -1281,18 +1296,6 @@ describe("workflow regression checks for repository automation", () => {
     expect((testJob.match(/run: pnpm run test:coverage/g) ?? []).length).toBe(1);
   });
 
-  it("runs the lightweight bootstrap check in CI", () => {
-    const source = workflowSource("ci.yml");
-    const bootstrapStart = source.indexOf("  bootstrap:");
-    const blockEnd = source.indexOf("# template-only:end", bootstrapStart);
-    const bootstrapJob = source.slice(bootstrapStart, blockEnd);
-    expect(bootstrapJob).toContain("node scripts/verify-bootstrap.mjs");
-    expect(bootstrapJob).not.toContain("pnpm install");
-    expect(bootstrapJob).not.toContain("pnpm run check");
-    expect(source).not.toContain("pnpm run bootstrap:e2e");
-    expect(source.toLowerCase()).not.toContain("change" + "set");
-  });
-
   it("keeps the dependency-review severity gate", () => {
     // Without `fail-on-severity` the action reports advisories and passes, so
     // the workflow's presence in .github/workflows/ would prove nothing.
@@ -1309,12 +1312,22 @@ describe("workflow regression checks for repository automation", () => {
   });
 
   it("checks the published Node floor with package:smoke after packing on Node 24", () => {
+    // A package that declares no `engines.node` (the universal-library
+    // profile) has no floor to verify, so bootstrap removes the whole job
+    // instead of leaving it to check a floor that does not exist — see the
+    // `# profile:node-library:` block wrapping it below.
     const source = workflowSource("ci.yml");
     const packageFloorStart = source.indexOf("  package-floor:");
+    const floor = /^>=(\d+)$/.exec(manifest.engines?.node ?? "")?.[1];
+
+    if (floor === undefined) {
+      expect(packageFloorStart).toBe(-1);
+      return;
+    }
     expect(packageFloorStart).toBeGreaterThan(-1);
     const packageFloor = source.slice(packageFloorStart);
 
-    expect(packageFloor).toContain("node-version: 24 # bootstrap-node-floor");
+    expect(packageFloor).toContain(`node-version: ${floor}`);
     expect(packageFloor).toContain("pnpm run build");
     expect(packageFloor).toContain("pnpm pack --pack-destination .smoke");
     expect(packageFloor).toContain(
@@ -1324,20 +1337,6 @@ describe("workflow regression checks for repository automation", () => {
   });
 });
 
-// --- agreement with package.json and .node-version ---------------------------
-
-interface Manifest {
-  engines?: { node?: string };
-  packageManager?: string;
-  devEngines?: {
-    runtime?: { onFail?: string; version?: string };
-    packageManager?: { version?: string };
-  };
-}
-
-const manifest = JSON.parse(
-  readFileSync(path.join(repoRoot, "package.json"), "utf8"),
-) as Manifest;
 describe("the development runtime contract fails closed", () => {
   it("treats the Node 24 requirement as an error", () => {
     expect(manifest.devEngines?.runtime?.onFail).toBe("error");
@@ -1357,10 +1356,6 @@ describe("the development runtime contract fails closed", () => {
     expect(major(manifest.devEngines?.runtime?.version ?? "")).toBe(
       major(nodeVersionFile),
     );
-  });
-
-  it("keeps the template's default published floor explicit", () => {
-    expect(manifest.engines?.node).toBe(">=24");
   });
 });
 
