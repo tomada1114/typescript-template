@@ -1,5 +1,12 @@
 import consoleModule from "node:console";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -130,5 +137,66 @@ describe("clean", () => {
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringMatching(/refusing to remove a path outside the repository/),
     );
+  });
+
+  it("validates all targets before removing any of them", () => {
+    const root = makeRoot();
+    const retained = path.join(root, "dist");
+    mkdirSync(retained);
+    vi.spyOn(consoleModule, "error").mockImplementation(() => undefined);
+
+    expect(clean(["dist", "../outside"], root)).toBe(2);
+    expect(existsSync(retained)).toBe(true);
+  });
+
+  it("refuses removal through a parent symlink outside the repository", () => {
+    const root = makeRoot();
+    const outside = makeRoot();
+    const retained = path.join(outside, "retained.txt");
+    writeFileSync(retained, "keep me");
+    symlinkSync(outside, path.join(root, "linked"), "junction");
+    vi.spyOn(consoleModule, "error").mockImplementation(() => undefined);
+
+    expect(clean(["linked/retained.txt"], root)).toBe(2);
+    expect(existsSync(retained)).toBe(true);
+  });
+
+  it("removes a symlink itself while retaining its external target", () => {
+    const root = makeRoot();
+    const outside = makeRoot();
+    const link = path.join(root, "linked");
+    symlinkSync(outside, link, "junction");
+
+    expect(clean(["linked"], root)).toBe(0);
+    expect(existsSync(link)).toBe(false);
+    expect(existsSync(outside)).toBe(true);
+  });
+
+  it("accepts an internal parent symlink without deleting the repository root", () => {
+    const root = makeRoot();
+    mkdirSync(path.join(root, "cache"));
+    writeFileSync(path.join(root, "cache", "item"), "generated");
+    symlinkSync(path.join(root, "cache"), path.join(root, "linked"), "junction");
+
+    expect(clean(["linked/item"], root)).toBe(0);
+    expect(existsSync(path.join(root, "cache", "item"))).toBe(false);
+    expect(existsSync(root)).toBe(true);
+  });
+
+  it("accepts an internal directory whose name starts with two dots", () => {
+    const root = makeRoot();
+    mkdirSync(path.join(root, "..cache"));
+
+    expect(clean(["..cache"], root)).toBe(0);
+    expect(existsSync(path.join(root, "..cache"))).toBe(false);
+  });
+
+  it("reports a missing repository root as an actionable failure", () => {
+    const errorSpy = vi
+      .spyOn(consoleModule, "error")
+      .mockImplementation(() => undefined);
+
+    expect(clean(["dist"], path.join(makeRoot(), "missing"))).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("ERR_CLEAN_FAILED"));
   });
 });

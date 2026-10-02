@@ -13,6 +13,7 @@ const fixtures = "tests/fixtures/**";
 const automationTests = [
   "tests/bootstrap.test.ts",
   "tests/check-attw.test.ts",
+  "tests/check-release-status.test.ts",
   "tests/check-staged.test.ts",
   "tests/ci-sync.test.ts",
   "tests/clean.test.ts",

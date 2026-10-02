@@ -101,5 +101,7 @@ exported from `src/index.ts` (`public-api-contract`); the `.mjs` files under `sc
   repository was bootstrapped with. Read `tsconfig.build.json`'s
   `compilerOptions.types`: `["node"]` is the `node-library` profile and `node:` builtins
   are permitted; `[]` is the `universal-library` profile, where `eslint.config.mjs`
-  registers the universal-profile/no-node-builtins block and a `node:` import is an
-  error — move Node-only code behind a separate conditional export entry instead.
+  registers the universal-profile/no-node-builtins block and rejects both prefixed and
+  bare Node builtin imports and Node globals. Keep Node-only code in a separate package.
+  The build config's explicit `lib` list also keeps browser-only globals out of Node
+  builds; `pnpm typecheck` checks both the repository and source build configs.

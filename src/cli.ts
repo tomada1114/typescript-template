@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
 export interface CliResult {
   exitCode: number;
@@ -19,7 +20,23 @@ export interface CliResult {
  * @returns The process result a caller should observe.
  */
 export function runCli(argv: readonly string[], executable = "package"): CliResult {
-  if (argv.includes("--help") || argv.includes("-h")) {
+  let help: boolean | undefined;
+  try {
+    const { values } = parseArgs({
+      args: [...argv],
+      options: { help: { type: "boolean", short: "h" } },
+      strict: true,
+      allowPositionals: false,
+    });
+    help = values.help;
+  } catch {
+    return {
+      exitCode: 2,
+      stdout: "",
+      stderr: `Invalid arguments. Run ${executable} --help for usage.\n`,
+    };
+  }
+  if (help === true) {
     return {
       exitCode: 0,
       stdout:

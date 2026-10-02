@@ -67,6 +67,24 @@ describe("the committed skill trees", () => {
 });
 
 describe("diffTrees", () => {
+  it("keeps Python runtime caches out of the authored skill mirror", () => {
+    const { source, mirror } = makeTrees();
+    const cache = path.join(source, "skill", "scripts", "__pycache__");
+    mkdirSync(cache);
+    writeFileSync(path.join(cache, "run.cpython-314.pyc"), "compiled bytes");
+    writeFileSync(
+      path.join(source, "skill", "scripts", "legacy.pyc"),
+      "compiled bytes",
+    );
+
+    expect(diffTrees(source, mirror)).toEqual([]);
+    expect(syncTrees(source, mirror)).toEqual([]);
+    expect(listFiles(mirror, MIRROR_DIRECTORY)).toEqual([
+      "skill/SKILL.md",
+      "skill/scripts/run.mjs",
+    ]);
+  });
+
   it("reports nothing for two identical trees", () => {
     const { source, mirror } = makeTrees();
     expect(diffTrees(source, mirror)).toEqual([]);
@@ -206,6 +224,19 @@ describe("listFiles", () => {
     expect(() => listFiles(workspace, "label")).toThrow(SyncAgentsError);
     expect(() => listFiles(workspace, "label")).toThrow(/ERR_AGENTS_UNSUPPORTED_ENTRY/);
   });
+
+  it.each(["__pycache__", "payload.pyc"])(
+    "refuses a symlink disguised as generated Python output: %s",
+    (name) => {
+      const workspace = makeWorkspace("sync-agents-cache-link");
+      writeFileSync(path.join(workspace, "real.md"), "real\n");
+      symlinkSync("real.md", path.join(workspace, name));
+
+      expect(() => listFiles(workspace, "label")).toThrow(
+        /ERR_AGENTS_UNSUPPORTED_ENTRY/,
+      );
+    },
+  );
 });
 
 describe("assertSourceDirectory", () => {

@@ -35,6 +35,11 @@ The universal profile omits `engines.node`, sets build `types` to an empty array
 exercised by the bundler-resolution smoke consumer. The node-library profile retains
 Node types.
 
+Use `pnpm bootstrap:e2e` for a fast transformation check. Before changing the template's
+generation contract, run `pnpm bootstrap:check`: it generates every profile, installs
+its frozen lockfile, and runs its full source and package gate. Failed generated
+repositories are retained in the reported temporary directory.
+
 ## Minimum-Node compatibility
 
 Bootstrap's `--node-engines` range is the published contract for a `node-library`; the
@@ -115,6 +120,10 @@ npm already contains the version, never publish that version again — verify it
 ```sh
 npm view my-package@X.Y.Z version
 ```
+
+`pnpm release:status` checks the current manifest's exact version. Registry or
+authentication failures stop the release; only an explicit missing-version response
+allows a new publish attempt.
 
 Then repair only the GitHub Release by rerunning the release attachment job or uploading
 the original workflow artifact.

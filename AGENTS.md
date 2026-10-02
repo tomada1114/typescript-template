@@ -41,6 +41,7 @@ pnpm agents:sync   # regenerate .claude/skills/ from .agents/skills/
 pnpm agents:check  # fail when the two skill trees have drifted apart
 pnpm repo:labels   # create/update GitHub labels from .github/labels.yml
 pnpm bootstrap:e2e # run scripts/bootstrap.mjs end to end for every profile
+pnpm bootstrap:check # install and run the full gate in every generated profile
 ```
 
 Run a single test file with `pnpm exec vitest run tests/<name>.test.ts`.
@@ -113,6 +114,7 @@ names its own boundary with its neighbours.
 | `merge-dependabot`           | landing open Dependabot or Renovate pull requests                                     |
 | `updating-docs`              | `README.md`, `CONTRIBUTING.md`, or `docs/`                                            |
 | `triaging-issues`            | filing, labelling, or ranking a GitHub issue                                          |
+| `shipping-issues`            | shipping explicitly requested issues through reviewed PRs and verified merges         |
 
 ## Security and human approval
 

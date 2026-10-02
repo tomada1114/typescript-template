@@ -5,7 +5,7 @@
 // Node globals are imported explicitly rather than declared as ESLint globals:
 // one convention for every .mjs file here, and no extra dependency.
 import console from "node:console";
-import { rmSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,21 @@ import { fileURLToPath } from "node:url";
 import { isMain } from "./lib/is-main.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * @param {string} root
+ * @param {string} target
+ * @returns {boolean}
+ */
+function isInside(root, target) {
+  const relative = path.relative(root, target);
+  return (
+    relative !== "" &&
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
 
 /**
  * Remove each target path, refusing anything outside the repository.
@@ -37,16 +52,45 @@ export function clean(targets, root = repoRoot) {
     return 2;
   }
 
-  for (const target of targets) {
-    const resolved = path.resolve(root, target);
-    const relative = path.relative(root, resolved);
-    if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
-      console.error(
-        `clean: refusing to remove a path outside the repository: ${target}`,
-      );
-      return 2;
+  try {
+    const absoluteRoot = path.resolve(root);
+    const physicalRoot = realpathSync(absoluteRoot);
+    const resolvedTargets = targets.map((target) => path.resolve(absoluteRoot, target));
+    for (const [index, resolved] of resolvedTargets.entries()) {
+      let safe = isInside(absoluteRoot, resolved);
+      // Removing a leaf symlink is safe; traversing its parent may reach outside.
+      for (
+        let parent = path.dirname(resolved);
+        safe && parent !== absoluteRoot;
+        parent = path.dirname(parent)
+      ) {
+        try {
+          const physicalParent = realpathSync(parent);
+          safe =
+            physicalParent === physicalRoot || isInside(physicalRoot, physicalParent);
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+            throw error;
+          }
+        }
+      }
+      if (!safe) {
+        console.error(
+          `clean: refusing to remove a path outside the repository: ${targets[index] ?? ""}`,
+        );
+        return 2;
+      }
     }
-    rmSync(resolved, { recursive: true, force: true });
+    for (const resolved of resolvedTargets) {
+      rmSync(resolved, { recursive: true, force: true });
+    }
+  } catch (error) {
+    console.error(
+      "ERR_CLEAN_FAILED: could not remove generated output.\n" +
+        `Actual: ${error instanceof Error && "code" in error ? String(error.code) : "filesystem error"}.\n` +
+        "Next: check output-directory permissions, then rerun the command.",
+    );
+    return 1;
   }
   return 0;
 }
