@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { builtinModules } from "node:module";
 
 import js from "@eslint/js";
 import vitest from "@vitest/eslint-plugin";
@@ -69,12 +70,33 @@ const universalSourceRestrictions = isUniversalProfile()
             {
               patterns: [
                 {
-                  group: ["node:*"],
+                  group: [
+                    "node:*",
+                    ...builtinModules.filter((name) => !name.startsWith("node:")),
+                  ],
                   message:
-                    "The universal-library profile must run outside Node. Move Node-only code behind a separate conditional export entry.",
+                    "The universal-library profile must run outside Node. Keep Node-only code in a separate package.",
                 },
               ],
             },
+          ],
+          "no-restricted-globals": [
+            "error",
+            ...[
+              "process",
+              "Buffer",
+              "global",
+              "__dirname",
+              "__filename",
+              "require",
+              "module",
+              "exports",
+              "setImmediate",
+              "clearImmediate",
+            ].map((name) => ({
+              name,
+              message: "The universal-library profile cannot depend on Node globals.",
+            })),
           ],
         },
       },

@@ -29,14 +29,13 @@ function workflowSource(name: string): string {
 }
 
 describe("this checkout's own bootstrap tooling", () => {
-  it("runs the lightweight bootstrap check in CI", () => {
+  it("runs the generated repositories' full checks in CI", () => {
     const source = workflowSource("ci.yml");
     const bootstrapStart = source.indexOf("  bootstrap:");
     const blockEnd = source.indexOf("# template-only:end", bootstrapStart);
     const bootstrapJob = source.slice(bootstrapStart, blockEnd);
-    expect(bootstrapJob).toContain("node scripts/verify-bootstrap.mjs");
-    expect(bootstrapJob).not.toContain("pnpm install");
-    expect(bootstrapJob).not.toContain("pnpm run check");
+    expect(bootstrapJob).toContain("pnpm run bootstrap:check");
+    expect(bootstrapJob).toContain("pnpm install --frozen-lockfile");
     expect(source).not.toContain("pnpm run bootstrap:e2e");
     expect(source.toLowerCase()).not.toContain("change" + "set");
   });

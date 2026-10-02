@@ -29,6 +29,7 @@ import {
   requiredEntryPaths,
 } from "../scripts/check-package.mjs";
 import { findSingleTarball } from "../scripts/lib/tarball.mjs";
+import { readKey } from "../scripts/lib/json.mjs";
 import { checkTarballContents } from "../scripts/smoke-package.mjs";
 import { resolveTarballArgument } from "../scripts/verify-package.mjs";
 
@@ -540,23 +541,24 @@ describe("requiredEntryPaths", () => {
     const manifest: unknown = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     );
-    const hasBin =
-      typeof manifest === "object" &&
-      manifest !== null &&
-      "bin" in manifest &&
-      manifest.bin !== undefined;
+    const bin = readKey(manifest, "bin");
+    const binPaths =
+      typeof bin === "string"
+        ? [bin]
+        : typeof bin === "object" && bin !== null
+          ? Object.values(bin).filter(
+              (value: unknown): value is string => typeof value === "string",
+            )
+          : [];
 
-    // The point of deriving this from the manifest is that adding an export
-    // without building its file is caught. Hard-coding the list here would
-    // reintroduce exactly the duplication spec 01 §1.3 forbids.
-    expect(requiredEntryPaths(manifest)).toEqual([
-      ...(hasBin ? ["dist/bin.js"] : []),
-      "dist/index.d.ts",
-      "dist/index.js",
-      // The conventional `"./package.json": "./package.json"` subpath, which
-      // tooling reads and which therefore has to be in the tarball too.
-      "package.json",
-    ]);
+    expect(requiredEntryPaths(manifest)).toEqual(
+      [
+        ...binPaths.map((file) => file.replace(/^\.\//, "")),
+        "dist/index.d.ts",
+        "dist/index.js",
+        "package.json",
+      ].sort(),
+    );
   });
 });
 

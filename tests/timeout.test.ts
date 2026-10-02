@@ -169,6 +169,55 @@ describe("withTimeout", () => {
     }).catch((cause: unknown) => cause);
     expect((error as InvalidInputError).field).toBe("options.timeoutMs");
   });
+
+  it("honors a deadline beyond the platform's single-timer limit", async () => {
+    vi.useFakeTimers();
+    const pending = withTimeout(() => neverSettles<never>(), {
+      timeoutMs: 2_147_483_697,
+    });
+    const settled = vi.fn();
+    const observed = pending.catch((error: unknown) => {
+      settled(error);
+      return error;
+    });
+
+    await vi.advanceTimersByTimeAsync(2_147_483_647);
+    expect(settled).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await observed).toMatchObject({
+      code: "ERR_TIMEOUT",
+      timeoutMs: 2_147_483_697,
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cancels a long deadline and removes every timer", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const reason = new Error("cancel long operation");
+    const pending = withTimeout(() => neverSettles<never>(), {
+      timeoutMs: Number.MAX_SAFE_INTEGER,
+      signal: controller.signal,
+    });
+    controller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("removes its listener from the operation signal after success", async () => {
+    const removeListener = vi.fn();
+    await withTimeout(
+      (signal) => {
+        vi.spyOn(signal, "removeEventListener").mockImplementation(removeListener);
+        return Promise.resolve("done");
+      },
+      { timeoutMs: 100 },
+    );
+
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
 });
 
 describe("TimeoutError", () => {

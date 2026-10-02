@@ -66,10 +66,9 @@ if (isMain(import.meta.url)) {
 }
 ```
 
-Note that the helper predates the current Node floor (see package.json's engines);
-`import.meta.main` now covers the same ground, so `isMain` is a candidate for removal
-rather than a pattern to defend indefinitely — do not build new indirection on top of
-it.
+The portable guard also supports artifact-consumption scripts run on a generated
+package's published Node floor. Check every caller before replacing it with a newer Node
+API.
 
 ## Spawning `git`
 

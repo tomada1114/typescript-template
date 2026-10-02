@@ -2,8 +2,8 @@
 //
 // Scripts here are imported by tests *and* run as commands, so the CLI half
 // must stay dormant on import. `import.meta.url.endsWith("foo.mjs")` is true in
-// both cases and cannot make that distinction, and `import.meta.main` is Node
-// 24+ while the supported floor is 22.14.
+// both cases and cannot make that distinction. Keep this portable because the
+// artifact-consumption scripts also run on a generated package's Node floor.
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";

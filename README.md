@@ -12,15 +12,16 @@ pnpm add my-package
 
 <!-- profile:node-library:start -->
 
-Requires Node.js 24 or newer. The package ships ESM only; on that range `require(esm)`
-is unflagged, so a CommonJS consumer can `require()` it directly.
+Requires Node.js 24 or newer. The package ships ESM only. CommonJS consumers need a
+Node.js version with unflagged `require(esm)` support (20.19+, 22.12+, or 24+).
 <!-- bootstrap-node-floor -->
 <!-- profile:node-library:end -->
 
 <!-- profile:universal-library:start -->
 
-The package does not declare a Node.js floor. The package ships ESM only; on that range
-`require(esm)` is unflagged, so a CommonJS consumer can `require()` it directly.
+The package does not declare a Node.js floor. It ships ESM for runtimes with ES2023 and
+the web APIs it uses. CommonJS consumers need a Node.js version with unflagged
+`require(esm)` support (20.19+, 22.12+, or 24+).
 <!-- profile:universal-library:end -->
 
 ## Quick start
@@ -59,7 +60,8 @@ node scripts/bootstrap.mjs
 Answer the prompts for the package name, profile, CLI choice, published Node floor,
 author, email, GitHub user, license, and description. For automation, pass the package
 name together with the `--profile`, `--cli`, `--node-engines`, `--author`, `--email`,
-`--github-user`, and `--license` flags.
+`--github-user`, and `--license` flags. Use `--dry-run` to preview changes and `--help`
+for the complete command syntax.
 
 Use `node-library` for a Node.js package, or `universal-library` for code that must
 build without Node APIs. Add `--cli yes` to a `node-library` package to keep its

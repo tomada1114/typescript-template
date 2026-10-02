@@ -308,8 +308,8 @@ export function assertCopyable(source, relative) {
 export function copyTemplate(destination, root = ROOT) {
   const files = spawnSync(
     "git",
-    ["-C", root, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-    { encoding: "utf8", timeout: 30_000, env: isolatedGitEnv() },
+    ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+    { cwd: root, encoding: "utf8", timeout: 30_000, env: isolatedGitEnv() },
   );
   if (files.status !== 0) {
     throw new Error(`ERR_GIT_FILES: ${files.stderr.trim()}`);
@@ -326,10 +326,19 @@ export function copyTemplate(destination, root = ROOT) {
 }
 
 /**
+ * @param {readonly string[]} [argv]
+ * @param {typeof run} [runner] - Subprocess boundary, injectable for tests.
  * @returns {number}
  */
-export function main() {
+export function main(argv = [], runner = run) {
+  if (argv.length > 1 || (argv.length === 1 && argv[0] !== "--check")) {
+    console.error(
+      "ERR_BOOTSTRAP_E2E_ARGUMENT: expected no arguments or --check.\nNext: run pnpm bootstrap:e2e or pnpm bootstrap:check.",
+    );
+    return 2;
+  }
   const workspace = mkdtempSync(path.join(tmpdir(), "typescript-template-e2e-"));
+  let passed = false;
   try {
     /** @type {readonly [string | undefined, string | undefined, boolean | undefined, string | undefined][]} */
     const cases = [
@@ -349,7 +358,7 @@ export function main() {
       const destination = path.join(workspace, packageName);
       mkdirSync(destination);
       copyTemplate(destination);
-      run(
+      runner(
         process.execPath,
         [
           "scripts/bootstrap.mjs",
@@ -371,16 +380,27 @@ export function main() {
         destination,
       );
       assertGenerated(destination, packageName, cli);
+      if (argv[0] === "--check") {
+        runner("pnpm", ["install", "--frozen-lockfile"], destination);
+        runner("pnpm", ["run", "check"], destination);
+      }
       console.log(
         `bootstrap-e2e: ${packageName} (${profile}, cli=${String(cli)}, engines=${nodeEngines}) passed`,
       );
     }
+    passed = true;
     return 0;
   } finally {
-    rmSync(workspace, { recursive: true, force: true });
+    if (passed) {
+      rmSync(workspace, { recursive: true, force: true });
+    } else {
+      console.error(
+        `bootstrap-e2e: retained failed generated repositories at ${workspace}`,
+      );
+    }
   }
 }
 
 if (isMain(import.meta.url)) {
-  process.exitCode = main();
+  process.exitCode = main(process.argv.slice(2));
 }

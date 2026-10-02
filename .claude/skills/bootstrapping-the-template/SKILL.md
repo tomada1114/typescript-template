@@ -41,15 +41,15 @@ Map (never touching disk), then for real only after the dry-run passes every che
   `MARKER_TARGETS`, keeping only the block for the selected profile.
 - Rewrites `package.json` (name, version, description, license, author, repository,
   `bugs`, `homepage`, conditionally keeps `bin` for a CLI or removes it otherwise, drops
-  the `bootstrap:e2e` script entry, sets `sideEffects: false`, and profile-conditionally
-  sets/removes `engines` using the selected `--node-engines` floor), removes
-  `src/cli.ts` when the CLI option is `no`, rewrites `tsconfig.build.json`'s
-  `compilerOptions.types` for the profile, rewrites the generated CI package-floor job's
-  `node-version` to that same floor for `node-library` (dropping its
-  `# bootstrap-node-floor` marker comment in the process — nothing re-adds it, so a
-  generated repository's ci.yml carries a bare `node-version: N`) or removes the whole
-  job for `universal-library`, which declares no floor to verify, and regenerates
-  `LICENSE` and a bare `CHANGELOG.md`.
+  the `bootstrap:e2e` and `bootstrap:check` script entries, sets `sideEffects: false`,
+  and profile-conditionally sets/removes `engines` using the selected `--node-engines`
+  floor), removes `src/cli.ts` when the CLI option is `no`, rewrites
+  `tsconfig.build.json`'s `compilerOptions.types` for the profile, rewrites the
+  generated CI package-floor job's `node-version` to that same floor for `node-library`
+  (dropping its `# bootstrap-node-floor` marker comment in the process — nothing re-adds
+  it, so a generated repository's ci.yml carries a bare `node-version: N`) or removes
+  the whole job for `universal-library`, which declares no floor to verify, and
+  regenerates `LICENSE` and a bare `CHANGELOG.md`.
 
 `scripts/verify-bootstrap.mjs`, run as `pnpm bootstrap:e2e`, is the flow's own
 integration test: `main()` builds a throwaway workspace with `copyTemplate()` (see
@@ -90,9 +90,9 @@ literal that is only true of this checkout before bootstrap runs — the whole p
 allowed. A surviving test instead derives its expectation from the file it is reading
 (`package.json#engines`, the profile block a workflow still carries), the way
 `tests/workflows.test.ts`'s package-floor test and `tests/docs.test.ts`'s README-floor
-test do. `pnpm bootstrap:e2e` cannot catch a violation of this on its own — see "The
-self-removal property" below for why — so this is a review-time rule, not a mechanically
-enforced one.
+test do. `pnpm bootstrap:e2e` checks transformations; `pnpm bootstrap:check` also
+installs and runs the generated repositories' full gates, catching tests that retain
+template-only assumptions.
 
 Adding or renaming a profile means: adding it to `PROFILES`, writing its
 `profile:<name>` blocks in every Markdown/YAML file that needs to differ by profile,
@@ -111,9 +111,8 @@ checkout can never see what it looks like once those five files are gone.
 That is why both `tests/bootstrap.test.ts` and `scripts/verify-bootstrap.mjs` build
 their fixture from `git ls-files` (`copyTemplate` in `scripts/verify-bootstrap.mjs`,
 reused by `tests/bootstrap.test.ts` as `copyTrackedFiles`) rather than copying the
-working directory: it reproduces exactly the tracked, committed tree a real fork clones,
-with none of a developer's local, gitignored build output (`dist/`, `docs/api`,
-`coverage/`, ...) mixed in.
+working directory: it includes tracked files and non-ignored new files, so proposed
+additions are checked before commit, with no local ignored build output mixed in.
 
 That gap is also the trap: a check that consults the real filesystem can render a
 different verdict against a built checkout (where `dist/` or `docs/api` exist) than
@@ -167,11 +166,13 @@ Reach for `pnpm exec vitest run tests/bootstrap.test.ts` first — it exercises
 directly, against fixtures built the same `git ls-files` way described above, without
 paying for a real subprocess run.
 
-`pnpm bootstrap:e2e` is the one that matters whenever the change could only show up in a
-real, end-to-end run: a change to `copyTemplate`/`assertCopyable`'s file-copying
+`pnpm bootstrap:e2e` exercises the real command whenever a change could only show up in
+a real, end-to-end run: a change to `copyTemplate`/`assertCopyable`'s file-copying
 behavior, anything that could make the CLI's interactive or non-interactive argument
 path diverge from what the unit tests inject directly, or as a final check before
 believing a profile or removal-list change is actually safe for both profiles. It is
 slower — it runs `scripts/bootstrap.mjs` as a real subprocess against a real temporary
 workspace for both the default Node 24 case and a lower `>=20` package floor — which is
-why it isn't the first thing to reach for.
+why it isn't the first thing to reach for. Before finishing a generation change, run
+`pnpm bootstrap:check` to install each generated profile and run its full gate.
+Successful workspaces are removed; failed ones remain at the reported path.

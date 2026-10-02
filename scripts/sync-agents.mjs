@@ -85,6 +85,12 @@ export function listFiles(directory, label) {
       throw error;
     }
     for (const entry of entries) {
+      if (
+        (entry.isDirectory() && entry.name === "__pycache__") ||
+        (entry.isFile() && /\.py[co]$/.test(entry.name))
+      ) {
+        continue;
+      }
       const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
       if (entry.isDirectory()) {
         visit(path.join(current, entry.name), relative);

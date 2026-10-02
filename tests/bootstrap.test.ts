@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 import { format, getFileInfo, resolveConfig } from "prettier";
+import { ESLint } from "eslint";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -247,7 +249,7 @@ describe("bootstrap validation", () => {
     );
   });
 
-  it.each(["20", ">=", ">=20.1", ">=20 <24"])(
+  it.each(["20", ">=", ">=20.1", ">=20 <24", ">=0", ">=18", ">=020"])(
     "rejects a non-bare Node floor %j",
     (nodeEngines) => {
       expect(() => options("invalid-floor", "node-library", "no", nodeEngines)).toThrow(
@@ -255,6 +257,41 @@ describe("bootstrap validation", () => {
       );
     },
   );
+
+  it("rejects repeated metadata options rather than silently overwriting them", () => {
+    expect(() =>
+      parseArguments([
+        "duplicate-options",
+        "--profile",
+        "node-library",
+        "--profile",
+        "universal-library",
+      ]),
+    ).toThrow(BootstrapError);
+    expect(() =>
+      parseArguments([
+        "duplicate-options",
+        "--profile",
+        "node-library",
+        "--profile",
+        "universal-library",
+      ]),
+    ).toThrow(/ERR_ARGUMENT_DUPLICATE/);
+  });
+
+  it("prints help without inspecting or changing a repository", () => {
+    const result = spawnSync(
+      process.execPath,
+      [path.join(repoRoot, "scripts/bootstrap.mjs"), "--help"],
+      {
+        cwd: tmpdir(),
+        encoding: "utf8",
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("--dry-run");
+    expect(result.stderr).toBe("");
+  });
 
   it("rejects an unsupported CLI option value", () => {
     expect(() =>
@@ -373,6 +410,91 @@ describe("bootstrap validation", () => {
 });
 
 describe("bootstrap profiles", () => {
+  it("rejects browser-only APIs in a generated Node package's build", () => {
+    const root = copyTemplate();
+    bootstrap(root, options("node-build-contract", "node-library"));
+    symlinkSync(
+      path.join(repoRoot, "node_modules"),
+      path.join(root, "node_modules"),
+      "junction",
+    );
+    writeFileSync(
+      path.join(root, "src", "probe.ts"),
+      'export const probe = document.createElement("div");\n',
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(repoRoot, "node_modules/typescript/bin/tsc"),
+        "-p",
+        "tsconfig.build.json",
+        "--noEmit",
+      ],
+      {
+        cwd: root,
+        encoding: "utf8",
+      },
+    );
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("document");
+  });
+
+  it.each([
+    [
+      'import { readFileSync } from "node:fs"; export const probe: typeof readFileSync = readFileSync;\n',
+      "no-restricted-imports",
+    ],
+    [
+      'import { readFileSync } from "fs"; export const probe: typeof readFileSync = readFileSync;\n',
+      "no-restricted-imports",
+    ],
+    ["export const probe: string = process.version;\n", "no-restricted-globals"],
+  ])("rejects Node dependencies in universal source: %s", async (source, rule) => {
+    const root = copyTemplate();
+    bootstrap(root, options("universal-lint-contract", "universal-library"));
+    symlinkSync(
+      path.join(repoRoot, "node_modules"),
+      path.join(root, "node_modules"),
+      "junction",
+    );
+    writeFileSync(path.join(root, "src", "probe.ts"), source);
+    const eslint = new ESLint({ cwd: root });
+    const results = await eslint.lintFiles(["src/probe.ts"]);
+
+    expect(
+      results.flatMap((result) => result.messages).map((message) => message.ruleId),
+    ).toContain(rule);
+  });
+
+  it("allows DOM APIs in a generated universal package's build", () => {
+    const root = copyTemplate();
+    bootstrap(root, options("universal-build-contract", "universal-library"));
+    symlinkSync(
+      path.join(repoRoot, "node_modules"),
+      path.join(root, "node_modules"),
+      "junction",
+    );
+    writeFileSync(
+      path.join(root, "src", "probe.ts"),
+      'export const probe: HTMLElement = document.createElement("div");\n',
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(repoRoot, "node_modules/typescript/bin/tsc"),
+        "-p",
+        "tsconfig.build.json",
+        "--noEmit",
+      ],
+      {
+        cwd: root,
+        encoding: "utf8",
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+  });
   it.each([
     ["acme-library", "node-library", "no"],
     ["acme-cli", "node-library", "yes"],
@@ -936,6 +1058,9 @@ describe("bootstrap profiles", () => {
     );
     expect(readFileSync(path.join(root, "LICENSE"), "utf8")).toContain(
       "Copyright 2030 Ada Lovelace",
+    );
+    expect(readFileSync(path.join(root, "README.md"), "utf8")).toContain(
+      "[ISC](LICENSE)",
     );
   });
 

@@ -24,4 +24,20 @@ describe("runCli", () => {
   it("does not write output for an invocation without options", () => {
     expect(runCli([])).toEqual({ exitCode: 0, stdout: "", stderr: "" });
   });
+
+  it.each([
+    { argv: ["--unknown"] },
+    { argv: ["unexpected"] },
+    { argv: ["--help", "--unknown"] },
+    { argv: ["--help=false"] },
+  ])(
+    "reports invalid arguments $argv on stderr with a failing exit code",
+    ({ argv }) => {
+      expect(runCli(argv, "my-tool")).toEqual({
+        exitCode: 2,
+        stdout: "",
+        stderr: "Invalid arguments. Run my-tool --help for usage.\n",
+      });
+    },
+  );
 });

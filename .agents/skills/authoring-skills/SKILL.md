@@ -41,6 +41,9 @@ failing to load. **Does not own:** the general `scripts/**` import and typing co
   (`failure-modes.md`, not another `SKILL.md`).
 - No symlinks anywhere under either tree — `scripts/sync-agents.mjs` rejects any entry
   that is not a plain file or directory.
+- Python bytecode and `__pycache__` directories are generated runtime output. They are
+  gitignored and excluded from mirroring, so running a skill's tests creates no
+  instruction drift.
 
 ## Frontmatter
 

@@ -29,9 +29,10 @@ const DEFAULT_DESCRIPTION = "A TypeScript package.";
 const PROFILES = new Set(["node-library", "universal-library"]);
 const CLI_VALUES = new Set(["yes", "no"]);
 const LICENSES = new Set(["MIT", "ISC"]);
-const NODE_ENGINES_PATTERN = /^>=(\d+)$/;
+const NODE_ENGINES_PATTERN = /^>=([1-9]\d*)$/;
 const CI_NODE_FLOOR_LINE = "node-version: 24 # bootstrap-node-floor";
 const README_NODE_FLOOR_LINE = "Requires Node.js 24 or newer.";
+const README_LICENSE_LINK = "[MIT](LICENSE)";
 const README_NODE_FLOOR_MARKER = "\n<!-- bootstrap-node-floor -->\n";
 const PLACEHOLDERS = [
   TEMPLATE_PACKAGE,
@@ -67,6 +68,7 @@ const PLACEHOLDER_TARGETS = [
   { file: ".github/workflows/ci.yml", placeholder: CI_NODE_FLOOR_LINE },
   { file: "README.md", placeholder: README_NODE_FLOOR_LINE },
   { file: "README.md", placeholder: README_NODE_FLOOR_MARKER },
+  { file: "README.md", placeholder: README_LICENSE_LINK },
   { file: "package.json", placeholder: TEMPLATE_REPOSITORY },
   { file: "package.json", placeholder: TEMPLATE_PACKAGE },
   { file: "package.json", placeholder: TEMPLATE_AUTHOR },
@@ -146,7 +148,7 @@ const PROFILE_YAML_BLOCK =
 // regexes). The table row is matched with tolerant padding because Prettier
 // re-pads the routing table whenever its widest cell changes.
 const SELF_REMOVED_AGENTS_LINES = [
-  /^pnpm bootstrap:e2e\b/,
+  /^pnpm bootstrap:(?:e2e|check)\b/,
   /^\|\s*`bootstrapping-the-template`\s*\|/,
 ];
 
@@ -264,12 +266,12 @@ export class BootstrapError extends Error {
 export function nodeFloor(nodeEngines) {
   const floor = NODE_ENGINES_PATTERN.exec(nodeEngines)?.[1];
   const major = floor === undefined ? Number.NaN : Number(floor);
-  if (!Number.isSafeInteger(major) || major < 1) {
+  if (!Number.isSafeInteger(major) || major < 20) {
     throw new BootstrapError(
       "ERR_NODE_ENGINES_INVALID",
       `unsupported --node-engines value: ${nodeEngines}.\n` +
-        "Expected: a bare range such as >=20.\n" +
-        "Next: pass --node-engines >=20 (or another positive major), then rerun bootstrap.",
+        "Expected: a bare range >=N with N at least 20, matching the ES2023 output.\n" +
+        "Next: pass --node-engines '>=20' or a higher floor, then rerun bootstrap.",
     );
   }
   return major;
@@ -396,6 +398,12 @@ export function parseArguments(argv) {
     }
     if (!allowedFlags.has(argument)) {
       throw new BootstrapError("ERR_ARGUMENT_UNKNOWN", `unknown option: ${argument}`);
+    }
+    if (values.has(argument)) {
+      throw new BootstrapError(
+        "ERR_ARGUMENT_DUPLICATE",
+        `${argument} was supplied more than once.`,
+      );
     }
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) {
@@ -1068,6 +1076,7 @@ function transform(root, options, year, preview) {
         : `Requires Node.js ${String(nodeFloor(options.nodeEngines))} or newer.`,
     ],
     [README_NODE_FLOOR_MARKER, "\n"],
+    [README_LICENSE_LINK, `[${options.license}](LICENSE)`],
   ]);
   /** @type {string[]} */
   const changed = [];
@@ -1136,6 +1145,7 @@ function transform(root, options, year, preview) {
   const scripts = readKey(manifest, "scripts");
   if (typeof scripts === "object" && scripts !== null && !Array.isArray(scripts)) {
     delete (/** @type {Record<string, unknown>} */ (scripts)["bootstrap:e2e"]);
+    delete (/** @type {Record<string, unknown>} */ (scripts)["bootstrap:check"]);
   }
   if (options.cli) {
     // npm exposes a bin object's key as the command name, so the key has to be
@@ -1162,10 +1172,9 @@ function transform(root, options, year, preview) {
   const buildConfigPath = path.join(root, "tsconfig.build.json");
   let buildConfig = readFileSync(buildConfigPath, "utf8");
   if (options.profile === "universal-library") {
-    buildConfig = buildConfig.replace(
-      /^ {4}"types": \["node"\]$/m,
-      '    "types": [],\n    "lib": ["ES2023", "DOM", "DOM.Iterable"]',
-    );
+    buildConfig = buildConfig
+      .replace('"types": ["node"]', '"types": []')
+      .replace('"lib": ["ES2023"]', '"lib": ["ES2023", "DOM", "DOM.Iterable"]');
   }
   if (write) {
     writeFileSync(buildConfigPath, buildConfig);
@@ -1329,7 +1338,17 @@ export function bootstrap(
  */
 async function interactiveArguments() {
   if (!process.stdin.isTTY) {
-    const answers = readFileSync(0, "utf8").split(/\r?\n/);
+    // Child-process pipes may be nonblocking; a synchronous read can fail with EAGAIN.
+    process.stdin.setEncoding("utf8");
+    let input = "";
+    for await (const chunk of process.stdin) {
+      /** @type {unknown} */
+      const value = chunk;
+      if (typeof value === "string") {
+        input += value;
+      }
+    }
+    const answers = input.split(/\r?\n/);
     let index = 0;
     return promptArguments((prompt) => {
       process.stdout.write(prompt);
@@ -1355,6 +1374,10 @@ async function interactiveArguments() {
  * @returns {Promise<number>}
  */
 export async function main(argv) {
+  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+    console.log(USAGE);
+    return 0;
+  }
   try {
     const options =
       argv.length === 0 ? await interactiveArguments() : parseArguments(argv);

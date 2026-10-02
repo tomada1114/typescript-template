@@ -502,6 +502,53 @@ describe("assertGenerated", () => {
 });
 
 describe("main", () => {
+  it("installs and checks each generated repository when requested", () => {
+    const checks: { args: string[]; cwd: string }[] = [];
+    expect(
+      main(["--check"], (command, args, cwd) => {
+        if (command === "pnpm") {
+          checks.push({ args, cwd });
+        } else {
+          run(command, args, cwd);
+        }
+      }),
+    ).toBe(0);
+    expect(checks.map(({ args }) => args)).toEqual([
+      ["install", "--frozen-lockfile"],
+      ["run", "check"],
+      ["install", "--frozen-lockfile"],
+      ["run", "check"],
+      ["install", "--frozen-lockfile"],
+      ["run", "check"],
+    ]);
+    expect(new Set(checks.map(({ cwd }) => cwd)).size).toBe(3);
+    expect(checks.every(({ cwd }) => !existsSync(cwd))).toBe(true);
+  });
+
+  it("retains a failed generated repository for inspection", () => {
+    let retained = "";
+    expect(() =>
+      main(["--check"], (command, args, cwd) => {
+        if (command === "pnpm") {
+          retained = path.dirname(cwd);
+          directories.push(retained);
+          throw new Error("simulated generated check failure");
+        }
+        run(command, args, cwd);
+      }),
+    ).toThrow("simulated generated check failure");
+    expect(
+      readFileSync(path.join(retained, "acme-node-library", "package.json"), "utf8"),
+    ).toContain("acme-node-library");
+  });
+
+  it.each([{ argv: ["--unknown"] }, { argv: ["--check", "--unknown"] }])(
+    "refuses unsupported arguments $argv",
+    ({ argv }) => {
+      expect(main(argv)).toBe(2);
+    },
+  );
+
   it("bootstraps both profiles into a disposable workspace and validates the result", () => {
     // A real, fast (well under a second) end-to-end run: main() copies this
     // repository's own tracked files, runs the real scripts/bootstrap.mjs
