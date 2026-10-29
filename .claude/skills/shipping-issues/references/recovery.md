@@ -75,8 +75,8 @@ accepted findings, scoped to that branch's worktree, using
 
 ## `/code-review` cannot be launched
 
-Host won't let this session run the slash command → one independent, **read-only**
-`opus` sub-agent against the branch, using
+Host won't let this session run the slash command, or Codex CLI → one independent,
+**read-only** `opus` sub-agent against the branch, using
 [agents/review-fallback.md](agents/review-fallback.md), triaged the same way. Never
 re-read your own diff and call that a review.
 

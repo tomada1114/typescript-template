@@ -129,7 +129,7 @@ not a stylistic choice.
 - **Any issue left open behind a merged PR.** This is the failure mode the skill exists
   to prevent; it can never be implied, only stated.
 - **How each merged PR was reviewed** — the local `/code-review` pass (effort used,
-  findings, what was fixed vs. rejected) or the fallback agent — and any `REJECTED`
+  findings, what was fixed vs. rejected), or the fallback agent — and any `REJECTED`
   finding this session did not resolve. A run that shipped unreviewed must not read like
   one that passed. Never present re-reading your own diff as a review.
 - **Acceptance criteria that shipped `not-met`, and why that was accepted.** If none

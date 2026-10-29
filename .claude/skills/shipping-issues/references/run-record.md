@@ -29,6 +29,9 @@ Events: `run-start`, `selection` (the rubric-shaped block from priority-rubric.m
 `--body-file`), `labels`, `design`, `parallel-group`, `pr-created`, `review`, `ci`,
 `merged`, `followup`, `cleanup`, `blocked`, `note`.
 
+`review` records the step 4 pass:
+`--field issue=<n> --field status=<code-review|code-review+agent-fix|DELEGATED> --field effort=<medium|high> --field findings=<n> --field skipped=<n>`.
+
 `design` records a settled — or deliberately deferred — design, from either path:
 `--field issue=<n> --field mode=<inline|background> --field verdict=<DECIDED|DEFERRED>`.
 A `DEFERRED` line is the more valuable of the two to read back: it is a question waiting
