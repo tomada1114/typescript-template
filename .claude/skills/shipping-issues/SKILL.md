@@ -93,14 +93,40 @@ its first attempt; an unmet acceptance criterion remains outstanding.
 
 ### 4. Review the branch
 
-Review before creating the PR. Use the host's available review capability or
-[review-fallback.md](references/agents/review-fallback.md). Check that the reviewer
-actually read test and gate changes before accepting an empty report.
+Before any PR exists. In parallel mode review every branch in the batch, triage all of
+them, then fix them concurrently; no PR opens until the last triage is done. One pass:
+fix every accepted finding here and do not re-review after the fix. No review is awaited
+on the PR itself.
 
-Number findings before handing them to [review-fix.md](references/agents/review-fix.md).
-Triage against issue scope, inspect the resulting diff, and rerun affected checks after
-repairs. Each parallel repair stays in its own worktree. Preserve out-of-scope findings
-for step 8.
+On Claude Code the review is:
+
+```
+/code-review medium <branch> [--fix]
+```
+
+**Effort first, branch second** — an unrecognized first token makes the whole string the
+target and silently reuses the last effort. **`medium` for every branch**; `high` only
+where the change can lose or corrode existing data (a migration, a storage-layer write,
+a released public contract real consumers use) or the user asked; never `low`, `xhigh`,
+`max` or `ultra`:
+[cost-discipline.md#code-review-effort](references/cost-discipline.md#code-review-effort).
+
+**`--fix` is serial-mode only** — in parallel mode it would write into the main
+checkout. There, review without it and spawn one `sonnet` sub-agent per branch with
+accepted findings, all in one message, from
+[review-fix.md](references/agents/review-fix.md), numbering the findings `F1`, `F2`, …
+so the returned `APPLIED`/`REJECTED` lines match back
+([why](references/recovery.md#--fix-and-why-it-is-serial-mode-only)).
+
+Only when the host cannot launch `/code-review` (or under Codex CLI), use
+[review-fallback.md](references/agents/review-fallback.md): a read-only, fresh-context
+review of the branch diff. Check that the reviewer actually read test and gate changes
+before accepting an empty report. Triage every finding against the issue scope, inspect
+the resulting diff, and rerun affected checks after repairs. Each parallel repair stays
+in its own worktree. Preserve out-of-scope findings for step 8.
+
+Record the pass:
+`run_record.py --event review --field issue=<n> --field status=<code-review|code-review+agent-fix|DELEGATED> --field effort=<medium|high> --field findings=<n> --field skipped=<n>`.
 
 ### 5. Open the PR
 

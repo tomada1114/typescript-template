@@ -34,46 +34,26 @@ Only for [step 4](../SKILL.md#4-review-the-branch)'s local pass.
 context — the finders' reads never reach here, only the findings do. Effort controls how
 much of that runs:
 
-**`low` is this repository's default effort.** The user set it as the standing choice
-for every review this skill runs; use it unless the row below genuinely calls for more,
-and do not silently drift back to `medium` because a diff looks large.
+**`medium` is this repository's standing effort, for every branch.** The implementation
+is usually a `sonnet` run, and a one-pass review on top of it leaves nobody reading the
+change with any depth.
 
 | effort   | pipeline                                                                      | when                                                                                                                                                                       |
 | -------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `low`    | one pass, no verify sub-pass, ≤4 findings, skips test/fixture hunks           | **the default** — use it unless a row below applies                                                                                                                        |
-| `medium` | 8 finder angles × 6 candidates, 1-vote verify, ≤8 findings (precision-biased) | reach for it only deliberately: a change whose blast radius is hard to see from the diff alone, or one the run has already had to repair once                              |
+| `medium` | 8 finder angles × 6 candidates, 1-vote verify, ≤8 findings (precision-biased) | **the default, every branch**                                                                                                                                              |
 | `high`   | same 8 angles, 1-vote verify biased toward recall, ≤10 findings               | the change can lose or corrode data that already exists — a migration, a storage-layer write, a released public contract real consumers are on — or the user asked for one |
 
-Diff size or file count alone is not a reason to escalate — `low` already reads the
-whole diff for scope and correctness, and a big mechanical rename is exactly the shape
-it handles well. Never `ultra`: it runs in the cloud, is billed per use, and the prompt
-that defines it says explicitly that a model cannot launch it itself.
+Never `low`: it is one pass with no verify sub-pass, and it **skips test and fixture
+hunks**, so a diff confined to a file under `tests/` that _is_ a gate — one that lints
+workflow YAML, asserts zone or import boundaries, or walks the tree for secrets — comes
+back `(none)` having read nothing. Observed: a gate change reviewed at `low` returned no
+findings; re-run at `medium` it returned four, one of them a security rule that silently
+accepted three of the four YAML spellings it existed to reject. Never `xhigh` or `max`
+(cost) and never `ultra`: it runs in the cloud, is billed per use, and the prompt that
+defines it says a model cannot launch it itself.
 
-### The escalation that is not optional: a diff `low` cannot see
-
-`low` **skips test and fixture hunks**. That is right for an ordinary test — it follows
-the behavior the code already fixed. It is wrong whenever the file under `tests/` _is_
-the gate rather than a consumer of one, and it fails silently: a diff confined to such a
-file comes back `(none)` in a few seconds, which reads exactly like a clean review and
-is not one.
-
-Before accepting any `low` verdict, ask what the review actually read:
-
-- **Every hunk in the diff is in a test or fixture file → `low` reviewed nothing.**
-  Escalate to `medium`. Judge the file by its _role_, not its path: a file under
-  `tests/` that lints workflow YAML, asserts zone or import boundaries, walks the tree
-  for secrets or placeholders, or otherwise decides what "green" means is a gate, and a
-  hole in it is a hole in every future change.
-- **A clean verdict that names what it skipped is not a clean verdict.** A result like
-  "the entire diff is confined to X, which this review level skips" is the review
-  telling you it abstained. Read the sentence, not the empty findings list.
-- A run that escalated for this reason says so in the step 10 report, with the reason —
-  otherwise it looks like drift away from the standing `low` default.
-
-Observed cost of getting this wrong: a gate change reviewed at `low` returned no
-findings; re-run at `medium` it returned four, all reproduced against the branch, one of
-them a security rule that silently accepted three of the four YAML spellings it existed
-to reject.
+Diff size or file count alone is not a reason to go to `high`. A run that did escalate
+says so in the step 10 report, with the reason.
 
 ## What the startup costs
 
