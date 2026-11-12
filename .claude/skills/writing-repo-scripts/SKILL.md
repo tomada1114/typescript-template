@@ -13,10 +13,10 @@ description: >
 # Writing Repository Scripts
 
 **Owns:** the authoring contract for `scripts/**/*.mjs` — imports, typing, git safety,
-and the stderr contract. **Does not own:** authoring a skill or mirroring it into
-`.claude/skills/` (`authoring-skills`); where a script's tests live and its coverage
-floor (`placing-tests`); the `ERR_<STAGE>_*` code vocabulary shared with `src/`
-(`designing-errors`).
+and the stderr contract. **Does not own:** authoring a skill under `.claude/skills/`
+(`authoring-skills`); where a script's tests live and its coverage floor
+(`.claude/rules/tests.md`); the `ERR_<STAGE>_*` code vocabulary shared with `src/`
+(`.claude/rules/src.md`).
 
 ## Why `.mjs`, not `.ts`
 
@@ -97,8 +97,8 @@ through `isolatedGitEnv`.
 An error raised by automation is read by an agent, not a human watching a terminal, so
 it must say: what failed, the path or export involved, expected versus actual, an error
 code, and the next safe command to run — and never a secret or an absolute home path.
-**REQUIRED:** `designing-errors` for the `ERR_<STAGE>_*` code vocabulary a new script's
-errors should join.
+**REQUIRED:** `.claude/rules/src.md` ("Errors") for the `ERR_<STAGE>_*` code vocabulary
+a new script's errors should join.
 
 Worked example, from `scripts/lib/node-tools.mjs`:
 
@@ -112,5 +112,5 @@ Next: run `pnpm install --frozen-lockfile`.
 
 A new script is covered by the `scripts/**` coverage floor from the moment it exists —
 an untested file counts as 0%, not as absent from the measurement. **BACKGROUND:**
-`placing-tests` explains why `scripts/**` and `scripts/lib/guard/**` carry their own
-floors instead of `src/**`'s.
+`.claude/rules/tests.md` explains why `scripts/**` and `scripts/lib/guard/**` carry
+their own floors instead of `src/**`'s.

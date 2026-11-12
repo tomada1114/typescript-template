@@ -28,7 +28,6 @@ import {
   parseArguments,
   promptArguments,
   removeSelfReferentialLines,
-  repadMarkdownTable,
   validatePackageName,
 } from "../scripts/bootstrap.mjs";
 import { copyTemplate as copyTrackedFiles } from "../scripts/verify-bootstrap.mjs";
@@ -108,7 +107,7 @@ function allFiles(root: string): string[] {
 // `pnpm check:quick` fails on a file they never edited (see #111). Honors
 // the generated tree's own `.gitignore`/`.prettierignore` and Prettier's
 // parser inference exactly the way the `prettier` CLI does, so build output,
-// the generated `.claude/skills/` mirror, and binary fixtures are skipped
+// the externally generated `.claude/agents/` tier files, and binary fixtures are skipped
 // the same way `pnpm format:check` skips them.
 async function assertGeneratedTreeIsFormatted(root: string): Promise<void> {
   const ignorePath = [".gitignore", ".prettierignore"]
@@ -135,12 +134,7 @@ async function assertGeneratedTreeIsFormatted(root: string): Promise<void> {
 }
 
 function aiLayerFiles(root: string): string[] {
-  return [
-    "AGENTS.md",
-    "CLAUDE.md",
-    ...relativeFiles(root, ".claude"),
-    ...relativeFiles(root, ".agents"),
-  ];
+  return ["AGENTS.md", "CLAUDE.md", ...relativeFiles(root, ".claude")];
 }
 
 function options(
@@ -205,30 +199,22 @@ describe("bootstrap validation", () => {
     expect(() => validatePackageName("..\\evil")).toThrow(BootstrapError);
   });
 
-  it("re-pads a table after its widest row is removed", () => {
+  it("drops only the Quick reference lines tied to the bootstrap flow", () => {
     expect(
       removeSelfReferentialLines(
         [
-          "| Skill                        | Load it when |",
-          "| ---------------------------- | ------------ |",
-          "| `writing-tests`              | a test       |",
-          "| `bootstrapping-the-template` | the flow     |",
+          "```sh",
+          "pnpm repo:labels   # create/update GitHub labels",
+          "pnpm bootstrap:e2e # run scripts/bootstrap.mjs end to end",
+          "pnpm bootstrap:check # install and run the full gate",
+          "```",
           "",
         ].join("\n"),
       ),
     ).toBe(
-      [
-        "| Skill           | Load it when |",
-        "| --------------- | ------------ |",
-        "| `writing-tests` | a test       |",
-        "",
-      ].join("\n"),
-    );
-  });
-
-  it("keeps a delimiter row's alignment markers when re-padding", () => {
-    expect(repadMarkdownTable(["| a | bbbb |", "| :-: | ---: |", "| c | d |"])).toEqual(
-      ["|  a  | bbbb |", "| :-: | ---: |", "|  c  |    d |"],
+      ["```sh", "pnpm repo:labels   # create/update GitHub labels", "```", ""].join(
+        "\n",
+      ),
     );
   });
 
@@ -507,7 +493,7 @@ describe("bootstrap profiles", () => {
     const stableAiFiles = aiLayerFiles(root)
       .filter(
         (file) =>
-          (file.startsWith(".claude/skills/") || file.startsWith(".agents/skills/")) &&
+          file.startsWith(".claude/") &&
           // bootstrapping-the-template documents the bootstrap flow itself, so
           // it self-removes along with scripts/bootstrap.mjs (see
           // SELF_REMOVED_PATHS) rather than staying stable across a run.
@@ -550,14 +536,9 @@ describe("bootstrap profiles", () => {
     // The skill documenting the bootstrap flow has nothing left to document
     // once that flow's own files are gone, so it self-removes too.
     expect(
-      existsSync(path.join(root, ".agents", "skills", "bootstrapping-the-template")),
-    ).toBe(false);
-    expect(
       existsSync(path.join(root, ".claude", "skills", "bootstrapping-the-template")),
     ).toBe(false);
-    // AGENTS.md's own routing row and Quick reference line must go with the
-    // skill and script they name, or a forker's first `pnpm check` sees a
-    // Skills table row pointing at a directory that no longer exists.
+    // AGENTS.md's Quick reference lines must go with the script they name.
     const generatedAgentsMd = readFileSync(path.join(root, "AGENTS.md"), "utf8");
     expect(generatedAgentsMd).not.toContain("bootstrapping-the-template");
     expect(generatedAgentsMd).not.toContain("bootstrap:e2e");
@@ -572,20 +553,20 @@ describe("bootstrap profiles", () => {
     for (const [file, contents] of stableAiFiles) {
       expect(readFileSync(path.join(root, file), "utf8")).toBe(contents);
     }
-    // Both copies are real files in a generated repository: Claude Code reads
-    // only `.claude/skills/`, Codex CLI only `.agents/skills/`, and a clone on
-    // any platform has to get both without a link to resolve.
-    const skillCopies = [".agents", ".claude"].map((directory) =>
-      path.join(root, directory, "skills", "merge-dependabot", "SKILL.md"),
-    );
-    for (const copy of skillCopies) {
-      expect(existsSync(copy)).toBe(true);
+    // Every other part of the agent layer is inherited unchanged: the tier
+    // files, the path-scoped rules, and every skill but the bootstrap one.
+    for (const inherited of [
+      ".claude/agents/executor.md",
+      ".claude/rules/src.md",
+      ".claude/rules/tests.md",
+      ".claude/skills/create-pr/SKILL.md",
+    ]) {
+      expect(existsSync(path.join(root, inherited))).toBe(true);
     }
-    const [agentsSkill, claudeSkill] = skillCopies.map((copy) =>
-      readFileSync(copy, "utf8"),
+    const dependabotSkill = readFileSync(
+      path.join(root, ".claude", "skills", "merge-dependabot", "SKILL.md"),
+      "utf8",
     );
-    expect(claudeSkill).toBe(agentsSkill);
-    const dependabotSkill = claudeSkill ?? "";
     expect(dependabotSkill).toContain(".github/PULL_REQUEST_TEMPLATE.md");
     expect(existsSync(path.join(root, ".github", "PULL_REQUEST_TEMPLATE.md"))).toBe(
       true,

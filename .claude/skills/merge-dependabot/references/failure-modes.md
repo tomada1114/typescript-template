@@ -78,7 +78,7 @@ wants. Never silence it with `@ts-expect-error` or an `eslint-disable` to land t
 ## F5 — Test or coverage failure
 
 **Symptom:** lint and types pass; `pnpm run test:coverage` fails, or coverage drops
-below one of the floors in `vitest.config.ts` (see `placing-tests`).
+below one of the floors in `vitest.config.ts` (see `.claude/rules/tests.md`).
 
 **Fix:** this is a real signal. Read the failure. Hold the PR and report it — do not
 chase coverage by editing tests to accommodate a dependency you have not decided to

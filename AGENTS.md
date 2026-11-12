@@ -1,22 +1,18 @@
 # Project Guide
 
-This file is the source of truth for every agent working in this repository.
-Tool-specific files (`CLAUDE.md` and anything like it) add only what is specific to that
-tool; they never restate what is here.
+This file is the source of truth for every agent working in this repository. It holds
+what has to be true _before_ you know which task you are on: what this package is, how
+to check a change, and which decisions need a human. `CLAUDE.md` only imports it.
 
-Machine-enforceable rules are not written down here either. `eslint.config.mjs`,
+Machine-enforceable rules are not written down here. `eslint.config.mjs`,
 `tsconfig.json`, `.prettierrc.json`, `vitest.config.ts` and `pnpm-workspace.yaml` are
-the source of truth for those, and running the gate is how you learn them.
+the source of truth for those, and running the gate is how you learn them. The
+conventions of a particular kind of work live in `.claude/rules/` (loaded when a
+matching file is opened) and `.claude/skills/` (loaded when the task matches a
+description).
 
-Neither are the conventions of a particular kind of work. Those live in the skills under
-`.agents/skills/`, one per kind of change, and load when the work you are doing calls
-for them — see [Skills](#skills) for the index. What is left in this file is what has to
-be true _before_ you know which task you are on: what this package is, how to check a
-change, and which decisions need a human.
-
-**Never hand-edit `.claude/skills/`** — it is a generated mirror, and a change there is
-lost at the next sync. `authoring-skills` owns how a skill is authored, mirrored, and
-checked.
+Everything an agent needs is in this repository. A cloud session starts with nothing
+else — no personal skills, sub-agents or settings — so never rely on one being present.
 
 ## Overview
 
@@ -24,6 +20,12 @@ An ESM-only TypeScript package published to npm. Development runs on Node >= 24,
 generated `node-library` chooses its published `engines.node` floor during bootstrap.
 pnpm 11 is the package manager, used through Corepack. A package may also ship one
 command entry in `src/cli.ts`; that command is not an import surface.
+
+## Setup
+
+A fresh checkout (a cloud session included) runs `pnpm install` and then
+`pnpm hooks:install` before its first commit. The pre-commit hook is the only layer that
+blocks a secret from being committed, and it exists only once it is installed.
 
 ## Quick reference
 
@@ -37,8 +39,6 @@ pnpm build         # emit dist/ from src/
 pnpm package:check # build and pack once, then run every artifact check
 pnpm package:smoke # install the tarball into throwaway consumers and run it
 pnpm docs:build    # TypeDoc into docs/api/
-pnpm agents:sync   # regenerate .claude/skills/ from .agents/skills/
-pnpm agents:check  # fail when the two skill trees have drifted apart
 pnpm repo:labels   # create/update GitHub labels from .github/labels.yml
 pnpm bootstrap:e2e # run scripts/bootstrap.mjs end to end for every profile
 pnpm bootstrap:check # install and run the full gate in every generated profile
@@ -48,10 +48,9 @@ Run a single test file with `pnpm exec vitest run tests/<name>.test.ts`.
 
 `pnpm check:quick` is the full local source gate, and CI runs those source/package
 checks as separate steps, so a green run here means those are green too. `lefthook`'s
-pre-commit hook runs a staged-file-scoped version of the same tools — format applied
-rather than merely checked, tests limited to the ones reachable from the staged files —
-before every commit. Nothing — not a hook, not a workflow — defines a check of its own;
-they all call these scripts.
+pre-commit hook runs a staged-file-scoped version of the same tools before every commit.
+Nothing — not a hook, not a workflow — defines a check of its own; they all call these
+scripts.
 
 Development and source checks stay on Node 24. A generated `node-library` may publish a
 different bare `>=N` floor through bootstrap's `--node-engines` option (default `>=24`);
@@ -65,16 +64,16 @@ selected floor. The override is only for that compatibility check. Never relax
 Run the narrowest check that can fail, then the gate. Reaching for `pnpm check` on every
 edit is slow enough that it stops being run at all.
 
-| What you changed                       | The narrowest check that can fail                                                 |
-| -------------------------------------- | --------------------------------------------------------------------------------- |
-| A module under `src/`                  | `pnpm exec vitest run tests/<module>.test.ts`                                     |
-| Anything reachable from `src/index.ts` | `pnpm check` — only `package:smoke` sees the published `.d.ts` as a consumer does |
-| A test                                 | `pnpm exec vitest run tests/<name>.test.ts`                                       |
-| A script under `scripts/`              | `pnpm exec vitest run tests/<script>.test.ts`                                     |
-| TSDoc comments                         | `pnpm docs:build`                                                                 |
-| A skill under `.agents/skills/`        | `pnpm agents:sync && pnpm agents:check && pnpm test`                              |
-| `package.json`, `pnpm-workspace.yaml`  | `pnpm install`, then `pnpm check`                                                 |
-| Markdown                               | `pnpm fix`                                                                        |
+| What you changed                         | The narrowest check that can fail                                                 |
+| ---------------------------------------- | --------------------------------------------------------------------------------- |
+| A module under `src/`                    | `pnpm exec vitest run tests/<module>.test.ts`                                     |
+| Anything reachable from `src/index.ts`   | `pnpm check` — only `package:smoke` sees the published `.d.ts` as a consumer does |
+| A test                                   | `pnpm exec vitest run tests/<name>.test.ts`                                       |
+| A script under `scripts/`                | `pnpm exec vitest run tests/<script>.test.ts`                                     |
+| TSDoc comments                           | `pnpm docs:build`                                                                 |
+| A skill, rule, or agent under `.claude/` | `pnpm exec vitest run tests/skills-frontmatter.test.ts`, then `pnpm fix`          |
+| `package.json`, `pnpm-workspace.yaml`    | `pnpm install`, then `pnpm check`                                                 |
+| Markdown                                 | `pnpm fix`                                                                        |
 
 ## Architecture
 
@@ -87,47 +86,63 @@ src/
 ```
 
 `src/index.ts` is the single consumer-importable entry point of the published contract.
-`src/cli.ts` may additionally be the command entry named by `package.json#bin`, but it
-is not an import surface. `scripts/*.mjs` is repository automation that never ships.
-What may appear on the import surface, and what a change to it obliges, are the
-`public-api-contract` and `release-impact` skills.
+`scripts/*.mjs` is repository automation that never ships. Three facts hold for every
+change, because no config can check whether a change was meant:
 
-## Skills
+- Adding or removing a line in `src/index.ts`, or an entry in `package.json`'s
+  `exports`/`files`, changes the published contract. Decide it deliberately.
+- An error's `code` is contract; its `message` is not. Tests and callers match on the
+  class and `code`, never the message.
+- A public-surface change lands in one pull request with its tests, type tests, README
+  example and a `Release impact:` line (`release-impact` owns the semver call).
 
-Each skill owns one kind of change. Load the one whose subject you are working on; each
-names its own boundary with its neighbours.
+## Rules, skills and sub-agents
 
-| Skill                        | Load it when you are working on                                                       |
-| ---------------------------- | ------------------------------------------------------------------------------------- |
-| `writing-typescript`         | a module under `src/**/*.ts`                                                          |
-| `designing-errors`           | an error type or an `ERR_*` code, in `src/` or `scripts/`                             |
-| `writing-tests`              | the body of a test under `tests/`                                                     |
-| `placing-tests`              | a new test file, a vitest project, or a coverage floor                                |
-| `type-testing`               | `tests/types.test.ts` and `expectTypeOf`                                              |
-| `public-api-contract`        | `src/index.ts`, `src/internal/`, or `exports`/`files`                                 |
-| `release-impact`             | a PR body, its semver consequence, a `CHANGELOG.md` entry                             |
-| `writing-repo-scripts`       | a `.mjs` under `scripts/`                                                             |
-| `bootstrapping-the-template` | the bootstrap flow, its profiles, or `pnpm bootstrap:e2e`                             |
-| `authoring-skills`           | a skill under `.agents/skills/`                                                       |
-| `changing-gates`             | a CI workflow, `lefthook.yml`, or a tool config                                       |
-| `managing-dependencies`      | adding, bumping, or removing a package by hand (an open bot PR is `merge-dependabot`) |
-| `merge-dependabot`           | landing open Dependabot or Renovate pull requests                                     |
-| `updating-docs`              | `README.md`, `CONTRIBUTING.md`, or `docs/`                                            |
-| `triaging-issues`            | filing, labelling, or ranking a GitHub issue                                          |
-| `shipping-issues`            | shipping explicitly requested issues through reviewed PRs and verified merges         |
+`.claude/rules/src.md` and `.claude/rules/tests.md` load once a matching file is opened,
+which is after a design is under way: read the rule for each area a change touches
+before designing it.
+
+Each skill under `.claude/skills/` owns one kind of work; its `description` says when.
+Skills are edited in place; `authoring-skills` holds how they are checked.
+
+`.claude/agents/` defines the sub-agent tiers `executor`, `architect`, `scout` and
+`worker`. Delegate by naming a tier as `subagent_type`, never with a bare `model`: each
+tier file carries its model, effort and instructions, and a bare `model` drops them.
+Pick the tier by its `description`. Most work needs no delegation, and a decision that
+needs this conversation stays with the main session. Repository prose names tiers by
+role only, never a model or an effort level.
+
+<!-- template-only:start -->
+
+The tier files are generated outside this repository from the owner's canonical tier
+definitions and arrive by pull request; never edit them by hand.
+
+<!-- template-only:end -->
 
 ## Security and human approval
 
-- **Commit, push, pull request, and publish always need a human.** No file this
-  repository ships blocks the dangerous spellings — `--no-verify`, a plain force-push,
-  `npm`/`pnpm publish`, workflow dispatch — mechanically; this instruction is the rule
-  itself, not a pattern enforcing it. An agent may still carry its own personal
-  permission settings on top (a Claude Code session's own `~/.claude/settings.json`, for
-  instance), but that is a choice made outside this repository, not something it ships
-  or requires.
+- **Commit, push, pull request, merge, and publish need a human's go-ahead.** Nothing in
+  this repository blocks the dangerous spellings mechanically; this sentence is the
+  rule.
+- **Standing exceptions.** When the user explicitly asks for one of these skills, that
+  request is the go-ahead for the writes the skill exists to make, for that invocation
+  only. A skill the model loads on its own, or reads during analysis, authorizes
+  nothing.
+  - `smart-commit`: commits of the working tree, and pushing them to the current branch
+    when asked to push.
+  - `create-pr`: pushing the current branch and creating or updating its pull request.
+  - `shipping-issues`: the writes its `SKILL.md` lists — issue labels, branches, pushes,
+    the pull request, merging it once CI passes, follow-up issues, and removing the
+    branches and worktrees it created.
+
+  None of them covers publishing, a release tag, `pnpm repo:labels`, a workflow
+  dispatch, or a gate change. A skill that reaches one stops and asks.
+
+- **Never bypass the hooks** — no `--no-verify`, no `LEFTHOOK=0`, no other way of
+  turning the pre-commit hook off. It is the only check that stops a secret, and it
+  cannot see itself being disabled.
 - Never read or write `.env*` (the `.example`, `.sample` and `.template` variants are
-  fine) or anything under `secrets/`.
-- Never write a credential into a tracked file — no registry auth token, no private key.
+  fine) or anything under `secrets/`. Never write a credential into a tracked file.
 - Every pull request states whether a release is required; `release-impact` holds the
   two literal forms and the semver call.
 - `pnpm-lock.yaml` is generated by `pnpm install`, never hand-edited;
@@ -138,75 +153,19 @@ names its own boundary with its neighbours.
   or `pnpm-workspace.yaml` supply-chain setting, no `@ts-ignore`, no blanket
   `eslint-disable`, no skipped or deleted test. If a gate is wrong, say so and let a
   human decide.
+- A denied command is not re-spelled (`git -C`, `bash -c`, a wrapper). Fix what made the
+  workaround look necessary, or ask.
 
-That last rule stays here rather than moving into a skill, because the agent it has to
-reach is looking at a red run and has classified its task as "make CI green" — not as
-writing a test or adding a dependency, so neither skill fires. `placing-tests` explains
-why there are three separate coverage floors and `managing-dependencies` explains what
-each supply-chain setting closes off; the prohibition itself is here.
-
-## Enforcement layers
-
-The rules above are enforced by two layers, from mechanical to procedural. Each layer
-holds only what belongs there — the rule itself lives in exactly one place, never copied
-between layers:
-
-| Layer                 | Fires on              | Applies to             | Holds                                                          |
-| --------------------- | --------------------- | ---------------------- | -------------------------------------------------------------- |
-| `lefthook` pre-commit | `git commit`          | every author, any tool | Formatting, a related-test run, and the one content rule below |
-| This file             | read at session start | every agent            | Everything else — the reasons behind the rules above           |
-
-This repository ships no declarative, tool-call-aware layer (a Claude Code
-`permissions.deny` or equivalent) — every generated project starts without one, and an
-agent has that protection only if it, or the human running it, has configured it
-personally, outside this repository. The one rule that must hold regardless of which
-tool or human is committing — a secret about to land in history — is instead the single
-mechanical layer this repository does ship: `lefthook`'s pre-commit hook, which every
-author goes through the same gate for.
-
-Two consequences of that shape are worth naming rather than discovering: a shell command
-that reads a secret path outside a commit (`cat .env`, `cp .env /tmp/x`) is invisible to
-the hook, since it only inspects what is staged; and turning the Git hooks off through
-the environment (`LEFTHOOK=0 git commit …`) is invisible to the hook it disables, with
-nothing else in the repository watching for it. Neither is enforced anywhere. "Never
-read or write `.env*` or anything under `secrets/`" and "never bypass the hooks" hold as
-instructions in this file, not as blocks — reaching for either spelling is the thing
-being ruled out, not the spelling that happens to be caught.
-
-`scripts/lib/guard/` is the rule engine `scripts/check-staged.mjs` (the pre-commit
-layer) uses to decide whether a staged path or its content is secret-shaped. That is the
-whole of its scope, on purpose.
-
-The hook deliberately does **not** try to stop a commit from deleting a workflow,
-relaxing a config, or lowering a threshold. Those are judgement calls, and a judgement
-call belongs in the pull request, where a reader can weigh it and disagree — a hook
-cannot. A hook that blocks legitimate work teaches its author to reach for
-`--no-verify`, and that flag disables the secret check along with everything else, so a
-narrow hook that never fires on intended work protects more than a broad one that has to
-be routed around. "Never weaken a gate to make a run pass" therefore holds as an
-instruction in this file and as something a reviewer checks, not as a block.
-
-Hand-editing `pnpm-lock.yaml` is the clearest example of a rule this repository accepts
-as unenforced rather than mechanically blocked: a regenerated lockfile (`pnpm install`)
-is an ordinary, expected commit, and a git diff cannot tell that apart from a hand edit
-— only a layer that sees the actual tool call that produced the change could, and none
-is enforced here. "The lockfile is generated, never hand-edited" holds as an
-instruction, the same way the rules above it do.
-
-A skill holds the reasoning behind a rule and the judgment a config cannot express; it
-never holds a value a config owns, and never holds a prohibition an agent would meet
-while its declared task is something else.
+The hook and gate rules stay here rather than in a skill, because the agent they have to
+reach is looking at a red run and has classified its task as "make CI green", so no
+skill fires. Which layer enforces what, and what none of them sees, is `changing-gates`.
 
 ## Conventions
 
 - All committed code, comments, configuration, and public documentation are in English.
-  `authoring-skills` applies this to a skill's `description`.
-
 - **A comment carries only what the code cannot** — a non-obvious why, a trap the next
   edit would spring, an external constraint. Default to none and keep the rest to a line
-  or two. Restating the code, or narrating decision history, is what the code and git
-  already do. TSDoc on the published surface is a contract and stays.
-
+  or two. TSDoc on the published surface is a contract and stays.
 - Do what was asked; nothing more. Prefer editing an existing file to creating a new
   one, and do not add documentation files that were not requested.
 - Note improvements you spot outside the current scope instead of making them.

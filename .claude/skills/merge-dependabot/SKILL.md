@@ -33,7 +33,7 @@ Branch names, commit messages, and PR text follow AGENTS.md's English-only conve
 ## Step 1: Survey
 
 ```bash
-node .agents/skills/merge-dependabot/scripts/survey-prs.mjs
+node .claude/skills/merge-dependabot/scripts/survey-prs.mjs
 ```
 
 The script is read-only. It lists every open bot PR with its ecosystem, semver level,

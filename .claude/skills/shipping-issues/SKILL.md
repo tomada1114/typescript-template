@@ -1,200 +1,158 @@
 ---
 name: shipping-issues
 description: >
-  Use when explicitly asked to ship a GitHub issue, implement the next priority issue,
-  or clear an issue backlog through reviewed PRs and verified merges. Covers P0-P3
-  ranking, dependency ordering, isolated worktrees for an authorized parallel batch, CI
-  failures, linked issue closure, follow-up findings, and cleanup.
+  Ship open GitHub issues end to end: pick the next ready issue by priority and
+  dependency, implement it on a branch, review it with /code-review, open a PR that
+  closes the issue, watch CI to green, merge, confirm the issue closed, file follow-ups,
+  and clean up. "all" works through the backlog; a number ships that issue. Use only
+  when the user explicitly asks to ship an issue, take the next issue, or clear the
+  backlog.
 ---
 
 # Shipping Issues
 
-**Owns:** shipping explicitly requested issues through verified PRs and merges. **Does
-not own:** issue vocabulary (`triaging-issues`), release consequences
-(`release-impact`), or landing dependency bot PRs (`merge-dependabot`).
+**Owns:** taking open issues to a merged PR and a CLOSED issue. **Does not own:** the
+label vocabulary and issue-body rules (`triaging-issues`); commit and PR mechanics
+(`smart-commit`, `create-pr`); the semver call (`release-impact`).
 
-Completion requires a merged PR on the default branch, the linked issue closed, and the
-required gates preserved. Record the remote-write scope authorized in the current
-conversation before starting. An explicit request to invoke this shipping workflow
-covers its in-scope labels, branches, pushes, PRs, follow-up issues, design comments,
-and merges; a request to create only a PR stops at the PR. Reading this skill during
-analysis supplies no authorization. Green CI proves readiness within that scope.
+**Done means all three:** the PR is merged, the issue is CLOSED, and nothing was deleted
+or weakened to get there. The user's explicit request to ship is the go-ahead for the
+writes listed in AGENTS.md's standing exception — and nothing else. Loading or reading
+this skill on your own authorizes nothing. Green CI is the go-ahead to merge, in the
+same turn.
 
-**REQUIRED:** `triaging-issues` when changing issue labels; `release-impact` for every
-PR body. In Codex, load `managing-git-github-workflows` first and use the connected
-GitHub integration for supported remote operations. Bundled scripts using `gh` are a
-fallback when the integration cannot perform the operation.
+Everything here is plain `gh` and `git`; no helper script. Run every command with its
+working directory set to the checkout it is meant for.
 
-## Modes and working rules
+## Modes
 
-- No argument: ship the highest-priority ready issue, then eligible output produced by
-  that run, to depth one.
-- `all`: ship ready issues in dependency-then-priority order.
-- An issue number: ship that issue once its dependencies are satisfied.
-- A user-specified count or concurrency sets the batch limit. Parallel implementation
-  needs explicit authorization and a separate checkout per issue; keep Git mutations, PR
-  operations, merges, and cleanup serialized in the parent.
-- Preserve unrelated changes. Determine who owns an unexpected change before acting.
-- Keep artifacts and logs in the run-state directory outside the checkout, as described
-  in [run-record.md](references/run-record.md).
-- Obey the host's permissions and repository rules. Preserve source and evidence when an
-  action is denied; do not replace it with another spelling or move.
-- Every command runs with its working directory set to the intended checkout. Use
-  `git <subcommand>` there, and preserve hooks.
-- Resolve the bundled scripts relative to the directory containing this loaded SKILL.md.
-  References that use `CLAUDE_SKILL_DIR` assume Claude Code; on another host substitute
-  that resolved skill directory.
+| Argument | Behavior                                                                 |
+| -------- | ------------------------------------------------------------------------ |
+| _(none)_ | Ship the top ready issue, then only what that run itself filed (step 8). |
+| `all`    | Every ready issue, in dependency-then-priority order.                    |
+| a number | That issue, once nothing it depends on is open.                          |
+| a count  | Parallel batch size for `all`; parallel only when the user asked for it. |
 
-## Workflow
+## 1. Preflight
 
-### 1. Plan — one call
+- The main checkout is clean and on the default branch, up to date
+  (`git switch main && git pull --ff-only`). A dirty tree this run did not make is a
+  question for the user, not something to stash or discard.
+- `gh auth status` succeeds. Without GitHub write access, stop and report.
+- Note which branches and worktrees exist now, so cleanup can tell what this run added.
 
-Run the bundled `plan.py` with `--mode <all|single|N>` and `--record`; pass the
-requested filters and concurrency. Interpret its output using
-[plan-output.md](references/plan-output.md).
+## 2. Pick
 
-A blocked preflight stops the run. Confirm the proposed verification command against the
-actual project gate and run a minimal ordinary check to discover output and hook
-destinations before lengthy work. Read current issue bodies and dependency edges.
-
-### 2. Label the unlabeled — only when the plan says so
-
-Use [priority-rubric.md](references/priority-rubric.md) and
-[dependency-triage.md](references/dependency-triage.md). A few clear cases can be ranked
-inline; intertwined priorities may use an authorized research worker from
-[priority-research.md](references/agents/priority-research.md). Apply only labels within
-the recorded write scope and refresh the plan.
-
-### 2b. Decide a design that gates the pick
-
-A design-blocked issue is implemented only when explicitly selected or included. Resolve
-it using [dependency-triage.md](references/dependency-triage.md#deciding-a-held-design).
-A product decision without evidence remains a question for the user.
-
-### 2c. Confirm the proposed batch
-
-Review actual paths, shared configuration, generated outputs, and dependency edges. Use
-the narrower grouping when research and the planner disagree. Provision the first
-worktree and inspect its baseline before provisioning the rest. The viability decision
-belongs to the caller: [worktree-parallelism.md](references/worktree-parallelism.md).
-
-### 3. Implement
-
-One issue produces one branch and one PR, starting from the verified default branch. Run
-the confirmed baseline once per checkout and save the log. Use
-[implementation.md](references/agents/implementation.md) for authorized delegation, with
-[delegation-templates.md](references/delegation-templates.md) and
-[cost-discipline.md](references/cost-discipline.md). Use models available on the host;
-Claude model names in references are specific to Claude Code.
-
-Judge every returned acceptance criterion and unresolved decision. Reuse a worker rather
-than spawning a replacement when its report is missing. At most two repair turns follow
-its first attempt; an unmet acceptance criterion remains outstanding.
-
-### 4. Review the branch
-
-Before any PR exists. In parallel mode review every branch in the batch, triage all of
-them, then fix them concurrently; no PR opens until the last triage is done. One pass:
-fix every accepted finding here and do not re-review after the fix. No review is awaited
-on the PR itself.
-
-On Claude Code the review is:
-
+```bash
+gh issue list --state open --limit 200 --json number,title,labels,body,createdAt
 ```
+
+Drop issues labelled `on hold` or `blocked: design`, and any whose `Depends on: #N`
+names an issue that is still open (`gh issue view N --json state`). Order the rest by
+`priority: P0` … `P3`, then oldest first. An unlabelled issue is ranked with
+`triaging-issues`' criteria and labelled; a genuine tie at the top is a question for the
+user when attended, otherwise take the older one.
+
+For a parallel batch, take only issues that will not touch the same files (two workflow
+edits, two `package.json` changes, the same module). When unsure, run them in sequence:
+shrinking a batch never needs asking.
+
+## 3. Implement
+
+One issue, one branch (`<type>/<n>-<slug>`), one PR, from the up-to-date default branch.
+
+- **Serial:** work in the main checkout. Run `pnpm check:quick` once before changing
+  anything, so a red baseline is not mistaken for a regression.
+- **Parallel:** one worktree per issue,
+  `git worktree add .claude/worktrees/ship-<n> -b <branch>`, each with its own
+  `pnpm install`. Spawn one `executor` per issue in one message with the issue body, the
+  branch, the worktree path, and "run the narrowest check while iterating and
+  `pnpm check:quick` last; do not push". Foundational or hard-to-specify work goes to
+  `architect` instead. Every GitHub operation stays in this session, one PR at a time.
+
+Before moving on, check the result against every acceptance criterion in the issue. An
+unmet criterion goes back to the same worker (`SendMessage`), at most twice; a third
+miss stops that issue and is reported.
+
+## 4. Review
+
+```text
 /code-review medium <branch> [--fix]
 ```
 
-**Effort first, branch second** — an unrecognized first token makes the whole string the
-target and silently reuses the last effort. **`medium` for every branch**; `high` only
-where the change can lose or corrode existing data (a migration, a storage-layer write,
-a released public contract real consumers use) or the user asked; never `low`, `xhigh`,
-`max` or `ultra`:
-[cost-discipline.md#code-review-effort](references/cost-discipline.md#code-review-effort).
+One pass per branch, before the PR; no re-review after the fix. `high` only when the
+change can lose data or alters the released public contract. `--fix` only in serial
+mode; in parallel mode send the accepted findings, numbered, to that branch's
+`executor`. When `/code-review` is unavailable, spawn one read-only `architect` with the
+branch diff and the issue, asking for every finding with a severity. Out-of-scope
+findings are kept for step 8, not fixed here. Re-run the narrowest check covering what
+the fix changed.
 
-**`--fix` is serial-mode only** — in parallel mode it would write into the main
-checkout. There, review without it and spawn one `sonnet` sub-agent per branch with
-accepted findings, all in one message, from
-[review-fix.md](references/agents/review-fix.md), numbering the findings `F1`, `F2`, …
-so the returned `APPLIED`/`REJECTED` lines match back
-([why](references/recovery.md#--fix-and-why-it-is-serial-mode-only)).
+## 5. Open the PR
 
-Only when the host cannot launch `/code-review` (or under Codex CLI), use
-[review-fallback.md](references/agents/review-fallback.md): a read-only, fresh-context
-review of the branch diff. Check that the reviewer actually read test and gate changes
-before accepting an empty report. Triage every finding against the issue scope, inspect
-the resulting diff, and rerun affected checks after repairs. Each parallel repair stays
-in its own worktree. Preserve out-of-scope findings for step 8.
+Follow `create-pr`, with `Closes #<n>` in the body. Verify the PR's base is the default
+branch and that GitHub lists the issue under it
+(`gh pr view <pr> --json closingIssuesReferences`).
 
-Record the pass:
-`run_record.py --event review --field issue=<n> --field status=<code-review|code-review+agent-fix|DELEGATED> --field effort=<medium|high> --field findings=<n> --field skipped=<n>`.
+## 6. CI to green
 
-### 5. Open the PR
+Watch the checks of the PR's current head commit:
 
-Within the authorized scope, commit through the hooks, push, and create the PR against
-the default branch. Use the repository's PR template, the implementation summary,
-`Closes #N`, validation evidence, and the required release-impact statement. Verify the
-head, base, and closing link. Attach the created PR to the current task when the host
-supports that attachment.
+```bash
+gh pr checks <pr> --watch --interval 30
+```
 
-### 6. CI to green
+It can run past a foreground command's time limit; run it in the background and wait for
+it to finish rather than polling by hand. Merge evidence is every expected check present
+and passing for the current head. No checks registered, checks still pending, or results
+for an older commit are not evidence: wait, or report.
 
-Wait for checks belonging to the current PR head. The bundled `ci_watch.sh` is the
-fallback watcher; save its output and inspect the verdict rather than raw log dumps. A
-pass requires every expected check to be registered and successful.
+A failure: read the failing job's log (`gh run view <id> --log-failed`), fix the cause
+on the branch (yourself, or the same `executor`), push, watch again. At most three
+repairs per PR. Never fix CI by weakening a gate (AGENTS.md).
 
-Handle failures through [recovery.md](references/recovery.md#ci-fails) and
-[ci-repair.md](references/agents/ci-repair.md), with at most three repairs. `NO_CHECKS`,
-`ERROR`, and stale results supply no merge evidence.
+## 7. Merge and confirm
 
-### 7. Merge and confirm the issue closed
+```bash
+gh pr merge <pr> --squash --delete-branch
+gh pr view <pr> --json state,mergedAt
+gh issue view <n> --json state
+```
 
-Merge only within the recorded authorization, after checking the current head and
-required reviews. The bundled `land_pr.sh` is a fallback; interpret every result using
-[landing-outcomes.md](references/landing-outcomes.md). Verify the PR merged, its base
-branch, the linked issue closed, and the default branch updated.
+Report a merge only when `state` is `MERGED`. If the issue is still open, close it with
+a comment naming the PR. A required human review is not a failure: arm auto-merge
+(`gh pr merge <pr> --auto --squash`), report that, and move on. Then return the main
+checkout to the updated default branch, and for every open issue whose `Depends on:`
+named this one and has no other open blocker, remove `blocked: dependency`.
 
-Bring remaining parallel branches up to date in their own checkout before creating their
-PRs. Inspect conflicts rather than resetting or force-pushing.
+## 8. Follow-ups
 
-### 8. Close out the findings the run turned up
+For each defect the run found outside the issue: fix it in the open diff if it is the
+same behavior change and the branch has not merged; otherwise confirm it is real
+(reproduce it or point at the line), check it is not already filed
+(`gh issue list --search`), and file it following `triaging-issues`.
 
-Use [filing-followups.md](references/filing-followups.md) before filing anything. Fix an
-in-scope finding in the current diff; file an authorized follow-up for the rest, or
-report it when remote writes are unavailable. Assign its priority and readiness contract
-using [ship-contract.md](references/ship-contract.md).
+Before cleanup, ship what this run filed, to depth one only (no follow-up of a
+follow-up), when it is ready by step 2's rules and nothing needs a decision.
 
-### 8b. Unblock held designs in the background
+## 9. Clean up
 
-When delegation and design comments are authorized, use
-[design-decision.md](references/agents/design-decision.md). Cap in-flight design work at
-the available host slots. A deferred decision keeps its block and returns the open
-question; it does not block unrelated implementation.
+Remove only what this run created, by name: each worktree
+(`git worktree remove .claude/worktrees/ship-<n>`, then `git worktree prune`) and each
+local branch whose PR merged (`git branch -d <branch>`). Never a branch or worktree that
+existed at preflight. Check `git worktree list` afterwards; a failure is reported, not
+retried with `--force`.
 
-### 8c. Take the run's own output back into the queue
+## 10. Report
 
-Refresh the plan and consider only ready output produced by this run, to depth one and
-within its remaining budget. Follow-ups of follow-ups wait for a later run. Single mode
-does not expand into an unrelated backlog.
-
-### 9. Clean up
-
-Use [closing-out.md](references/closing-out.md#cleanup-scope). Preview cleanup and
-restrict it to branches and worktrees created by this run. Pass every branch explicitly
-to `cleanup_run.sh`; never rely on its broader default selection.
-
-Preserve ignored files that are still needed. Check each reported failure and verify
-worktree registration after cleanup. An exit-zero summary with partial failures is
-incomplete. Ask only for a necessary action outside the recorded authorization.
-
-### 10. Report
-
-State verified PR and issue outcomes, acceptance criteria still unmet, findings left
-open, deferred design questions, and retained source or evidence. Reporting details:
-[closing-out.md](references/closing-out.md#what-the-report-must-not-omit).
+Per issue: PR and merge state, issue state, any acceptance criterion not met, findings
+filed or left, and anything that stopped it. Never describe a partial run as done.
 
 ## Stop conditions
 
-Stop for a blocked preflight, an unresolved dependency cycle or product decision,
-unexpected changes owned by someone else, or the same CI failure beyond the repair
-ceiling on two issues. Preserve the checkout and evidence. In `all` mode, one failed
-issue may be recorded while unrelated ready issues continue.
+Stop the whole run and report when: preflight fails; a change this run did not make
+appears (a dirty checkout, a moved branch, an unknown worktree) — leave it exactly as
+found; a dependency cycle or a product decision needs a human; the same CI failure
+survives the repair ceiling on two issues; or the fix needs a write outside the standing
+exception (a gate change, a new dependency, publishing). In `all` mode one failed issue
+does not stop the run: mark it failed, skip its dependents, continue.

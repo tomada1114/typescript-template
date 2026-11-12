@@ -7,7 +7,7 @@
 // lockfile (`pnpm install`) is normal to commit, and a git diff cannot tell
 // that apart from a hand edit. Only a layer that sees the tool call that
 // produced the change could tell them apart, and this repository does not
-// enforce one — see AGENTS.md's "Enforcement layers".
+// enforce one — see the changing-gates skill's "Enforcement layers".
 
 /** Suffixes that mark a committed, secret-free sample of a `.env` file. */
 export const ENV_EXAMPLE_SUFFIXES = [".example", ".sample", ".template"];

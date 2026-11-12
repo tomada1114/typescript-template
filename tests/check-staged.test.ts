@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { checkStagedChange, main, stagedChanges } from "../scripts/check-staged.mjs";
 
-// scripts/check-staged.mjs is the pre-commit layer described in AGENTS.md's
-// "Enforcement layers": it sees a staged git diff, not a tool call, so these
+// scripts/check-staged.mjs is the pre-commit layer described in the changing-gates
+// skill's "Enforcement layers": it sees a staged git diff, not a tool call, so these
 // tests drive it against a real throwaway repository rather than mocking git.
 const repos: string[] = [];
 
@@ -136,7 +136,7 @@ describe("checkStagedChange", () => {
     // regenerated lockfile is an ordinary, expected commit, and a git diff
     // cannot tell it apart from a hand edit. Only a layer that sees the tool
     // call that produced the change can — `permissions.deny`'s
-    // `Edit(/pnpm-lock.yaml)`. See AGENTS.md's "Enforcement layers".
+    // `Edit(/pnpm-lock.yaml)`. See the changing-gates skill's "Enforcement layers".
     const dir = makeRepo();
     stage(dir, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
     commit(dir);

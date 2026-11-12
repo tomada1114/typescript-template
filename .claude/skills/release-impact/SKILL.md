@@ -4,16 +4,15 @@ description: >
   Use when deciding whether a change is breaking and which semver level (MAJOR, MINOR,
   PATCH) it deserves, whether a PR needs a release at all, or how to word the `Release
   impact:` line in a PR body; when adding, removing, renaming, or retyping anything
-  exported from src/index.ts — normalizeIdentifier, withTimeout, InvalidInputError,
-  TimeoutError, NormalizeIdentifierOptions, WithTimeoutOptions — or changing an error
-  `code`; or when writing a CHANGELOG.md entry.
+  exported from src/index.ts or changing an error `code`; or when writing a CHANGELOG.md
+  entry.
 ---
 
 # Release Impact
 
 **Owns:** what a pull request must carry about its release consequences, and the semver
-call. **Does not own:** what the public surface may contain (`public-api-contract`), doc
-content (`updating-docs`), dependency ranges (`managing-dependencies`).
+call. **Does not own:** what the public surface may contain (`.claude/rules/src.md`),
+doc content (`create-pr`), dependency ranges (`managing-dependencies`).
 
 ## Same-PR checklist
 
@@ -66,7 +65,8 @@ implementation:
 | Dependency bump with no surface change                  | PATCH |
 
 An error `code` is contract; an error `message` is not — **BACKGROUND:**
-`designing-errors` explains why that split exists and how the two fields are used.
+`.claude/rules/src.md` ("Errors") explains why that split exists and how the two fields
+are used.
 
 When a change spans more than one row (say, an added export alongside a narrowed input
 elsewhere), the level is the highest row it touches — MAJOR outranks MINOR outranks
