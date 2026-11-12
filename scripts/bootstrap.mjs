@@ -104,7 +104,6 @@ const SELF_REMOVED_PATHS = [
   "tests/template-self.test.ts",
   "scripts/verify-bootstrap.mjs",
   "scripts/bootstrap.mjs",
-  ".agents/skills/bootstrapping-the-template",
   ".claude/skills/bootstrapping-the-template",
 ];
 
@@ -114,9 +113,6 @@ const SELF_REMOVED_PATHS = [
 const AI_LAYER_TARGETS = [
   "AGENTS.md",
   "CLAUDE.md",
-  ".agents/skills/merge-dependabot/SKILL.md",
-  ".agents/skills/merge-dependabot/references/failure-modes.md",
-  ".agents/skills/merge-dependabot/scripts/survey-prs.mjs",
   ".claude/skills/merge-dependabot/SKILL.md",
   ".claude/skills/merge-dependabot/references/failure-modes.md",
   ".claude/skills/merge-dependabot/scripts/survey-prs.mjs",
@@ -142,15 +138,10 @@ const PROFILE_YAML_BLOCK =
 // Lines this template's own AGENTS.md carries only because the
 // `bootstrapping-the-template` skill and the bootstrap tooling it documents
 // still exist in this checkout (see SELF_REMOVED_PATHS above). Matched
-// against a whole line, so removal never leaves a table row blank in a
-// generated repository and is a no-op — not an error — on a tree where the
+// against a whole line, and a no-op — not an error — on a tree where the
 // line is already gone (idempotent, matching the file's other marker-removal
-// regexes). The table row is matched with tolerant padding because Prettier
-// re-pads the routing table whenever its widest cell changes.
-const SELF_REMOVED_AGENTS_LINES = [
-  /^pnpm bootstrap:(?:e2e|check)\b/,
-  /^\|\s*`bootstrapping-the-template`\s*\|/,
-];
+// regexes).
+const SELF_REMOVED_AGENTS_LINES = [/^pnpm bootstrap:(?:e2e|check)\b/];
 
 // Directories a Markdown-reference scan has no business reading: version
 // control internals, a dependency tree that should not exist yet at
@@ -185,8 +176,8 @@ const MARKDOWN_INLINE_CODE = /`([^`\n]+)`/g;
 const REPO_RELATIVE_PATH_TOKEN = /^[A-Za-z0-9._](?:[A-Za-z0-9._/-]*[A-Za-z0-9_/-])?$/;
 
 // Paths that a Markdown file may legitimately name without the path existing
-// in the generated tree. `dist` and `dist/cli.js` plus `docs/api` are gitignored
-// build output; `src/cli.ts` is an optional source entry removed by the
+// in the generated tree. `dist`, `dist/cli.js`, `coverage` and `docs/api` are
+// gitignored build output; `src/cli.ts` is an optional source entry removed by the
 // `--cli no` shape;
 // `docs` itself has no hand-written page yet, so `git ls-files` — which
 // creates a directory only for a file it copies — never creates it either;
@@ -194,7 +185,7 @@ const REPO_RELATIVE_PATH_TOKEN = /^[A-Za-z0-9._](?:[A-Za-z0-9._/-]*[A-Za-z0-9_/-
 // documents a directory *pattern* this template guards against rather than a
 // directory it ships; and `.claude/settings.json` is named only to say the
 // template does *not* ship one (AGENTS.md's "Security and human approval"),
-// so it never exists in a generated tree either. All six are load-bearing in
+// so it never exists in a generated tree either. Each is load-bearing in
 // a generated tree: with `namesGeneratedTreeEntry` now classifying a token by
 // shape as well as by what exists on disk (see below), every one of these can
 // be reported as dangling even when its first segment is absent at the root.
@@ -204,6 +195,7 @@ const REPO_RELATIVE_PATH_TOKEN = /^[A-Za-z0-9._](?:[A-Za-z0-9._/-]*[A-Za-z0-9_/-
 const DANGLING_REFERENCE_EXEMPTIONS = new Set([
   "dist",
   "dist/cli.js",
+  "coverage",
   "docs",
   "docs/api",
   "src/cli.ts",
@@ -519,102 +511,16 @@ export async function promptArguments(question) {
 }
 
 /**
- * Re-pad one GitHub-flavoured Markdown table so every column is exactly as
- * wide as its widest cell — the layout Prettier writes, and therefore the
- * only layout `pnpm format:check` accepts.
- *
- * @param {readonly string[]} rows - The table's lines, pipes included.
- * @returns {string[]} The same rows, re-padded.
- */
-export function repadMarkdownTable(rows) {
-  const cells = rows.map((row) =>
-    row
-      .trim()
-      .replace(/^\|/, "")
-      .replace(/\|$/, "")
-      .split("|")
-      .map((cell) => cell.trim()),
-  );
-  const isDelimiter = (/** @type {string[]} */ row) =>
-    row.length > 0 && row.every((cell) => /^:?-+:?$/.test(cell));
-  /** @type {number[]} */
-  const widths = [];
-  for (const row of cells) {
-    if (isDelimiter(row)) {
-      continue;
-    }
-    for (const [column, cell] of row.entries()) {
-      // Prettier never draws a column narrower than the three dashes its
-      // delimiter row needs.
-      widths[column] = Math.max(widths[column] ?? 3, cell.length);
-    }
-  }
-  const alignments = cells.find((row) => isDelimiter(row)) ?? [];
-  return cells.map((row) => {
-    const delimiter = isDelimiter(row);
-    const padded = row.map((cell, column) => {
-      const width = widths[column] ?? Math.max(3, cell.length);
-      const marker = alignments[column] ?? "---";
-      const left = marker.startsWith(":") ? ":" : "";
-      const right = marker.endsWith(":") ? ":" : "";
-      if (delimiter) {
-        return `${left}${"-".repeat(width - left.length - right.length)}${right}`;
-      }
-      // A column's alignment marker decides where Prettier puts the padding:
-      // right for `---:`, split for `:---:`, left for everything else.
-      const slack = width - cell.length;
-      if (left === "" && right === ":") {
-        return `${" ".repeat(slack)}${cell}`;
-      }
-      if (left === ":" && right === ":") {
-        const before = Math.floor(slack / 2);
-        return `${" ".repeat(before)}${cell}${" ".repeat(slack - before)}`;
-      }
-      return cell.padEnd(width);
-    });
-    return `| ${padded.join(" | ")} |`;
-  });
-}
-
-/**
- * Drop the AGENTS.md lines that exist only while the bootstrap flow does, and
- * re-pad any table a dropped row leaves behind.
- *
- * The routing table's removed row holds the widest cell in its first column,
- * so deleting the line alone would leave every surviving row padded to a width
- * nothing occupies any more — valid Markdown, but not what Prettier writes, so
- * the generated repository would fail `pnpm format:check` on the forker's very
- * first `pnpm check:quick`.
+ * Drop the AGENTS.md lines that exist only while the bootstrap flow does.
  *
  * @param {string} text - AGENTS.md's contents.
  * @returns {string} The same text with those lines gone.
  */
 export function removeSelfReferentialLines(text) {
-  const isSelfReferential = (/** @type {string} */ line) =>
-    SELF_REMOVED_AGENTS_LINES.some((pattern) => pattern.test(line));
-  const lines = text.split("\n");
-  /** @type {string[]} */
-  const kept = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    if (!line.startsWith("|")) {
-      if (!isSelfReferential(line)) {
-        kept.push(line);
-      }
-      continue;
-    }
-    let end = index;
-    while ((lines[end] ?? "").startsWith("|")) {
-      end += 1;
-    }
-    const table = lines.slice(index, end);
-    const remaining = table.filter((row) => !isSelfReferential(row));
-    kept.push(
-      ...(remaining.length === table.length ? table : repadMarkdownTable(remaining)),
-    );
-    index = end - 1;
-  }
-  return kept.join("\n");
+  return text
+    .split("\n")
+    .filter((line) => !SELF_REMOVED_AGENTS_LINES.some((pattern) => pattern.test(line)))
+    .join("\n");
 }
 
 /**

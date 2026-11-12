@@ -16,7 +16,7 @@ import { parseJson, readKey, readString } from "../scripts/lib/json.mjs";
 import { resolveDependencyBin, runNode } from "../scripts/lib/node-tools.mjs";
 import { normalizeIdentifier } from "../src/index.js";
 
-// the `updating-docs` skill requires every documented code example to
+// the `create-pr` skill requires every documented code example to
 // compile against the *current* public API. Nothing did: a substring
 // assertion on README.md's own text catches a copy-paste typo, but not a
 // renamed option or a tightened parameter type, and TypeDoc renders an

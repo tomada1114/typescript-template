@@ -5,7 +5,8 @@ description: >
   a .github/workflows/*.yml CI workflow, editing lefthook.yml, or changing a setting
   inside eslint.config.mjs, tsconfig*.json, vitest.config.ts, or .prettierrc.json. Use
   when a new CI job or workflow is proposed, a lefthook stage or command changes, or an
-  ESLint rule or tsconfig option is added or loosened.
+  ESLint rule or tsconfig option is added or loosened, or when asking which layer
+  enforces a rule and what none of them sees.
 ---
 
 # Changing Gates
@@ -14,8 +15,8 @@ description: >
 `lefthook.yml`, or a tool config (`eslint.config.mjs`, `tsconfig*.json`,
 `vitest.config.ts`, `.prettierrc.json`). **Does not own:** adding a dependency the
 config then configures (`managing-dependencies`); a coverage floor's value or which
-project a test joins (`placing-tests`); a `.mjs` under `scripts/` that a gate invokes
-(`writing-repo-scripts`); `.github/labels.yml` (`triaging-issues`).
+project a test joins (`.claude/rules/tests.md`); a `.mjs` under `scripts/` that a gate
+invokes (`writing-repo-scripts`); `.github/labels.yml` (`triaging-issues`).
 
 ## The one rule every gate change shares
 
@@ -50,9 +51,9 @@ The judgment half it cannot encode:
 
 The hook is deliberately narrow: a hook that blocks legitimate work teaches its author
 to reach for `--no-verify`, which disables the secret check along with everything else
-(`AGENTS.md`'s Enforcement layers). The bar for a new or changed job is therefore that
-it never fires on intended, unstaged-clean work — test it against a normal commit before
-relying on it to catch a bad one.
+([Enforcement layers](#enforcement-layers) below). The bar for a new or changed job is
+therefore that it never fires on intended, unstaged-clean work — test it against a
+normal commit before relying on it to catch a bad one.
 
 Job ordering matters and is not incidental: `format` runs alone before the parallel
 group so later jobs see formatted content, and `check:staged` must see the re-staged
@@ -68,3 +69,34 @@ which rule or option moved, why, and what now passes (or newly fails) that did n
 before. That statement is what lets a reviewer weigh the change; AGENTS.md's prohibition
 on weakening a gate to make a run pass governs whether the change is allowed at all, and
 this skill does not restate it.
+
+## Enforcement layers
+
+Two layers enforce this repository's rules, and each rule lives in exactly one of them:
+
+| Layer                 | Fires on              | Applies to             | Holds                                                       |
+| --------------------- | --------------------- | ---------------------- | ----------------------------------------------------------- |
+| `lefthook` pre-commit | `git commit`          | every author, any tool | Formatting, a related-test run, and the staged secret check |
+| `AGENTS.md`           | read at session start | every agent            | Everything else, as instructions                            |
+
+No declarative, tool-call-aware layer (a Claude Code `permissions.deny` or equivalent)
+ships here; an agent has one only if its operator configured it personally. So two
+things are enforced nowhere and hold only as instructions: a command that reads a secret
+outside a commit (`cat .env`), which the hook never sees because it inspects only what
+is staged; and turning the hooks off (`LEFTHOOK=0 git commit`), which the hook cannot
+see because it is the thing disabled.
+
+`scripts/lib/guard/` is the rule engine `scripts/check-staged.mjs` uses to decide
+whether a staged path or its content is secret-shaped. That is the whole of its scope,
+on purpose.
+
+The hook deliberately does **not** try to stop a commit from deleting a workflow,
+relaxing a config, or lowering a threshold. Those are judgement calls, and they belong
+in the pull request, where a reader can weigh them. A hook that blocks legitimate work
+teaches its author to reach for `--no-verify`, which disables the secret check along
+with everything else, so a narrow hook that never fires on intended work protects more
+than a broad one that has to be routed around.
+
+Hand-editing `pnpm-lock.yaml` is likewise accepted as unenforced: a git diff cannot tell
+a regenerated lockfile from a hand edit, and no layer here sees the tool call that
+produced it.

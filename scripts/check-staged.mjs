@@ -26,7 +26,8 @@
 //     dispatch leave nothing in a diff for this script to see. `--no-verify`
 //     in particular disables this script along with the rest of the git hook
 //     chain, so no git hook can catch it. These stay as instructions in
-//     AGENTS.md rather than an enforced block — see its "Enforcement layers".
+//     AGENTS.md rather than an enforced block — see the changing-gates
+//     skill's "Enforcement layers".
 //
 // Exit codes:
 //   0  every staged change is safe to commit

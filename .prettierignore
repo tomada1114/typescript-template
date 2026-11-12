@@ -12,9 +12,9 @@ tests/fixtures/
 pnpm-lock.yaml
 CHANGELOG.md
 
-# Generated mirror of .agents/skills/ (`pnpm agents:sync`); the real files are
-# formatted at their real path, and reformatting the copy would only drift it.
-.claude/skills/
+# Sub-agent tier files generated outside this repository; reformatting them here
+# would only drift them from their source.
+.claude/agents/
 
 # Full working copies created by agent sessions; formatted in their own checkout.
 .claude/worktrees/

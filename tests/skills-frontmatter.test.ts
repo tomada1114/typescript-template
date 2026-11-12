@@ -4,24 +4,22 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-// A malformed skill is the one failure no other gate can see. `pnpm
-// agents:check` compares two trees byte-for-byte, Prettier formats the file
-// and `typos` spell-checks it, so a SKILL.md whose `name` disagrees with its
-// directory — or whose frontmatter does not parse at all — mirrors cleanly,
-// passes every check, and simply never loads in Claude Code or Codex CLI.
-// Nothing reports it; the skill is just silently absent.
+// A malformed skill is the one failure no other gate can see. Prettier formats
+// the file and `typos` spell-checks it, so a SKILL.md whose `name` disagrees
+// with its directory — or whose frontmatter does not parse at all — passes
+// every check and simply never loads in Claude Code. Nothing reports it; the
+// skill is just silently absent.
 //
 // The frontmatter this repository writes is deliberately small (two keys, one
 // of them a folded block scalar), so it is parsed here rather than by adding a
 // YAML dependency for a file format the repository itself controls.
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const skillsDirectory = path.join(repoRoot, ".agents", "skills");
-const agentsMdPath = path.join(repoRoot, "AGENTS.md");
+const skillsDirectory = path.join(repoRoot, ".claude", "skills");
 
 /**
  * The frontmatter keys a skill in this repository may declare. Claude Code
- * accepts a wider set and Codex CLI documents only these two, so the
- * intersection is what both hosts are guaranteed to honour.
+ * accepts a wider set; keeping to these two keeps every skill selectable by
+ * its description alone.
  */
 const ALLOWED_KEYS = ["name", "description"] as const;
 
@@ -86,7 +84,7 @@ function parseFrontmatter(source: string): Record<string, string> {
       // nesting a mapping inside the value and rejects the line. Every skill
       // in this repository writes its description as a folded block scalar
       // for exactly this reason: a plain scalar that happened to work here
-      // still breaks Codex CLI's real YAML loader (openai/codex#8609).
+      // still breaks a real YAML loader (see openai/codex#8609).
       if (/:[ \t]/u.test(rawValue)) {
         throw new Error(
           `frontmatter value for "${key}" is a plain scalar containing an unquoted ": ", which is not valid YAML: ${line}`,
@@ -102,40 +100,6 @@ function parseFrontmatter(source: string): Record<string, string> {
     fields[currentKey] = folded === "" ? line.trim() : `${folded} ${line.trim()}`;
   }
   return fields;
-}
-
-/**
- * Extract the skill names named by AGENTS.md's "## Skills" routing table.
- *
- * The table's first column holds a backticked skill name; every other cell,
- * and the row's surrounding prose, is free to change without affecting this
- * parse — only the backticked names in that section are read.
- *
- * @param {string} source - The full contents of AGENTS.md.
- * @returns {string[]} Every backticked name in the first column of a row
- *   under the "## Skills" heading, in document order.
- * @throws {Error} When AGENTS.md has no `## Skills` heading.
- */
-function listRoutingTableSkillNames(source: string): string[] {
-  const lines = source.split("\n");
-  const headingIndex = lines.indexOf("## Skills");
-  if (headingIndex === -1) {
-    throw new Error('AGENTS.md has no "## Skills" heading');
-  }
-  const nextHeadingIndex = lines.findIndex(
-    (line, index) => index > headingIndex && /^##[ \t]/u.test(line),
-  );
-  const section = lines.slice(
-    headingIndex + 1,
-    nextHeadingIndex === -1 ? undefined : nextHeadingIndex,
-  );
-
-  const names: string[] = [];
-  for (const line of section) {
-    const row = /^\|\s*`([^`]+)`\s*\|/u.exec(line);
-    if (row) names.push(row[1] ?? "");
-  }
-  return names;
 }
 
 function readSkill(name: string): Record<string, string> {
@@ -160,11 +124,8 @@ function listSkillFiles(name: string): string[] {
 }
 
 const skillNames = listSkillNames();
-const routingTableSkillNames = listRoutingTableSkillNames(
-  readFileSync(agentsMdPath, "utf8"),
-);
 
-describe("the authored skill tree", () => {
+describe("the skill tree", () => {
   it("holds at least one skill", () => {
     expect(skillNames.length).toBeGreaterThan(0);
   });
@@ -177,11 +138,11 @@ describe("the authored skill tree", () => {
     expect(readSkill(name)["name"]).toBe(name);
   });
 
-  it.each(skillNames)("declares only the dual-host keys in %s", (name) => {
+  it.each(skillNames)("declares only name and description in %s", (name) => {
     expect(Object.keys(readSkill(name)).sort()).toEqual([...ALLOWED_KEYS].sort());
   });
 
-  it.each(skillNames)("gives %s a description both hosts can match on", (name) => {
+  it.each(skillNames)("gives %s a non-empty, length-capped description", (name) => {
     const description = readSkill(name)["description"] ?? "";
     expect(description).not.toBe("");
     expect(description.length).toBeLessThanOrEqual(DESCRIPTION_LIMIT);
@@ -197,23 +158,6 @@ describe("the authored skill tree", () => {
       listSkillFiles(name).filter((file) => path.basename(file) === "SKILL.md"),
     ).toEqual(["SKILL.md"]);
   });
-});
-
-describe("AGENTS.md's Skills routing table", () => {
-  // The table is the only place an agent learns a skill exists at all; a
-  // skill missing from it never gets loaded, and a stale row that survives a
-  // rename or deletion sends an agent to a directory that is no longer there.
-
-  it.each(skillNames)("gives %s a row in the routing table", (name) => {
-    expect(routingTableSkillNames).toContain(name);
-  });
-
-  it.each(routingTableSkillNames)(
-    "names %s after an existing skill directory",
-    (name) => {
-      expect(skillNames).toContain(name);
-    },
-  );
 });
 
 describe("parseFrontmatter", () => {

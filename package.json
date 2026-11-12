@@ -63,8 +63,6 @@
     "package:check": "pnpm run build && node scripts/clean.mjs .package && pnpm pack --pack-destination .package && pnpm run package:verify -- --pack-dir .package && node scripts/clean.mjs .package",
     "package:verify": "node scripts/verify-package.mjs",
     "docs:build": "typedoc",
-    "agents:sync": "node scripts/sync-agents.mjs",
-    "agents:check": "node scripts/sync-agents.mjs --check",
     "repo:labels": "node scripts/sync-labels.mjs",
     "release:status": "node scripts/check-release-status.mjs",
     "check:staged": "node scripts/check-staged.mjs",

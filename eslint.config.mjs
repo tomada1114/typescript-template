@@ -25,7 +25,7 @@ const NO_EXPORT_STAR = {
 
 /** What `src/internal/**` is, in the words of the rule that made it private. */
 const INTERNAL_IS_PRIVATE =
-  'src/internal/ is private: see "Architecture" in AGENTS.md. Tests reach it through the public surface in src/index.ts (see the `writing-tests` skill), and repository automation must not depend on package internals at all.';
+  'src/internal/ is private: see "Architecture" in AGENTS.md. Tests reach it through the public surface in src/index.ts (see .claude/rules/tests.md), and repository automation must not depend on package internals at all.';
 
 /**
  * Read one property off a value of unknown shape.
@@ -105,10 +105,7 @@ const universalSourceRestrictions = isUniversalProfile()
 
 export default defineConfig([
   // Only generated trees are ignored; everything hand-written is linted,
-  // including repository automation and config files. `.claude/skills/` is a
-  // generated mirror of `.agents/skills/` (`pnpm agents:sync`), where the real
-  // files are linted at their real path — linting the copy too would report
-  // the same violation twice, at a path nobody may edit.
+  // including repository automation, skill scripts and config files.
   // `.claude/worktrees/` holds full working copies created by agent sessions,
   // linted in their own checkout.
   // A `tests/fixtures/` file is malformed on purpose, so linting it reports
@@ -117,7 +114,6 @@ export default defineConfig([
     "dist/",
     "coverage/",
     "docs/api/",
-    ".claude/skills/",
     ".claude/worktrees/",
     "tests/fixtures/",
   ]),
@@ -225,7 +221,7 @@ export default defineConfig([
   ...universalSourceRestrictions,
   {
     name: "automation/node-scripts",
-    files: ["scripts/**/*.mjs", ".agents/skills/**/*.mjs"],
+    files: ["scripts/**/*.mjs", ".claude/skills/**/*.mjs"],
     rules: {
       // These files are the CLI surface of repository automation.
       "no-console": "off",
@@ -249,7 +245,7 @@ export default defineConfig([
     },
   },
   {
-    // The `writing-tests` skill states these rules in prose; this is what enforces the
+    // .claude/rules/tests.md states these rules in prose; this is what enforces the
     // ones a linter can see. The recommended set is taken as published and the
     // escalations below are the entries this repository will not run on
     // "warn", starting with the two that quietly shrink the suite.

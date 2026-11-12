@@ -10,21 +10,19 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import vitestConfig from "../vitest.config.js";
 
-// The skills are authored under `.agents/skills/` and mirrored into
-// `.claude/skills/` by `pnpm agents:sync`. Both tools must therefore see the
-// real files and ignore the generated copy: linting or reformatting the mirror
-// reports the same finding twice, at a path nobody may edit, and a Prettier
-// rewrite of the copy alone is drift the sync check then has to undo. What
-// must not come back is the opposite ignore: a skill file that is checked
-// nowhere drifts unlinted and unformatted with CI green.
+// `.claude/skills/` and `.claude/rules/` are hand-edited source, so every
+// tool must check them: a skill file that is checked nowhere drifts unlinted
+// and unformatted with CI green. `.claude/agents/` is the opposite case: the
+// tier files are generated outside this repository, and reformatting or
+// spell-fixing them here would only drift them from their source.
 //
 // Both tools are asked through their own APIs rather than by spawning their
 // CLIs. A subprocess reports "ignored" and "could not run at all" with the same
 // exit code, so an exit-status assertion passes on a run where the tool never
 // started — which is what the minimum-Node CI leg does to a nested `pnpm exec`.
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const source = ".agents/skills/merge-dependabot";
-const mirror = ".claude/skills/merge-dependabot";
+const skill = ".claude/skills/merge-dependabot";
+const tiers = ".claude/agents";
 const fixtures = "tests/fixtures/";
 
 type RuleSetting = number | readonly [number, ...unknown[]];
@@ -82,30 +80,34 @@ async function ignoredByPrettier(relative: string): Promise<boolean> {
   return info.ignored;
 }
 
-describe("the .claude/skills ignore entry in eslint.config.mjs", () => {
+describe("the .claude/skills scripts in eslint.config.mjs", () => {
   // Every path here is `.mjs` on purpose. ESLint answers `isPathIgnored: true`
   // for anything no flat-config entry matches, so a `.md` or `.py` probe comes
   // back ignored whether or not the ignore list mentions it — see the last case
   // in this block, which pins that behavior so the trap stays visible.
   it.each([
-    ["a file directly under the source directory", ".agents/skills/codex-only.mjs"],
-    ["a file in a source skill directory", `${source}/scripts/survey-prs.mjs`],
-    ["a nested file in a source skill", `${source}/lib/nested/helper.mjs`],
+    ["a file directly under .claude/skills", ".claude/skills/probe.mjs"],
+    ["a file in a skill directory", `${skill}/scripts/survey-prs.mjs`],
+    ["a nested file in a skill", `${skill}/lib/nested/helper.mjs`],
   ])("lints %s", async (_label, relative) => {
     expect(await ignoredByEslint(relative)).toBe(false);
   });
 
-  it.each([
-    ["a file inside the mirror", `${mirror}/scripts/survey-prs.mjs`],
-    ["a nested file inside the mirror", `${mirror}/lib/nested/helper.mjs`],
-  ])("still ignores %s", async (_label, relative) => {
-    expect(await ignoredByEslint(relative)).toBe(true);
+  it("still ignores agent-session worktrees", async () => {
+    expect(await ignoredByEslint(".claude/worktrees/probe/scripts/x.mjs")).toBe(true);
+  });
+
+  it("lints a skill script under the automation rules", async () => {
+    const config = (await eslint.calculateConfigForFile(
+      path.join(repoRoot, `${skill}/scripts/survey-prs.mjs`),
+    )) as EffectiveConfig;
+    expect(ruleSeverity(config.rules?.["no-console"])).toBe(0);
   });
 
   it("reports any path it has no configuration for as ignored", async () => {
     // Why the cases above are restricted to `.mjs`: this file is under the
     // linted source tree and would still answer `true` on an empty ignore list.
-    await expect(ignoredByEslint(`${source}/SKILL.md`)).resolves.toBe(true);
+    await expect(ignoredByEslint(`${skill}/SKILL.md`)).resolves.toBe(true);
   });
 });
 
@@ -124,22 +126,23 @@ describe("the CLI-only no-console boundary in eslint.config.mjs", () => {
   });
 });
 
-describe("the .claude/skills entry in .prettierignore", () => {
+describe("the .claude entries in .prettierignore", () => {
   // Prettier's `ignored` reflects the ignore file alone — whether it knows a
   // parser for the extension is a separate field — so any path discriminates.
   it.each([
-    ["a file directly under the source directory", ".agents/skills/codex-only.mjs"],
-    ["a Markdown file in a source skill", `${source}/SKILL.md`],
-    ["a nested reference in a source skill", `${source}/references/failure-modes.md`],
+    ["a skill's SKILL.md", `${skill}/SKILL.md`],
+    ["a nested reference in a skill", `${skill}/references/failure-modes.md`],
+    ["a skill script", `${skill}/scripts/survey-prs.mjs`],
+    ["a path-scoped rule", ".claude/rules/src.md"],
   ])("formats %s", async (_label, relative) => {
     expect(await ignoredByPrettier(relative)).toBe(false);
   });
 
   it.each([
-    ["the mirror directory itself", mirror],
-    ["a file inside the mirror", `${mirror}/SKILL.md`],
-    ["a nested file inside the mirror", `${mirror}/scripts/survey.py`],
-  ])("still ignores %s", async (_label, relative) => {
+    ["a nested file under the tier directory", `${tiers}/nested/probe.md`],
+    ["a tier file", `${tiers}/executor.md`],
+    ["an agent-session worktree", ".claude/worktrees/probe/README.md"],
+  ])("ignores %s", async (_label, relative) => {
     expect(await ignoredByPrettier(relative)).toBe(true);
   });
 
@@ -168,12 +171,10 @@ describe("the generated/ignored tree stays consistent across tooling", () => {
   // usefully check either.
   const BUILD_OUTPUT = ["dist/", "coverage/", "docs/api/"];
 
-  // The opposite case: `.claude/skills/` IS tracked (AGENTS.md — both the
-  // authored `.agents/skills/` and its generated mirror are committed real
-  // files), so it must NOT appear in .gitignore. But every tool that would
-  // otherwise check its content redundantly must still skip it, exactly like
-  // the ESLint/Prettier describe blocks above already assert.
-  const GENERATED_MIRROR = ".claude/skills/";
+  // Tracked, but generated outside this repository: no tool here checks it.
+  const GENERATED_TIERS = ".claude/agents/";
+  // Tracked, hand-edited source: every tool checks it.
+  const AGENT_SOURCE = [".claude/skills/", ".claude/rules/"];
 
   const gitignoreLines = readFileSync(path.join(repoRoot, ".gitignore"), "utf8")
     .split("\n")
@@ -191,12 +192,20 @@ describe("the generated/ignored tree stays consistent across tooling", () => {
     },
   );
 
-  it("does not gitignore the tracked .claude/skills mirror", () => {
-    expect(gitignoreLines).not.toContain(GENERATED_MIRROR);
+  it.each([GENERATED_TIERS, ...AGENT_SOURCE])(
+    "does not gitignore the tracked %s",
+    (entry) => {
+      expect(gitignoreLines).not.toContain(entry);
+    },
+  );
+
+  it("excludes the externally generated .claude/agents tier files from typos, like Prettier", () => {
+    expect(typosExclude).toContain(GENERATED_TIERS);
   });
 
-  it("excludes the tracked-but-generated .claude/skills mirror from typos, like ESLint and Prettier already do", () => {
-    expect(typosExclude).toContain(GENERATED_MIRROR);
+  it.each(AGENT_SOURCE)("spell-checks the hand-edited %s", (entry) => {
+    expect(typosExclude.some((excluded) => entry.startsWith(excluded))).toBe(false);
+    expect(typosExclude).not.toContain(".claude/");
   });
 
   it("excludes test fixtures from typos", () => {
@@ -273,51 +282,30 @@ function excludeSpec(): readonly string[] {
   return exclude;
 }
 
-describe("the .claude/skills bridge in tsconfig.json", () => {
+describe("the .claude/skills entry in tsconfig.json", () => {
   const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, repoRoot);
   const resolved = new Set(
     parsed.fileNames.map((file) => path.relative(repoRoot, file).replace(/\\/g, "/")),
   );
 
-  it("type-checks the authored skill source", () => {
-    expect(resolved.has(`${source}/scripts/survey-prs.mjs`)).toBe(true);
+  it("type-checks a skill script", () => {
+    expect(resolved.has(`${skill}/scripts/survey-prs.mjs`)).toBe(true);
   });
 
-  it("does not double-report the byte-identical mirror", () => {
-    expect(resolved.has(`${mirror}/scripts/survey-prs.mjs`)).toBe(false);
-  });
-
-  it("names .claude/skills in include and a structural glob (not a per-skill name) in exclude", () => {
-    // The exclude entry is a structural pattern -- "anything nested inside an
-    // immediate subdirectory of .claude/skills" -- not a hand-maintained list
-    // of skill names. It must generalize to a skill that does not exist yet
-    // (proved below via a synthetic directory) while still leaving a
-    // hypothetical Codex-only file added directly under .claude/skills/
-    // (outside any subdirectory) covered by include and unmatched by exclude.
+  it("includes .claude/skills and excludes only the fixtures", () => {
     const config: unknown = configFile.config;
     const include =
       typeof config === "object" && config !== null && "include" in config
         ? config.include
         : undefined;
-    // Exact, not `toContain`: the property pinned is that no per-skill name
-    // has crept into the list.
     expect(include).toContain(".claude/skills");
-    expect(excludeSpec()).toEqual([".claude/skills/*/**/*", "tests/fixtures/**"]);
+    expect(excludeSpec()).toEqual(["tests/fixtures/**"]);
   });
 
   describe("generalizes to a skill that does not exist on disk", () => {
-    // tsconfig.json's own `exclude` array (the JSONC-parsed value above, not
-    // a copy re-typed here) is replayed through `ts.parseJsonConfigFileContent`
-    // itself -- the same call `configFile`/`parsed` above make against the
-    // real repository -- against a throwaway directory tree that mirrors
-    // `.claude/skills/`'s shape but contains a skill name
-    // ("hypothetical-skill") this repository has never had. This proves the
-    // pattern's genericity through TypeScript's own config parser rather than
-    // by re-implementing glob semantics (e.g. Node's `path.matchesGlob`,
-    // which was tried first and rejected: it disagrees with
-    // `ts.parseJsonConfigFileContent` on this exact repository's rejected
-    // candidate pattern `.claude/skills/*/**`, proving the two glob dialects
-    // are not interchangeable for this case).
+    // tsconfig.json's own `exclude` array is replayed through TypeScript's
+    // own config parser against a throwaway tree, rather than re-implementing
+    // glob semantics, so a future skill's script is proved covered too.
     const workspaces: string[] = [];
 
     afterEach(() => {
@@ -329,35 +317,9 @@ describe("the .claude/skills bridge in tsconfig.json", () => {
       }
     });
 
-    // `basePath` is set to the directory containing tsconfig.json (the
-    // repository root in the real config, the workspace root here) -- not
-    // `.claude/skills` -- because both `include` and the exclude spec
-    // (".claude/skills/*/**/*") are written relative to that root. Matching
-    // that call shape here, rather than scoping `basePath` to `.claude/skills`
-    // itself, is what makes this a faithful replay of the real matching.
-    function readWorkspaceMjsFiles(workspaceRoot: string): Set<string> {
-      const config = {
-        compilerOptions: { allowJs: true },
-        include: [".claude/skills"],
-        exclude: excludeSpec(),
-      };
-      const parsed = ts.parseJsonConfigFileContent(config, ts.sys, workspaceRoot);
-      return new Set(
-        parsed.fileNames.map((file) =>
-          path.relative(workspaceRoot, file).replace(/\\/g, "/"),
-        ),
-      );
-    }
-
-    function makeSkillsWorkspace(): string {
+    it("type-checks a top-level and a nested file under a brand-new skill directory", () => {
       const workspace = mkdtempSync(path.join(tmpdir(), "tsconfig-skills-glob-"));
       workspaces.push(workspace);
-      mkdirSync(path.join(workspace, ".claude/skills"), { recursive: true });
-      return workspace;
-    }
-
-    it("excludes a nested file under a brand-new skill directory", () => {
-      const workspace = makeSkillsWorkspace();
       const skillsRoot = path.join(workspace, ".claude/skills");
       mkdirSync(path.join(skillsRoot, "hypothetical-skill/nested"), {
         recursive: true,
@@ -371,22 +333,24 @@ describe("the .claude/skills bridge in tsconfig.json", () => {
         "// probe\n",
       );
 
-      const found = readWorkspaceMjsFiles(workspace);
-
-      expect(found.has(".claude/skills/hypothetical-skill/anything.mjs")).toBe(false);
-      expect(found.has(".claude/skills/hypothetical-skill/nested/deeper.mjs")).toBe(
-        false,
+      const found = new Set(
+        ts
+          .parseJsonConfigFileContent(
+            {
+              compilerOptions: { allowJs: true },
+              include: [".claude/skills"],
+              exclude: excludeSpec(),
+            },
+            ts.sys,
+            workspace,
+          )
+          .fileNames.map((file) => path.relative(workspace, file).replace(/\\/g, "/")),
       );
-    });
 
-    it("still includes a file placed directly under .claude/skills, outside any subdirectory", () => {
-      const workspace = makeSkillsWorkspace();
-      const skillsRoot = path.join(workspace, ".claude/skills");
-      writeFileSync(path.join(skillsRoot, "codex-only.mjs"), "// probe\n");
-
-      const found = readWorkspaceMjsFiles(workspace);
-
-      expect(found.has(".claude/skills/codex-only.mjs")).toBe(true);
+      expect(found.has(".claude/skills/hypothetical-skill/anything.mjs")).toBe(true);
+      expect(found.has(".claude/skills/hypothetical-skill/nested/deeper.mjs")).toBe(
+        true,
+      );
     });
   });
 });

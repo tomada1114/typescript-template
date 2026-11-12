@@ -1,14 +1,11 @@
 ---
 name: bootstrapping-the-template
 description: >
-  Covers the bootstrap flow that turns this template into a fresh package:
-  scripts/bootstrap.mjs, scripts/verify-bootstrap.mjs, tests/bootstrap.test.ts,
-  tests/verify-bootstrap.test.ts, tests/template-self.test.ts, the
-  node-library/universal-library profiles, and pnpm bootstrap:e2e. Use when changing
-  what bootstrap prompts for, transforms, or removes; adding or editing a profile;
-  touching PLACEHOLDER_TARGETS, MARKER_TARGETS, AI_LAYER_TARGETS, or
-  DANGLING_REFERENCE_EXEMPTIONS; or debugging ERR_AI_LAYER_REFERENCE,
-  ERR_BOOTSTRAP_SCRIPT_REMAINING, or a bootstrap:e2e failure.
+  Covers scripts/bootstrap.mjs and scripts/verify-bootstrap.mjs, which turn this
+  template into a fresh package: the node-library/universal-library profiles, what
+  bootstrap rewrites or removes, the dangling-reference check, and pnpm bootstrap:e2e /
+  bootstrap:check. Use when changing a profile or what bootstrap transforms or removes,
+  or debugging ERR_AI_LAYER_REFERENCE or a bootstrap:e2e failure.
 ---
 
 # Bootstrapping the Template
@@ -17,9 +14,9 @@ description: >
 `tests/bootstrap.test.ts`, `tests/verify-bootstrap.test.ts`,
 `tests/template-self.test.ts`, the bootstrap profiles, and `pnpm bootstrap:e2e`. **Does
 not own:** the general `.mjs` import/typing/git-safety contract every script under
-`scripts/` follows (`writing-repo-scripts`); test-body conventions (`writing-tests`);
-where a test file lives or its coverage floor (`placing-tests`); the published API
-surface (`public-api-contract`).
+`scripts/` follows (`writing-repo-scripts`); test-body conventions, where a test file
+lives, or its coverage floor (`.claude/rules/tests.md`); the published API surface
+(`.claude/rules/src.md`).
 
 ## The flow end to end
 
@@ -77,12 +74,11 @@ survive in `MARKER_TARGETS` (a `# profile:<name>:start`/`:end` pair for YAML,
 `PROFILE_YAML_BLOCK`, applied everywhere `TEMPLATE_ONLY_YAML_BLOCK` is — not gated
 behind the Markdown/instruction-file check `PROFILE_BLOCK` uses),
 `tsconfig.build.json`'s `compilerOptions.types` (and, downstream, whether `node:`
-builtins are allowed in the generated `src/**` — see `writing-typescript`'s
-"Runtime-agnostic source"), whether `package.json#engines` is present, and — because a
-package with no published floor has no floor for the package-floor CI job to verify —
-whether that job exists in the generated ci.yml at all (wrapped in a
-`# profile:node-library:` block). For `node-library`, the range itself comes from
-`--node-engines`.
+builtins are allowed in the generated `src/**` — see `.claude/rules/src.md`'s "Types at
+boundaries"), whether `package.json#engines` is present, and — because a package with no
+published floor has no floor for the package-floor CI job to verify — whether that job
+exists in the generated ci.yml at all (wrapped in a `# profile:node-library:` block).
+For `node-library`, the range itself comes from `--node-engines`.
 
 A test that survives bootstrap (i.e. is not in `SELF_REMOVED_PATHS`) must never assert a
 literal that is only true of this checkout before bootstrap runs — the whole point of
@@ -126,22 +122,16 @@ generated repository has no bootstrap flow left to run or maintain, so a skill
 documenting that flow would otherwise survive with nothing left to describe. Removing a
 directory entry recursively marks every nested file absent in the dry-run `preview` map
 before the real removal runs, so the dangling-reference scan never reads its now-stale
-content from disk. AGENTS.md's own Quick reference line and Skills-table row for this
-skill are removed the same way, by a small `SELF_REMOVED_AGENTS_LINES` regex list
-applied inside `replaceText` — a GFM table row can't be wrapped in the
-`<!-- template-only:-->` block markers used elsewhere (an HTML comment or a resulting
-blank line both terminate a table early), so the whole line, trailing newline included,
-is matched and dropped directly instead.
+content from disk. AGENTS.md's own Quick reference lines for this flow
+(`pnpm bootstrap:e2e`, `pnpm bootstrap:check`) are removed the same way, by a small
+`SELF_REMOVED_AGENTS_LINES` regex list applied inside `replaceText`: they sit in a
+fenced code block, where a `<!-- template-only:-->` marker pair would itself show up as
+text, so each whole line is matched and dropped directly instead.
 
-`scripts/verify-bootstrap.mjs`'s `assertGenerated` closes the loop this is really for:
-it re-parses the generated tree's own AGENTS.md Skills table
-(`listRoutingTableSkillNames`) and throws `ERR_BOOTSTRAP_STALE_SKILL_ROUTE` if any row
-names a skill directory the generated tree does not have — the same invariant
-`tests/skills-frontmatter.test.ts` checks in this checkout, checked again in the tree
-that actually ships. This is the second time a bootstrap check has been weaker in one
-environment than the other (the first was #106's `namesGeneratedTreeEntry`), so a change
-that adds a self-removed path or an AGENTS.md line tied to it owes both sides: the
-removal itself, and, if it changes what AGENTS.md's Skills table can say, this check.
+A change that adds a self-removed path owes the generated tree a check that it is really
+gone and that nothing left behind still names it: the dangling-reference scan below
+covers a backticked path, and a mention by bare name (a skill, a script) needs its line
+in `SELF_REMOVED_AGENTS_LINES` or a `template-only` block.
 
 ## The dangling-reference check
 

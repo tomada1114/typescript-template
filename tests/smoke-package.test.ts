@@ -19,8 +19,8 @@ interface RunResult {
 // scripts/smoke-package.mjs's checkRuntimeImports/checkRequireInterop/
 // checkDeepImportBlocked/checkTypeScriptConsumers all write a generated
 // script into a throwaway consumer directory and then run it through
-// runNode(). Mocking runNode at the subprocess boundary (the `writing-tests` skill's
-// conventions) exercises both outcomes of each check without installing a
+// runNode(). Mocking runNode at the subprocess boundary (the conventions in
+// .claude/rules/tests.md) exercises both outcomes of each check without installing a
 // real tarball or compiling a real TypeScript project for every case.
 // checkTarballContents (the other half of this file) already has real-fixture
 // coverage in tests/package.test.ts from #83.

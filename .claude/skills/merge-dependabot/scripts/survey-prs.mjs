@@ -2,7 +2,7 @@
 // Survey open Dependabot PRs and emit a triage table.
 //
 // Usage:
-//   node .agents/skills/merge-dependabot/scripts/survey-prs.mjs [--json]
+//   node .claude/skills/merge-dependabot/scripts/survey-prs.mjs [--json]
 //
 // Requires the `gh` CLI, authenticated against the current repository.
 // Read-only: this script never mutates PR or branch state, and it is the only
